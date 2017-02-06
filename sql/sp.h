@@ -121,12 +121,12 @@ sp_cache_routine(THD *thd, stored_procedure_type type, sp_name *name,
                  bool lookup_only, sp_head **sp);
 
 bool
-sp_exist_routines(THD *thd, TABLE_LIST *procs, bool any);
+sp_exist_routines(THD *thd, TABLE_LIST *procs, bool is_proc);
 
 bool
 sp_show_create_routine(THD *thd, stored_procedure_type type, sp_name *name);
 
-int
+bool
 sp_create_routine(THD *thd, stored_procedure_type type, sp_head *sp);
 
 int
@@ -200,7 +200,8 @@ TABLE *open_proc_table_for_read(THD *thd, Open_tables_backup *backup);
 
 sp_head *
 sp_load_for_information_schema(THD *thd, TABLE *proc_table, String *db,
-                               String *name, ulong sql_mode, stored_procedure_type type,
+                               String *name, sql_mode_t sql_mode,
+                               stored_procedure_type type,
                                const char *returns, const char *params,
                                bool *free_sp_head);
 
@@ -228,5 +229,5 @@ bool show_create_sp(THD *thd, String *buf,
               st_sp_chistics *chistics,
               const LEX_STRING *definer_user,
               const LEX_STRING *definer_host,
-	      ulonglong sql_mode);
+	      sql_mode_t sql_mode);
 #endif /* _SP_H_ */

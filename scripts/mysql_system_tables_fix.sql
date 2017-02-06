@@ -1,5 +1,5 @@
 -- Copyright (C) 2003, 2013 Oracle and/or its affiliates.
--- Copyright (C) 2010, 2014 SkySQL Ab.
+-- Copyright (C) 2010, 2015 MariaDB Corporation Ab.
 --
 -- This program is free software; you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 
 set sql_mode='';
 set storage_engine=MyISAM;
+set enforce_storage_engine=NULL;
 
 ALTER TABLE user add File_priv enum('N','Y') COLLATE utf8_general_ci NOT NULL;
 
@@ -250,6 +251,8 @@ SET @old_log_state = @@global.slow_query_log;
 SET GLOBAL slow_query_log = 'OFF';
 ALTER TABLE slow_log
   ADD COLUMN thread_id BIGINT(21) UNSIGNED NOT NULL AFTER sql_text;
+ALTER TABLE slow_log
+  ADD COLUMN rows_affected INTEGER NOT NULL AFTER thread_id;
 ALTER TABLE slow_log
   MODIFY start_time TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   MODIFY user_host MEDIUMTEXT NOT NULL,
@@ -597,6 +600,8 @@ ALTER TABLE event ADD body_utf8 longblob DEFAULT NULL
                       AFTER db_collation;
 ALTER TABLE event MODIFY body_utf8 longblob DEFAULT NULL;
 
+# Enable event scheduler if the event table was not up to date before.
+set global event_scheduler=original;
 
 #
 # TRIGGER privilege
@@ -647,11 +652,33 @@ INSERT INTO tmp_proxies_priv VALUES ('localhost', 'root', '', '', TRUE, '', now(
 INSERT INTO proxies_priv SELECT * FROM tmp_proxies_priv WHERE @had_proxies_priv_table=0;
 DROP TABLE tmp_proxies_priv;
 
+-- Checking for any duplicate hostname and username combination are exists.
+-- If exits we will throw error.
+DROP PROCEDURE IF EXISTS mysql.count_duplicate_host_names;
+DELIMITER //
+CREATE PROCEDURE mysql.count_duplicate_host_names()
+BEGIN
+  SET @duplicate_hosts=(SELECT count(*) FROM mysql.user GROUP BY user, lower(host) HAVING count(*) > 1 LIMIT 1);
+  IF @duplicate_hosts > 1 THEN
+    SIGNAL SQLSTATE '45000'  SET MESSAGE_TEXT = 'Multiple accounts exist for @user_name, @host_name that differ only in Host lettercase; remove all except one of them';
+  END IF;
+END //
+DELIMITER ;
+CALL mysql.count_duplicate_host_names();
+-- Get warnings (if any)
+SHOW WARNINGS;
+DROP PROCEDURE mysql.count_duplicate_host_names;
+
 # Convering the host name to lower case for existing users
 UPDATE user SET host=LOWER( host ) WHERE LOWER( host ) <> host;
 
 # update timestamp fields in the innodb stat tables
 set @str="alter table mysql.innodb_index_stats modify last_update timestamp not null default current_timestamp on update current_timestamp";
+set @str=if(@have_innodb <> 0, @str, "set @dummy = 0");
+prepare stmt from @str;
+execute stmt;
+
+set @str="alter table mysql.innodb_table_stats modify last_update timestamp not null default current_timestamp on update current_timestamp";
 set @str=if(@have_innodb <> 0, @str, "set @dummy = 0");
 prepare stmt from @str;
 execute stmt;
@@ -687,3 +714,12 @@ alter table tables_priv  modify Grantor      char(141) COLLATE utf8_bin not null
 
 flush privileges;
 
+--
+-- Upgrade help tables
+--
+
+ALTER TABLE help_category MODIFY url TEXT NOT NULL;
+ALTER TABLE help_topic MODIFY url TEXT NOT NULL;
+
+# MDEV-7383 - varbinary on mix/max of column_stats
+alter table column_stats modify min_value varbinary(255) DEFAULT NULL, modify max_value varbinary(255) DEFAULT NULL;

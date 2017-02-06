@@ -24,7 +24,7 @@
 # Short-Description: start and stop MySQL
 # Description: MySQL is a very fast and reliable SQL database engine.
 ### END INIT INFO
- 
+
 # If you install MySQL on some other places than @prefix@, then you
 # have to do one of the following things for this script to work:
 #
@@ -47,8 +47,8 @@ basedir=
 datadir=
 
 # Default value, in seconds, afterwhich the script should timeout waiting
-# for server start. 
-# Value here is overriden by value in my.cnf. 
+# for server start.
+# Value here is overridden by value in my.cnf.
 # 0 means don't wait at all
 # Negative numbers mean to wait indefinitely
 service_startup_timeout=900
@@ -97,6 +97,11 @@ lsb_functions="/lib/lsb/init-functions"
 if test -f $lsb_functions ; then
   . $lsb_functions
 else
+  # Include non-LSB RedHat init functions to make systemctl redirect work
+  init_functions="/etc/init.d/functions"
+  if test -f $init_functions; then
+    . $init_functions
+  fi
   log_success_msg()
   {
     echo " SUCCESS! $@"
@@ -113,12 +118,6 @@ export PATH
 mode=$1    # start or stop
 
 [ $# -ge 1 ] && shift
-
-
-other_args="$*"   # uncommon, but needed when called from an RPM upgrade action
-           # Expected: "--skip-networking --skip-grant-tables"
-           # They are not checked here, intentionally, as it is the resposibility
-           # of the "spec" file author to give correct arguments only.
 
 case `echo "testing\c"`,`echo -n testing` in
     *c*,-n*) echo_n=   echo_c=     ;;
@@ -145,6 +144,9 @@ parse_server_arguments() {
         ;;
       --datadir=*)  datadir=`echo "$arg" | sed -e 's/^[^=]*=//'`
 		    datadir_set=1
+	;;
+      --log-basename=*|--hostname=*|--loose-log-basename=*)
+        mysqld_pid_file_path=`echo "$arg.pid" | sed -e 's/^[^=]*=//'`
 	;;
       --pid-file=*) mysqld_pid_file_path=`echo "$arg" | sed -e 's/^[^=]*=//'` ;;
       --service-startup-timeout=*) service_startup_timeout=`echo "$arg" | sed -e 's/^[^=]*=//'` ;;
@@ -207,7 +209,8 @@ else
   fi
 fi
 
-parse_server_arguments `$print_defaults $extra_args mysqld server mysql_server mysql.server`
+parse_server_arguments `$print_defaults $extra_args --mysqld mysql.server`
+parse_server_arguments "$@"
 
 # wait for the pid file to disappear
 wait_for_gone () {
@@ -305,7 +308,7 @@ case "$mode" in
     then
       # Give extra arguments to mysqld with the my.cnf file. This script
       # may be overwritten at next upgrade.
-      $bindir/mysqld_safe --datadir="$datadir" --pid-file="$mysqld_pid_file_path" $other_args >/dev/null 2>&1 &
+      $bindir/mysqld_safe --datadir="$datadir" --pid-file="$mysqld_pid_file_path" "$@" &
       wait_for_ready; return_value=$?
 
       # Make lock for RedHat / SuSE
@@ -353,8 +356,8 @@ case "$mode" in
   'restart')
     # Stop the service and regardless of whether it was
     # running or not, start it again.
-    if $0 stop  $other_args; then
-      if ! $0 start $other_args; then
+    if $0 stop  "$@"; then
+      if ! $0 start "$@"; then
         log_failure_msg "Failed to restart server."
         exit 1
       fi
@@ -376,9 +379,9 @@ case "$mode" in
     ;;
   'status')
     # First, check to see if pid file exists
-    if test -s "$mysqld_pid_file_path" ; then 
+    if test -s "$mysqld_pid_file_path" ; then
       read mysqld_pid < "$mysqld_pid_file_path"
-      if kill -0 $mysqld_pid 2>/dev/null ; then 
+      if kill -0 $mysqld_pid 2>/dev/null ; then
         log_success_msg "MySQL running ($mysqld_pid)"
         exit 0
       else
@@ -394,11 +397,11 @@ case "$mode" in
       if test $pid_count -gt 1 ; then
         log_failure_msg "Multiple MySQL running but PID file could not be found ($mysqld_pid)"
         exit 5
-      elif test -z $mysqld_pid ; then 
-        if test -f "$lock_file_path" ; then 
+      elif test -z $mysqld_pid ; then
+        if test -f "$lock_file_path" ; then
           log_failure_msg "MySQL is not running, but lock file ($lock_file_path) exists"
           exit 2
-        fi 
+        fi
         log_failure_msg "MySQL is not running"
         exit 3
       else
@@ -435,10 +438,15 @@ case "$mode" in
     exit $r
     ;;
   'bootstrap')
+      if test "$_use_systemctl" == 1 ; then
+        log_failure_msg "Please use galera_new_cluster to start the mariadb service with --wsrep-new-cluster"
+        exit 1
+      fi
       # Bootstrap the cluster, start the first node
       # that initiate the cluster
-      echo $echo_n "Bootstrapping the cluster"
+      echo $echo_n "Bootstrapping the cluster.. "
       $0 start $other_args --wsrep-new-cluster
+      exit $?
       ;;
   *)
       # usage

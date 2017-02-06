@@ -16,6 +16,10 @@
 #ifndef _decimal_h
 #define _decimal_h
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum
 {TRUNCATE=0, HALF_EVEN, HALF_UP, CEILING, FLOOR}
   decimal_round_mode;
@@ -47,7 +51,7 @@ int decimal2longlong(const decimal_t *from, longlong *to);
 int longlong2decimal(longlong from, decimal_t *to);
 int decimal2double(const decimal_t *from, double *to);
 int double2decimal(double from, decimal_t *to);
-int decimal_actual_fraction(decimal_t *from);
+int decimal_actual_fraction(const decimal_t *from);
 int decimal2bin(const decimal_t *from, uchar *to, int precision, int scale);
 int bin2decimal(const uchar *from, decimal_t *to, int precision, int scale);
 
@@ -111,6 +115,10 @@ void max_decimal(int precision, int frac, decimal_t *to);
 
 #define E_DEC_ERROR            31
 #define E_DEC_FATAL_ERROR      30
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

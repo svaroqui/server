@@ -106,7 +106,7 @@ drop table t1;
 set @@test_sql_discovery_statement='t1:
 create table t1 (
   a int not null default 5 primary key,
-  b timestamp,
+  b timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   c tinyblob,
   d decimal(5,2),
   e varchar(30) character set ascii,
@@ -122,9 +122,9 @@ Handler_discover	15
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE t1 (
-  a int(11) NOT NULL DEFAULT '5',
-  b timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  c tinyblob,
+  a int(11) NOT NULL DEFAULT 5,
+  b timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  c tinyblob DEFAULT NULL,
   d decimal(5,2) DEFAULT NULL,
   e varchar(30) CHARACTER SET ascii DEFAULT NULL,
   f geometry NOT NULL,

@@ -17,7 +17,7 @@ OBJECT_TYPE	OBJECT_SCHEMA	OBJECT_NAME	ENABLED	TIMED
 insert into performance_schema.setup_objects
 set object_type='ILLEGAL', object_schema='FOO', object_name='BAR',
 enabled='YES', timed='YES';
-ERROR 23000: Cannot add or update a child row: a foreign key constraint fails ()
+ERROR 23000: Cannot add or update a child row: a foreign key constraint fails
 insert into performance_schema.setup_objects
 set object_type='TABLE', object_schema='FOO', object_name='BAR',
 enabled='YES', timed='YES';
@@ -39,13 +39,13 @@ OBJECT_TYPE	OBJECT_SCHEMA	OBJECT_NAME	ENABLED	TIMED
 TABLE	FOO	BAR	NO	YES
 update performance_schema.setup_objects
 set object_type='ILLEGAL';
-ERROR HY000: Invalid performance_schema usage.
+ERROR HY000: Invalid performance_schema usage
 update performance_schema.setup_objects
 set object_schema='ILLEGAL';
-ERROR HY000: Invalid performance_schema usage.
+ERROR HY000: Invalid performance_schema usage
 update performance_schema.setup_objects
 set object_name='ILLEGAL';
-ERROR HY000: Invalid performance_schema usage.
+ERROR HY000: Invalid performance_schema usage
 update performance_schema.setup_objects
 set enabled='NO', timed='NO';
 select * from performance_schema.setup_objects

@@ -163,7 +163,7 @@ static ha_rows _ma_record_pos(MARIA_HA *info, const uchar *key_data,
     operations with a comment like "Not real duplicates", whatever this
     means. From the condition above we can see that 'skip_end_space' is
     always false for these operations. The result is that trailing space
-    counts in key comparison and hence, emtpy strings ('', string length
+    counts in key comparison and hence, empty strings ('', string length
     zero, but not NULL) compare less that strings starting with control
     characters and these in turn compare less than strings starting with
     blanks.
@@ -209,14 +209,13 @@ static double _ma_search_pos(MARIA_HA *info, MARIA_KEY *key,
 			     uint32 nextflag, my_off_t pos)
 {
   int flag;
-  uint keynr, max_keynr;
+  uint keynr, UNINIT_VAR(max_keynr);
   my_bool after_key;
   uchar *keypos;
   double offset;
   MARIA_KEYDEF *keyinfo= key->keyinfo;
   MARIA_PAGE page;
   DBUG_ENTER("_ma_search_pos");
-  LINT_INIT(max_keynr);
 
   if (pos == HA_OFFSET_ERROR)
     DBUG_RETURN(0.0);

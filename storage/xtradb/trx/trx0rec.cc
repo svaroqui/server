@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2012, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -466,7 +466,7 @@ trx_undo_page_fetch_ext(
 {
 	/* Fetch the BLOB. */
 	ulint	ext_len = btr_copy_externally_stored_field_prefix(
-		ext_buf, prefix_len, zip_size, field, *len);
+		ext_buf, prefix_len, zip_size, field, *len, NULL);
 	/* BLOBs should always be nonempty. */
 	ut_a(ext_len);
 	/* Append the BLOB pointer to the prefix. */
@@ -781,7 +781,8 @@ trx_undo_page_report_modify(
 				}
 
 				pos = dict_index_get_nth_col_pos(index,
-								 col_no);
+								 col_no,
+								 NULL);
 				ptr += mach_write_compressed(ptr, pos);
 
 				/* Save the old value of field */
@@ -1132,7 +1133,7 @@ trx_undo_rec_get_partial_row(
 /***********************************************************************//**
 Erases the unused undo log page end.
 @return TRUE if the page contained something, FALSE if it was empty */
-static __attribute__((nonnull))
+static MY_ATTRIBUTE((nonnull))
 ibool
 trx_undo_erase_page_end(
 /*====================*/
@@ -1158,7 +1159,7 @@ byte*
 trx_undo_parse_erase_page_end(
 /*==========================*/
 	byte*	ptr,	/*!< in: buffer */
-	byte*	end_ptr __attribute__((unused)), /*!< in: buffer end */
+	byte*	end_ptr MY_ATTRIBUTE((unused)), /*!< in: buffer end */
 	page_t*	page,	/*!< in: page or NULL */
 	mtr_t*	mtr)	/*!< in: mtr or NULL */
 {
@@ -1247,7 +1248,7 @@ trx_undo_report_row_operation(
 
 	rseg = trx->rseg;
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, trx);
 	mutex_enter(&trx->undo_mutex);
 
 	/* If the undo log is not assigned yet, assign one */
@@ -1336,7 +1337,7 @@ trx_undo_report_row_operation(
 				latches, such as SYNC_FSP and SYNC_FSP_PAGE. */
 
 				mtr_commit(&mtr);
-				mtr_start(&mtr);
+				mtr_start_trx(&mtr, trx);
 
 				mutex_enter(&rseg->mutex);
 				trx_undo_free_last_page(trx, undo, &mtr);
@@ -1373,7 +1374,7 @@ trx_undo_report_row_operation(
 		/* We have to extend the undo log by one page */
 
 		ut_ad(++loop_count < 2);
-		mtr_start(&mtr);
+		mtr_start_trx(&mtr, trx);
 
 		/* When we add a page to an undo log, this is analogous to
 		a pessimistic insert in a B-tree, and we must reserve the
@@ -1441,7 +1442,7 @@ NOTE: the caller must have latches on the clustered index page.
 @retval true if the undo log has been
 truncated and we cannot fetch the old version
 @retval false if the undo log record is available  */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 bool
 trx_undo_get_undo_rec(
 /*==================*/
@@ -1469,7 +1470,7 @@ trx_undo_get_undo_rec(
 #ifdef UNIV_DEBUG
 #define ATTRIB_USED_ONLY_IN_DEBUG
 #else /* UNIV_DEBUG */
-#define ATTRIB_USED_ONLY_IN_DEBUG	__attribute__((unused))
+#define ATTRIB_USED_ONLY_IN_DEBUG	MY_ATTRIBUTE((unused))
 #endif /* UNIV_DEBUG */
 
 /*******************************************************************//**

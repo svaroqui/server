@@ -27,7 +27,7 @@
 class Item_func_inet_aton : public Item_int_func
 {
 public:
-  Item_func_inet_aton(Item *a) :Item_int_func(a) {}
+  Item_func_inet_aton(THD *thd, Item *a): Item_int_func(thd, a) {}
   longlong val_int();
   const char *func_name() const { return "inet_aton"; }
   void fix_length_and_dec()
@@ -37,6 +37,8 @@ public:
     maybe_null= 1;
     unsigned_flag= 1;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_inet_aton>(thd, mem_root, this); }
 };
 
 
@@ -47,8 +49,7 @@ public:
 class Item_func_inet_ntoa : public Item_str_func
 {
 public:
-  Item_func_inet_ntoa(Item *a)
-  : Item_str_func(a)
+  Item_func_inet_ntoa(THD *thd, Item *a): Item_str_func(thd, a)
   { }
   String* val_str(String* str);
   const char *func_name() const { return "inet_ntoa"; }
@@ -58,6 +59,8 @@ public:
     fix_length_and_charset(3 * 8 + 7, default_charset());
     maybe_null= 1;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_inet_ntoa>(thd, mem_root, this); }
 };
 
 
@@ -69,14 +72,15 @@ public:
 class Item_func_inet_bool_base : public Item_bool_func
 {
 public:
-  inline Item_func_inet_bool_base(Item *ip_addr)
-    : Item_bool_func(ip_addr)
+  inline Item_func_inet_bool_base(THD *thd, Item *ip_addr):
+    Item_bool_func(thd, ip_addr)
   {
     null_value= false;
   }
 
 public:
   virtual longlong val_int();
+  bool need_parentheses_in_default() { return false; }
 
 protected:
   virtual bool calc_value(const String *arg) = 0;
@@ -91,8 +95,8 @@ protected:
 class Item_func_inet_str_base : public Item_str_ascii_func
 {
 public:
-  inline Item_func_inet_str_base(Item *arg)
-    : Item_str_ascii_func(arg)
+  inline Item_func_inet_str_base(THD *thd, Item *arg):
+    Item_str_ascii_func(thd, arg)
   { }
 
 public:
@@ -110,8 +114,8 @@ protected:
 class Item_func_inet6_aton : public Item_func_inet_str_base
 {
 public:
-  inline Item_func_inet6_aton(Item *ip_addr)
-    : Item_func_inet_str_base(ip_addr)
+  inline Item_func_inet6_aton(THD *thd, Item *ip_addr):
+    Item_func_inet_str_base(thd, ip_addr)
   { }
 
 public:
@@ -124,6 +128,8 @@ public:
     fix_length_and_charset(16, &my_charset_bin);
     maybe_null= 1;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_inet6_aton>(thd, mem_root, this); }
 
 protected:
   virtual bool calc_value(String *arg, String *buffer);
@@ -137,8 +143,8 @@ protected:
 class Item_func_inet6_ntoa : public Item_func_inet_str_base
 {
 public:
-  inline Item_func_inet6_ntoa(Item *ip_addr)
-    : Item_func_inet_str_base(ip_addr)
+  inline Item_func_inet6_ntoa(THD *thd, Item *ip_addr):
+    Item_func_inet_str_base(thd, ip_addr)
   { }
 
 public:
@@ -156,6 +162,8 @@ public:
 
     maybe_null= 1;
   }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_inet6_ntoa>(thd, mem_root, this); }
 
 protected:
   virtual bool calc_value(String *arg, String *buffer);
@@ -169,13 +177,15 @@ protected:
 class Item_func_is_ipv4 : public Item_func_inet_bool_base
 {
 public:
-  inline Item_func_is_ipv4(Item *ip_addr)
-    : Item_func_inet_bool_base(ip_addr)
+  inline Item_func_is_ipv4(THD *thd, Item *ip_addr):
+    Item_func_inet_bool_base(thd, ip_addr)
   { }
 
 public:
   virtual const char *func_name() const
   { return "is_ipv4"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_is_ipv4>(thd, mem_root, this); }
 
 protected:
   virtual bool calc_value(const String *arg);
@@ -189,13 +199,15 @@ protected:
 class Item_func_is_ipv6 : public Item_func_inet_bool_base
 {
 public:
-  inline Item_func_is_ipv6(Item *ip_addr)
-    : Item_func_inet_bool_base(ip_addr)
+  inline Item_func_is_ipv6(THD *thd, Item *ip_addr):
+    Item_func_inet_bool_base(thd, ip_addr)
   { }
 
 public:
   virtual const char *func_name() const
   { return "is_ipv6"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_is_ipv6>(thd, mem_root, this); }
 
 protected:
   virtual bool calc_value(const String *arg);
@@ -209,13 +221,15 @@ protected:
 class Item_func_is_ipv4_compat : public Item_func_inet_bool_base
 {
 public:
-  inline Item_func_is_ipv4_compat(Item *ip_addr)
-    : Item_func_inet_bool_base(ip_addr)
+  inline Item_func_is_ipv4_compat(THD *thd, Item *ip_addr):
+    Item_func_inet_bool_base(thd, ip_addr)
   { }
 
 public:
   virtual const char *func_name() const
   { return "is_ipv4_compat"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_is_ipv4_compat>(thd, mem_root, this); }
 
 protected:
   virtual bool calc_value(const String *arg);
@@ -229,13 +243,15 @@ protected:
 class Item_func_is_ipv4_mapped : public Item_func_inet_bool_base
 {
 public:
-  inline Item_func_is_ipv4_mapped(Item *ip_addr)
-    : Item_func_inet_bool_base(ip_addr)
+  inline Item_func_is_ipv4_mapped(THD *thd, Item *ip_addr):
+    Item_func_inet_bool_base(thd, ip_addr)
   { }
 
 public:
   virtual const char *func_name() const
   { return "is_ipv4_mapped"; }
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_is_ipv4_mapped>(thd, mem_root, this); }
 
 protected:
   virtual bool calc_value(const String *arg);

@@ -6,16 +6,16 @@ hex(COLUMN_CREATE(1, NULL AS char character set utf8))
 000000
 select hex(COLUMN_CREATE(1, "afaf" AS char character set utf8));
 hex(COLUMN_CREATE(1, "afaf" AS char character set utf8))
-0001000100030861666166
+0001000100032161666166
 select hex(COLUMN_CREATE(1, 1212 AS char character set utf8));
 hex(COLUMN_CREATE(1, 1212 AS char character set utf8))
-0001000100030831323132
+0001000100032131323132
 select hex(COLUMN_CREATE(1, 12.12 AS char character set utf8));
 hex(COLUMN_CREATE(1, 12.12 AS char character set utf8))
-0001000100030831322E3132
+0001000100032131322E3132
 select hex(COLUMN_CREATE(1, 99999999999999999999999999999 AS char character set utf8));
 hex(COLUMN_CREATE(1, 99999999999999999999999999999 AS char character set utf8))
-000100010003083939393939393939393939393939393939393939393939393939393939
+000100010003213939393939393939393939393939393939393939393939393939393939
 select hex(COLUMN_CREATE(1, NULL AS unsigned int));
 hex(COLUMN_CREATE(1, NULL AS unsigned int))
 000000
@@ -47,7 +47,7 @@ select hex(COLUMN_CREATE(1, 99999999999999999999999999999 AS unsigned int));
 hex(COLUMN_CREATE(1, 99999999999999999999999999999 AS unsigned int))
 000100010001FFFFFFFFFFFFFF7F
 Warnings:
-Warning	1916	Got overflow when converting '99999999999999999999999999999' to INT. Value truncated.
+Warning	1916	Got overflow when converting '99999999999999999999999999999' to INT. Value truncated
 select hex(COLUMN_CREATE(1, NULL AS int));
 hex(COLUMN_CREATE(1, NULL AS int))
 000000
@@ -73,7 +73,7 @@ select hex(COLUMN_CREATE(1, 99999999999999999999999999999 AS int));
 hex(COLUMN_CREATE(1, 99999999999999999999999999999 AS int))
 000100010000FEFFFFFFFFFFFFFF
 Warnings:
-Warning	1916	Got overflow when converting '99999999999999999999999999999' to INT. Value truncated.
+Warning	1916	Got overflow when converting '99999999999999999999999999999' to INT. Value truncated
 select hex(COLUMN_CREATE(1, NULL AS double));
 hex(COLUMN_CREATE(1, NULL AS double))
 000000
@@ -91,19 +91,19 @@ hex(COLUMN_CREATE(1, NULL AS decimal))
 000000
 select hex(COLUMN_CREATE(1, 1212 AS decimal));
 hex(COLUMN_CREATE(1, 1212 AS decimal))
-0001000100040900800004BC
+000100010004040084BC
 select hex(COLUMN_CREATE(1, 7 AS decimal));
 hex(COLUMN_CREATE(1, 7 AS decimal))
-000100010004090080000007
+000100010004010087
 select hex(COLUMN_CREATE(1, 8 AS decimal));
 hex(COLUMN_CREATE(1, 8 AS decimal))
-000100010004090080000008
+000100010004010088
 select hex(COLUMN_CREATE(1, 127 AS decimal));
 hex(COLUMN_CREATE(1, 127 AS decimal))
-00010001000409008000007F
+0001000100040300807F
 select hex(COLUMN_CREATE(1, 128 AS decimal));
 hex(COLUMN_CREATE(1, 128 AS decimal))
-000100010004090080000080
+00010001000403008080
 select hex(COLUMN_CREATE(1, 12.12 AS decimal));
 hex(COLUMN_CREATE(1, 12.12 AS decimal))
 00010001000402028C0C
@@ -144,7 +144,7 @@ hex(COLUMN_CREATE(1, "afaf" AS char character set utf8,
 6, "2011-04-05" AS date,
 7, "- 0:45:49.000001" AS time,
 8, "2011-04-05 0:45:49.000001" AS datetime))
-01080001000300020029000300380004004A0005008C000600AE000700C7000800F5000861666166BC0478093D0AD7A3703D284002028C0C85B60F010010B7000485B60F010010B70000
+01080001000300020029000300380004004A0005008C000600AE000700C7000800F5002161666166BC0478093D0AD7A3703D284002028C0C85B60F010010B7000485B60F010010B70000
 explain extended
 select hex(COLUMN_CREATE(1, "afaf" AS char character set utf8,
 2, 1212 AS unsigned int,
@@ -157,7 +157,7 @@ select hex(COLUMN_CREATE(1, "afaf" AS char character set utf8,
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	SIMPLE	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	No tables used
 Warnings:
-Note	1003	select hex(column_create(1,'afaf' AS char charset utf8 ,2,1212 AS unsigned int,3,1212 AS int,4,12.12 AS double,(4 + 1),12.12 AS decimal,6,'2011-04-05' AS date,7,'- 0:45:49.000001' AS time,8,'2011-04-05 0:45:49.000001' AS datetime)) AS `hex(COLUMN_CREATE(1, "afaf" AS char character set utf8,
+Note	1003	select hex(column_create(1,'afaf' AS char charset utf8 ,2,1212 AS unsigned int,3,1212 AS int,4,12.12 AS double,4 + 1,12.12 AS decimal,6,'2011-04-05' AS date,7,'- 0:45:49.000001' AS time,8,'2011-04-05 0:45:49.000001' AS datetime)) AS `hex(COLUMN_CREATE(1, "afaf" AS char character set utf8,
 2, 1212 AS unsigned int,
 3, 1212 AS int,
 4, 12.12 AS double,
@@ -223,7 +223,7 @@ select column_get(column_create(1, 99999999999999999999999999999 AS decimal), 1 
 column_get(column_create(1, 99999999999999999999999999999 AS decimal), 1 as unsigned int)
 18446744073709551615
 Warnings:
-Warning	1916	Got overflow when converting '99999999999999999999999999999' to UNSIGNED INT. Value truncated.
+Warning	1916	Got overflow when converting '99999999999999999999999999999' to UNSIGNED INT. Value truncated
 select column_get(column_create(1, 999.9999999999999999 AS decimal), 1 as unsigned int);
 column_get(column_create(1, 999.9999999999999999 AS decimal), 1 as unsigned int)
 1000
@@ -231,12 +231,12 @@ select column_get(column_create(1, -1 AS decimal), 1 as unsigned int);
 column_get(column_create(1, -1 AS decimal), 1 as unsigned int)
 0
 Warnings:
-Warning	1916	Got overflow when converting '-1' to UNSIGNED INT. Value truncated.
+Warning	1916	Got overflow when converting '-1' to UNSIGNED INT. Value truncated
 select column_get(column_create(1, 99999999999999999999999999999 AS double), 1 as unsigned int);
 column_get(column_create(1, 99999999999999999999999999999 AS double), 1 as unsigned int)
 18446744073709551615
 Warnings:
-Warning	1916	Got overflow when converting '1e+29' to UNSIGNED INT. Value truncated.
+Warning	1916	Got overflow when converting '1e29' to UNSIGNED INT. Value truncated
 select column_get(column_create(1, 999.9 AS double), 1 as unsigned int);
 column_get(column_create(1, 999.9 AS double), 1 as unsigned int)
 1000
@@ -244,7 +244,7 @@ select column_get(column_create(1, -1 AS double), 1 as unsigned int);
 column_get(column_create(1, -1 AS double), 1 as unsigned int)
 0
 Warnings:
-Warning	1916	Got overflow when converting '-1' to UNSIGNED INT. Value truncated.
+Warning	1916	Got overflow when converting '-1' to UNSIGNED INT. Value truncated
 select column_get(column_create(1, "1212III" AS char), 1 as unsigned int);
 column_get(column_create(1, "1212III" AS char), 1 as unsigned int)
 1212
@@ -314,12 +314,12 @@ select column_get(column_create(1, 99999999999999999999999999999 AS decimal), 1 
 column_get(column_create(1, 99999999999999999999999999999 AS decimal), 1 as int)
 9223372036854775807
 Warnings:
-Warning	1916	Got overflow when converting '99999999999999999999999999999' to INT. Value truncated.
+Warning	1916	Got overflow when converting '99999999999999999999999999999' to INT. Value truncated
 select column_get(column_create(1, -99999999999999999999999999999 AS decimal), 1 as int);
 column_get(column_create(1, -99999999999999999999999999999 AS decimal), 1 as int)
 -9223372036854775808
 Warnings:
-Warning	1916	Got overflow when converting '-99999999999999999999999999999' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-99999999999999999999999999999' to INT. Value truncated
 select column_get(column_create(1, 999.9999999999999999 AS decimal), 1 as int);
 column_get(column_create(1, 999.9999999999999999 AS decimal), 1 as int)
 1000
@@ -330,7 +330,7 @@ select column_get(column_create(1, -99999999999999999999999999999 AS double), 1 
 column_get(column_create(1, -99999999999999999999999999999 AS double), 1 as int)
 -9223372036854775808
 Warnings:
-Warning	1916	Got overflow when converting '-1e+29' to INT. Value truncated.
+Warning	1916	Got overflow when converting '-1e29' to INT. Value truncated
 select column_get(column_create(1, "-1212III" AS char), 1 as int);
 column_get(column_create(1, "-1212III" AS char), 1 as int)
 -1212
@@ -1455,6 +1455,12 @@ Warnings:
 Warning	1918	Encountered illegal value '18446744073709552001' when converting to INT
 Note	1105	Cast to signed converted positive out-of-range integer to it's negative complement
 #
+# MDEV-7505 - Too large scale in DECIMAL dynamic column getter crashes
+#             mysqld
+#
+SELECT COLUMN_GET(`x`, 'y' AS DECIMAL(5,50));
+ERROR 42000: Too big scale 50 specified for ''y''. Maximum is 38
+#
 # test of symbolic names
 #
 # creation test (names)
@@ -1687,10 +1693,10 @@ ERROR 22007: Illegal value used as argument of dynamic column function
 #
 select column_json(column_create("int", -1212 as int, "uint", 12334 as unsigned int, "decimal", "23.344" as decimal, "double", 1.23444e50 as double, "string", 'gdgd\\dhdjh"dhdhd' as char, "time", "0:45:49.000001" AS time, "datetime", "2011-04-05 0:45:49.000001" AS datetime, "date", "2011-04-05" AS date));
 column_json(column_create("int", -1212 as int, "uint", 12334 as unsigned int, "decimal", "23.344" as decimal, "double", 1.23444e50 as double, "string", 'gdgd\\dhdjh"dhdhd' as char, "time", "0:45:49.000001" AS time, "datetime", "2011-04-05 0:45:49.000001" 
-{"int":-1212,"date":"2011-04-05","time":"00:45:49.000001","uint":12334,"double":"1.2e50","string":"gdgd\\dhdjh\"dhdhd","decimal":23.344,"datetime":"2011-04-05 00:45:49.000001"}
+{"int":-1212,"date":"2011-04-05","time":"00:45:49.000001","uint":12334,"double":1.23444e50,"string":"gdgd\\dhdjh\"dhdhd","decimal":23.344,"datetime":"2011-04-05 00:45:49.000001"}
 select column_json(column_create(1, -1212 as int, 2, 12334 as unsigned int, 3, "23.344" as decimal, 4, 1.23444e50 as double, 5, 'gdgd\\dhdjh"dhdhd' as char, 6, "0:45:49.000001" AS time, 7, "2011-04-05 0:45:49.000001" AS datetime, 8, "2011-04-05" AS date));
 column_json(column_create(1, -1212 as int, 2, 12334 as unsigned int, 3, "23.344" as decimal, 4, 1.23444e50 as double, 5, 'gdgd\\dhdjh"dhdhd' as char, 6, "0:45:49.000001" AS time, 7, "2011-04-05 0:45:49.000001" AS datetime, 8, "2011-04-05" AS date))
-{"1":-1212,"2":12334,"3":23.344,"4":"1.2e50","5":"gdgd\\dhdjh\"dhdhd","6":"00:45:49.000001","7":"2011-04-05 00:45:49.000001","8":"2011-04-05"}
+{"1":-1212,"2":12334,"3":23.344,"4":1.23444e50,"5":"gdgd\\dhdjh\"dhdhd","6":"00:45:49.000001","7":"2011-04-05 00:45:49.000001","8":"2011-04-05"}
 #
 # CHECK test
 #
@@ -1725,36 +1731,36 @@ column_json(column_create(1, "val", 2, column_create(3, "val2")))
 # Time encoding
 #
 select hex(column_create("t", "800:46:06.23434" AS time)) as hex,
-column_json(column_create("t", "800:46:06.23434" AS time)) as json;
-hex	json
+column_json(column_create("t", "800:46:06.23434" AS time)) as js;
+hex	js
 04010001000000070074649363B82003	{"t":"800:46:06.234340"}
 select hex(column_create(1, "800:46:06.23434" AS time)) as hex,
-column_json(column_create(1, "800:46:06.23434" AS time)) as json;
-hex	json
+column_json(column_create(1, "800:46:06.23434" AS time)) as js;
+hex	js
 000100010007649363B82003	{"1":"800:46:06.234340"}
 select hex(column_create("t", "800:46:06" AS time)) as hex,
-column_json(column_create("t", "800:46:06" AS time)) as json;
-hex	json
+column_json(column_create("t", "800:46:06" AS time)) as js;
+hex	js
 04010001000000070074860B32	{"t":"800:46:06"}
 select hex(column_create(1, "800:46:06" AS time)) as hex,
-column_json(column_create(1, "800:46:06" AS time)) as json;
-hex	json
+column_json(column_create(1, "800:46:06" AS time)) as js;
+hex	js
 000100010007000060B82003	{"1":"800:46:06"}
 select hex(column_create("t", "2012-12-21 10:46:06.23434" AS datetime)) as hex,
-column_json(column_create("t", "2012-12-21 10:46:06.23434" AS datetime)) as json;
-hex	json
+column_json(column_create("t", "2012-12-21 10:46:06.23434" AS datetime)) as js;
+hex	js
 0401000100000005007495B90F649363B80A00	{"t":"2012-12-21 10:46:06.234340"}
 select hex(column_create(1, "2012-12-21 10:46:06.23434" AS datetime)) as hex,
-column_json(column_create(1, "2012-12-21 10:46:06.23434" AS datetime)) as json;
-hex	json
+column_json(column_create(1, "2012-12-21 10:46:06.23434" AS datetime)) as js;
+hex	js
 00010001000595B90F649363B80A00	{"1":"2012-12-21 10:46:06.234340"}
 select hex(column_create("t", "2012-12-21 10:46:06" AS datetime)) as hex,
-column_json(column_create("t", "2012-12-21 10:46:06" AS datetime)) as json;
-hex	json
+column_json(column_create("t", "2012-12-21 10:46:06" AS datetime)) as js;
+hex	js
 0401000100000005007495B90F86AB00	{"t":"2012-12-21 10:46:06"}
 select hex(column_create(1, "2012-12-21 10:46:06" AS datetime)) as hex,
-column_json(column_create(1, "2012-12-21 10:46:06" AS datetime)) as json;
-hex	json
+column_json(column_create(1, "2012-12-21 10:46:06" AS datetime)) as js;
+hex	js
 00010001000595B90F000060B80A00	{"1":"2012-12-21 10:46:06"}
 #
 # MDEV-4849: Out of memory error and valgrind warnings on COLUMN_ADD
@@ -1777,5 +1783,156 @@ group_concat(cast(column_json(dyn) as char))
 {"name1":"value1","name2":"value2"}
 drop table t1;
 #
+# MDEV-7116: Dynamic column hangs/segfaults
+#
+create table t1 (
+impressions mediumblob
+);
+insert into t1 values ("");
+update  t1
+set     impressions = column_add(impressions,
+'total', 12,
+'2014-10-28 16:00:00', 3,
+'2014-10-30 15:00:00', 3,
+'2014-11-04 09:00:00', 6
+);
+update  t1
+set     impressions = column_add(impressions,
+'total', "a12",
+'2014-10-28 16:00:00', "a3",
+'2014-10-30 15:00:00', "a3",
+'2014-11-04 09:00:00', "a6"
+        );
+drop table t1;
+#
+# MDEV-8565: COLUMN_CHECK fails on valid data
+#
+SELECT COLUMN_CHECK(COLUMN_CREATE('a',0,'b','1'));
+COLUMN_CHECK(COLUMN_CREATE('a',0,'b','1'))
+1
+SELECT COLUMN_CHECK(COLUMN_CREATE('a',1,'b','1'));
+COLUMN_CHECK(COLUMN_CREATE('a',1,'b','1'))
+1
+SELECT COLUMN_JSON(COLUMN_CREATE('a',0,'b','1'));
+COLUMN_JSON(COLUMN_CREATE('a',0,'b','1'))
+{"a":0,"b":"1"}
+SELECT COLUMN_JSON(COLUMN_CREATE('a',1,'b','1'));
+COLUMN_JSON(COLUMN_CREATE('a',1,'b','1'))
+{"a":1,"b":"1"}
+#
+# MDEV-8401: COLUMN_CREATE(name, value as DOUBLE) results in string
+#
+SELECT COLUMN_JSON(
+COLUMN_CREATE(
+'one', 123.456,
+'two', 123.456 as DOUBLE
+)
+);
+COLUMN_JSON(
+COLUMN_CREATE(
+'one', 123.456,
+'two', 123.456 as DOUBLE
+)
+)
+{"one":123.456,"two":123.456}
+#
+# MDEV-8521: Drastic loss of precision in COLUMN_JSON() on DOUBLEs
+#
+select column_get(column_create('float', 1.23456789012345E+100 as double), 'float' as double);
+column_get(column_create('float', 1.23456789012345E+100 as double), 'float' as double)
+1.23456789012345e100
+select column_json(column_create('float', 1.23456789012345E+100 as double));
+column_json(column_create('float', 1.23456789012345E+100 as double))
+{"float":1.23456789012345e100}
+select column_json(column_create('float', 1.23456789012345E+10 as double));
+column_json(column_create('float', 1.23456789012345E+10 as double))
+{"float":12345678901.2345}
+#
+# MDEV-9147: Character set is ignored in Dynamic Column for saved string
+#
+SET NAMES utf8;
+SELECT COLUMN_GET(COLUMN_CREATE(1, 0xC2A2 AS CHAR CHARACTER SET latin1), 1 AS CHAR CHARACTER SET utf8) AS a;
+a
+Â¢
+SELECT COLUMN_GET(COLUMN_CREATE(1, 0xC2A2 AS CHAR CHARACTER SET utf8), 1 AS CHAR CHARACTER SET utf8) AS a;
+a
+¢
+#
+# MDEV-9167: COLUMN_CHECK fails on valid decimal data
+#
+SELECT COLUMN_CHECK(COLUMN_CREATE('a',0 AS DECIMAL,'b',1 AS DECIMAL));
+COLUMN_CHECK(COLUMN_CREATE('a',0 AS DECIMAL,'b',1 AS DECIMAL))
+1
+SELECT COLUMN_CHECK(COLUMN_CREATE('a',1 AS DECIMAL,'b',1 AS DECIMAL));
+COLUMN_CHECK(COLUMN_CREATE('a',1 AS DECIMAL,'b',1 AS DECIMAL))
+1
+SELECT COLUMN_JSON(COLUMN_CREATE('a',0 AS DECIMAL,'b',1 AS DECIMAL));
+COLUMN_JSON(COLUMN_CREATE('a',0 AS DECIMAL,'b',1 AS DECIMAL))
+{"a":0,"b":1}
+SELECT COLUMN_JSON(COLUMN_CREATE('a',1 AS DECIMAL,'b',1 AS DECIMAL));
+COLUMN_JSON(COLUMN_CREATE('a',1 AS DECIMAL,'b',1 AS DECIMAL))
+{"a":1,"b":1}
+#
 # end of 10.0 tests
+#
+#
+# Start of 10.2 tests
+#
+create view v1 as select column_get(column_add(column_create(1 , 'blue' as char), 2, 'ttt'), 1 as char);
+show create view v1;
+View	Create View	character_set_client	collation_connection
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select column_get(column_add(column_create(1,'blue' AS char charset utf8 ),2,'ttt'),1 as char charset utf8) AS `Name_exp_1`	utf8	utf8_general_ci
+select * from v1;
+Name_exp_1
+blue
+drop view v1;
+#
+# MDEV-10134 Add full support for DEFAULT
+#
+CREATE TABLE t1 (
+name VARCHAR(10),
+value VARCHAR(10),
+dyncol0 BLOB DEFAULT COLUMN_CREATE(name, value),
+value_dyncol0_name0 VARCHAR(10) DEFAULT COLUMN_GET(dyncol0, 'name0' AS CHAR),
+dyncol1 BLOB DEFAULT COLUMN_ADD(dyncol0, 'name1', 'value1'),
+value_dyncol1_name1 VARCHAR(10) DEFAULT COLUMN_GET(dyncol1, 'name1' AS CHAR),
+dyncol2 BLOB DEFAULT COLUMN_DELETE(dyncol1, 'name1'),
+dyncol2_exists_name0 INT DEFAULT COLUMN_EXISTS(dyncol2, 'name0'),
+dyncol2_exists_name1 INT DEFAULT COLUMN_EXISTS(dyncol2, 'name1'),
+dyncol2_check INT DEFAULT COLUMN_CHECK(dyncol2),
+dyncol1_list TEXT DEFAULT COLUMN_LIST(dyncol1),
+dyncol1_json TEXT DEFAULT COLUMN_JSON(dyncol1)
+);
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `name` varchar(10) DEFAULT NULL,
+  `value` varchar(10) DEFAULT NULL,
+  `dyncol0` blob DEFAULT column_create(`name`,`value`),
+  `value_dyncol0_name0` varchar(10) DEFAULT (column_get(`dyncol0`,'name0' as char charset utf8)),
+  `dyncol1` blob DEFAULT column_add(`dyncol0`,'name1','value1'),
+  `value_dyncol1_name1` varchar(10) DEFAULT (column_get(`dyncol1`,'name1' as char charset utf8)),
+  `dyncol2` blob DEFAULT column_add(`dyncol1`,'name1',NULL AS int),
+  `dyncol2_exists_name0` int(11) DEFAULT column_exists(`dyncol2`,'name0'),
+  `dyncol2_exists_name1` int(11) DEFAULT column_exists(`dyncol2`,'name1'),
+  `dyncol2_check` int(11) DEFAULT column_check(`dyncol2`),
+  `dyncol1_list` text DEFAULT column_list(`dyncol1`),
+  `dyncol1_json` text DEFAULT column_json(`dyncol1`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+INSERT INTO t1 (name,value) VALUES ('name0', 'value0');
+SELECT value_dyncol0_name0, value_dyncol1_name1 FROM t1;
+value_dyncol0_name0	value_dyncol1_name1
+value0	value1
+SELECT dyncol2_check, dyncol2_exists_name0, dyncol2_exists_name1 FROM t1;
+dyncol2_check	dyncol2_exists_name0	dyncol2_exists_name1
+1	1	0
+SELECT dyncol1_list FROM t1;
+dyncol1_list
+`name0`,`name1`
+SELECT dyncol1_json FROM t1;
+dyncol1_json
+{"name0":"value0","name1":"value1"}
+DROP TABLE t1;
+#
+# End of 10.2 tests
 #

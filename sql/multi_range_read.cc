@@ -62,7 +62,7 @@ handler::multi_range_read_info_const(uint keyno, RANGE_SEQ_IF *seq,
   range_seq_t seq_it;
   ha_rows rows, total_rows= 0;
   uint n_ranges=0;
-  THD *thd= current_thd;
+  THD *thd= table->in_use;
   
   /* Default MRR implementation doesn't need buffer */
   *bufsz= 0;
@@ -261,7 +261,7 @@ int handler::multi_range_read_next(range_id_t *range_info)
     }
     else
     {
-      if (was_semi_consistent_read())
+      if (ha_was_semi_consistent_read())
       {
         /*
           The following assignment is redundant, but for extra safety and to
@@ -420,6 +420,7 @@ bool Mrr_ordered_index_reader::set_interruption_temp_buffer(uint rowid_length,
   *space_start += key_len;
 
   have_saved_rowid= FALSE;
+  read_was_interrupted= FALSE;
   return FALSE;
 }
 
@@ -428,6 +429,7 @@ void Mrr_ordered_index_reader::set_no_interruption_temp_buffer()
   support_scan_interruptions= FALSE;
   saved_key_tuple= saved_rowid= saved_primary_key= NULL; /* safety */
   have_saved_rowid= FALSE;
+  read_was_interrupted= FALSE;
 }
 
 void Mrr_ordered_index_reader::interrupt_read()
@@ -445,6 +447,7 @@ void Mrr_ordered_index_reader::interrupt_read()
              &table->key_info[table->s->primary_key],
              table->key_info[table->s->primary_key].key_length);
   }
+  read_was_interrupted= TRUE;
 
   /* Save the last rowid */
   memcpy(saved_rowid, file->ref, file->ref_length);
@@ -462,6 +465,10 @@ void Mrr_ordered_index_reader::position()
 void Mrr_ordered_index_reader::resume_read()
 {
   TABLE *table= file->get_table();
+
+  if (!read_was_interrupted)
+    return;
+
   KEY *used_index= &table->key_info[file->active_index];
   key_restore(table->record[0], saved_key_tuple, 
               used_index, used_index->key_length);
@@ -551,8 +558,7 @@ int Mrr_ordered_index_reader::init(handler *h_arg, RANGE_SEQ_IF *seq_funcs,
   is_mrr_assoc= !MY_TEST(mode & HA_MRR_NO_ASSOCIATION);
   mrr_funcs= *seq_funcs;
   source_exhausted= FALSE;
-  if (support_scan_interruptions)
-    bzero(saved_key_tuple, key_info->key_length);
+  read_was_interrupted= false;
   have_saved_rowid= FALSE;
   return 0;
 }
@@ -672,8 +678,19 @@ int Mrr_ordered_rndpos_reader::refill_from_index_reader()
     rowid_buffer->write_ptr2= (uchar*)&range_info;
     rowid_buffer->write();
   }
-   
-  index_reader->interrupt_read();
+  
+  /*
+    When index_reader_needs_refill=TRUE, this means we've got all of index
+    tuples for lookups keys that index_reader had. We are not in the middle
+    of an index read, so there is no need to call interrupt_read.
+
+    Actually, we must not call interrupt_read(), because it could be that we
+    haven't read a single row (because all index lookups returned
+    HA_ERR_KEY_NOT_FOUND). In this case, interrupt_read() will cause [harmless]
+    valgrind warnings when trying to save garbage from table->record[0].
+  */
+  if (!index_reader_needs_refill)
+    index_reader->interrupt_read();
   /* Sort the buffer contents by rowid */
   rowid_buffer->sort((qsort2_cmp)rowid_cmp_reverse, (void*)file);
 
@@ -797,15 +814,14 @@ int DsMrr_impl::dsmrr_init(handler *h_arg, RANGE_SEQ_IF *seq_funcs,
                            void *seq_init_param, uint n_ranges, uint mode,
                            HANDLER_BUFFER *buf)
 {
-  THD *thd= current_thd;
+  THD *thd= h_arg->get_table()->in_use;
   int res;
   Key_parameters keypar;
-  uint key_buff_elem_size;
+  uint UNINIT_VAR(key_buff_elem_size); /* set/used when do_sort_keys==TRUE */
   handler *h_idx;
   Mrr_ordered_rndpos_reader *disk_strategy= NULL;
   bool do_sort_keys= FALSE;
   DBUG_ENTER("DsMrr_impl::dsmrr_init");
-  LINT_INIT(key_buff_elem_size); /* set/used when do_sort_keys==TRUE */
   /*
     index_merge may invoke a scan on an object for which dsmrr_info[_const]
     has not been called, so set the owner handler here as well.
@@ -1557,7 +1573,7 @@ bool DsMrr_impl::choose_mrr_impl(uint keyno, ha_rows rows, uint *flags,
 {
   Cost_estimate dsmrr_cost;
   bool res;
-  THD *thd= current_thd;
+  THD *thd= primary_file->get_table()->in_use;
   TABLE_SHARE *share= primary_file->get_table_share();
 
   bool doing_cpk_scan= check_cpk_scan(thd, share, keyno, *flags); 

@@ -440,7 +440,7 @@ private:
   ulonglong id() const { return m_warn_id; }
 
   /** Set id of the warning information area. */
-  void id(ulonglong id) { m_warn_id= id; }
+  void id(ulonglong id_arg) { m_warn_id= id_arg; }
 
   /** Do we have any errors and warnings that we can *show*? */
   bool is_empty() const { return m_warn_list.is_empty(); }
@@ -501,8 +501,8 @@ private:
     - GET DIAGNOSTICS
     @param read_only the read only property to set.
   */
-  void set_read_only(bool read_only)
-  { m_read_only= read_only; }
+  void set_read_only(bool read_only_arg)
+  { m_read_only= read_only_arg; }
 
   /**
     Read only status.
@@ -567,7 +567,7 @@ public:
     : ErrConv(), str(str_arg), len(len_arg), cs(cs_arg) {}
   ErrConvString(const char *str_arg, CHARSET_INFO *cs_arg)
     : ErrConv(), str(str_arg), len(strlen(str_arg)), cs(cs_arg) {}
-  ErrConvString(String *s)
+  ErrConvString(const String *s)
     : ErrConv(), str(s->ptr()), len(s->length()), cs(s->charset()) {}
   const char *ptr() const
   { return err_conv(err_buffer, sizeof(err_buffer), str, len, cs); }
@@ -658,6 +658,8 @@ public:
     DA_OK,
     /** Set whenever one calls my_eof(). */
     DA_EOF,
+    /** Set whenever one calls my_ok() in PS bulk mode. */
+    DA_OK_BULK,
     /** Set whenever one calls my_error() or my_message(). */
     DA_ERROR,
     /** Set in case of a custom response, such as one from COM_STMT_PREPARE. */
@@ -670,7 +672,7 @@ public:
   /** True if status information is sent to the client. */
   bool is_sent() const { return m_is_sent; }
 
-  void set_is_sent(bool is_sent) { m_is_sent= is_sent; }
+  void set_is_sent(bool is_sent_arg) { m_is_sent= is_sent_arg; }
 
   void set_ok_status(ulonglong affected_rows,
                      ulonglong last_insert_id,
@@ -699,10 +701,24 @@ public:
 
   bool is_disabled() const { return m_status == DA_DISABLED; }
 
+  void set_bulk_execution(bool bulk) { is_bulk_execution= bulk; }
+
+  bool is_bulk_op() const { return is_bulk_execution; }
+
   enum_diagnostics_status status() const { return m_status; }
 
   const char *message() const
-  { DBUG_ASSERT(m_status == DA_ERROR || m_status == DA_OK); return m_message; }
+  { DBUG_ASSERT(m_status == DA_ERROR || m_status == DA_OK ||
+                m_status == DA_OK_BULK); return m_message; }
+
+  bool skip_flush() const
+  {
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK);
+    return m_skip_flush;
+  }
+
+  void set_skip_flush()
+  { m_skip_flush= TRUE; }
 
   uint sql_errno() const
   { DBUG_ASSERT(m_status == DA_ERROR); return m_sql_errno; }
@@ -711,14 +727,21 @@ public:
   { DBUG_ASSERT(m_status == DA_ERROR); return m_sqlstate; }
 
   ulonglong affected_rows() const
-  { DBUG_ASSERT(m_status == DA_OK); return m_affected_rows; }
+  {
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK);
+    return m_affected_rows;
+  }
 
   ulonglong last_insert_id() const
-  { DBUG_ASSERT(m_status == DA_OK); return m_last_insert_id; }
+  {
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK);
+    return m_last_insert_id;
+  }
 
   uint statement_warn_count() const
   {
-    DBUG_ASSERT(m_status == DA_OK || m_status == DA_EOF);
+    DBUG_ASSERT(m_status == DA_OK || m_status == DA_OK_BULK ||
+                m_status == DA_EOF);
     return m_statement_warn_count;
   }
 
@@ -793,8 +816,8 @@ public:
   bool is_warning_info_read_only() const
   { return get_warning_info()->is_read_only(); }
 
-  void set_warning_info_read_only(bool read_only)
-  { get_warning_info()->set_read_only(read_only); }
+  void set_warning_info_read_only(bool read_only_arg)
+  { get_warning_info()->set_read_only(read_only_arg); }
 
   ulong error_count() const
   { return get_warning_info()->error_count(); }
@@ -815,13 +838,14 @@ public:
   { return get_warning_info()->push_warning(thd, sql_condition); }
 
   Sql_condition *push_warning(THD *thd,
-                              uint sql_errno,
+                              uint sql_errno_arg,
                               const char* sqlstate,
                               Sql_condition::enum_warning_level level,
                               const char* msg)
   {
     return get_warning_info()->push_warning(thd,
-                                            sql_errno, sqlstate, level, msg);
+                                            sql_errno_arg, sqlstate, level,
+                                            msg);
   }
 
   void mark_sql_conditions_for_removal()
@@ -856,6 +880,9 @@ private:
   /** Set to make set_error_status after set_{ok,eof}_status possible. */
   bool m_can_overwrite_status;
 
+  /** Skip flushing network buffer after writing OK (for COM_MULTI) */
+  bool m_skip_flush;
+
   /** Message buffer. Can be used by OK or ERROR status. */
   char m_message[MYSQL_ERRMSG_SIZE];
 
@@ -869,13 +896,13 @@ private:
 
   /**
     The number of rows affected by the last statement. This is
-    semantically close to thd->row_count_func, but has a different
-    life cycle. thd->row_count_func stores the value returned by
+    semantically close to thd->m_row_count_func, but has a different
+    life cycle. thd->m_row_count_func stores the value returned by
     function ROW_COUNT() and is cleared only by statements that
     update its value, such as INSERT, UPDATE, DELETE and few others.
     This member is cleared at the beginning of the next statement.
 
-    We could possibly merge the two, but life cycle of thd->row_count_func
+    We could possibly merge the two, but life cycle of thd->m_row_count_func
     can not be changed.
   */
   ulonglong    m_affected_rows;
@@ -896,6 +923,8 @@ private:
   uint	     m_statement_warn_count;
 
   enum_diagnostics_status m_status;
+
+  my_bool is_bulk_execution;
 
   Warning_info m_main_wi;
 

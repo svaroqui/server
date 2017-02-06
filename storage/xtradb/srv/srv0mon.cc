@@ -1,7 +1,8 @@
 /*****************************************************************************
 
-Copyright (c) 2010, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2010, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
+Copyright (c) 2013, 2016, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -308,6 +309,24 @@ static monitor_info_t	innodb_counter_info[] =
 	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
 	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGES_READ},
 
+	{"buffer_pages0_read", "buffer",
+	 "Number of page 0 read (innodb_pages0_read)",
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGES0_READ},
+
+	{"buffer_index_sec_rec_cluster_reads", "buffer",
+	 "Number of secondary record reads triggered cluster read",
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_INDEX_SEC_REC_CLUSTER_READS},
+
+	{"buffer_index_sec_rec_cluster_reads_avoided", "buffer",
+	 "Number of secondary record reads avoided triggering cluster read",
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_INDEX_SEC_REC_CLUSTER_READS_AVOIDED},
+
 	{"buffer_data_reads", "buffer",
 	 "Amount of data read in bytes (innodb_data_reads)",
 	 static_cast<monitor_type_t>(
@@ -469,20 +488,36 @@ static monitor_info_t	innodb_counter_info[] =
 	 MONITOR_LRU_BATCH_SCANNED_PER_CALL},
 
 	/* Cumulative counter for LRU batch pages flushed */
-	{"buffer_LRU_batch_total_pages", "buffer",
+	{"buffer_LRU_batch_flush_total_pages", "buffer",
 	 "Total pages flushed as part of LRU batches",
-	 MONITOR_SET_OWNER, MONITOR_LRU_BATCH_COUNT,
-	 MONITOR_LRU_BATCH_TOTAL_PAGE},
+	 MONITOR_SET_OWNER, MONITOR_LRU_BATCH_FLUSH_COUNT,
+	 MONITOR_LRU_BATCH_FLUSH_TOTAL_PAGE},
 
-	{"buffer_LRU_batches", "buffer",
+	{"buffer_LRU_batches_flush", "buffer",
 	 "Number of LRU batches",
-	 MONITOR_SET_MEMBER, MONITOR_LRU_BATCH_TOTAL_PAGE,
-	 MONITOR_LRU_BATCH_COUNT},
+	 MONITOR_SET_MEMBER, MONITOR_LRU_BATCH_FLUSH_TOTAL_PAGE,
+	 MONITOR_LRU_BATCH_FLUSH_COUNT},
 
-	{"buffer_LRU_batch_pages", "buffer",
+	{"buffer_LRU_batch_flush_pages", "buffer",
 	 "Pages queued as an LRU batch",
-	 MONITOR_SET_MEMBER, MONITOR_LRU_BATCH_TOTAL_PAGE,
-	 MONITOR_LRU_BATCH_PAGES},
+	 MONITOR_SET_MEMBER, MONITOR_LRU_BATCH_FLUSH_TOTAL_PAGE,
+	 MONITOR_LRU_BATCH_FLUSH_PAGES},
+
+	/* Cumulative counter for LRU batch pages flushed */
+	{"buffer_LRU_batch_evict_total_pages", "buffer",
+	 "Total pages evicted as part of LRU batches",
+	 MONITOR_SET_OWNER, MONITOR_LRU_BATCH_EVICT_COUNT,
+	 MONITOR_LRU_BATCH_EVICT_TOTAL_PAGE},
+
+	{"buffer_LRU_batches_evict", "buffer",
+	 "Number of LRU batches",
+	 MONITOR_SET_MEMBER, MONITOR_LRU_BATCH_EVICT_TOTAL_PAGE,
+	 MONITOR_LRU_BATCH_EVICT_COUNT},
+
+	{"buffer_LRU_batch_evict_pages", "buffer",
+	 "Pages queued as an LRU batch",
+	 MONITOR_SET_MEMBER, MONITOR_LRU_BATCH_EVICT_TOTAL_PAGE,
+	 MONITOR_LRU_BATCH_EVICT_PAGES},
 
 	/* Cumulative counter for single page LRU scans */
 	{"buffer_LRU_single_flush_scanned", "buffer",
@@ -901,10 +936,35 @@ static monitor_info_t	innodb_counter_info[] =
 	 MONITOR_NONE,
 	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT512},
 
+	{"compress_trim_sect1024", "compression",
+	 "Number of sect-1024 TRIMed by page compression",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT1024},
+
+	{"compress_trim_sect2048", "compression",
+	 "Number of sect-2048 TRIMed by page compression",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT2048},
+
 	{"compress_trim_sect4096", "compression",
 	 "Number of sect-4K TRIMed by page compression",
 	 MONITOR_NONE,
 	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT4096},
+
+	{"compress_trim_sect8192", "compression",
+	 "Number of sect-8K TRIMed by page compression",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT8192},
+
+	{"compress_trim_sect16384", "compression",
+	 "Number of sect-16K TRIMed by page compression",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT16384},
+
+	{"compress_trim_sect32768", "compression",
+	 "Number of sect-32K TRIMed by page compression",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT32768},
 
 	{"compress_pages_page_compressed", "compression",
 	 "Number of pages compressed by page compression",
@@ -930,6 +990,16 @@ static monitor_info_t	innodb_counter_info[] =
 	 "Number of page compression errors",
 	 MONITOR_NONE,
 	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGES_PAGE_COMPRESSION_ERROR},
+
+	{"compress_pages_encrypted", "compression",
+	 "Number of pages encrypted",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGES_ENCRYPTED},
+
+	{"compress_pages_decrypted", "compression",
+	 "Number of pages decrypted",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_OVLD_PAGES_DECRYPTED},
 
 	/* ========== Counters for Index ========== */
 	{"module_index", "index", "Index Manager",
@@ -977,7 +1047,8 @@ static monitor_info_t	innodb_counter_info[] =
 
 	{"adaptive_hash_searches_btree", "adaptive_hash_index",
 	 "Number of searches using B-tree on an index search",
-	 MONITOR_NONE,
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
 	 MONITOR_DEFAULT_START, MONITOR_OVLD_ADAPTIVE_HASH_SEARCH_BTREE},
 
 	{"adaptive_hash_pages_added", "adaptive_hash_index",
@@ -1131,6 +1202,16 @@ static monitor_info_t	innodb_counter_info[] =
 	 MONITOR_NONE,
 	 MONITOR_DEFAULT_START, MONITOR_SRV_DICT_LRU_MICROSECOND},
 
+	{"innodb_dict_lru_count_active", "server",
+	 "Number of tables evicted from DICT LRU list in the active loop",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_SRV_DICT_LRU_EVICT_COUNT_ACTIVE},
+
+	{"innodb_dict_lru_count_idle", "server",
+	 "Number of tables evicted from DICT LRU list in the idle loop",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_SRV_DICT_LRU_EVICT_COUNT_IDLE},
+
 	{"innodb_checkpoint_usec", "server",
 	 "Time (in microseconds) spent by master thread to do checkpoint",
 	 MONITOR_NONE,
@@ -1216,6 +1297,26 @@ static monitor_info_t	innodb_counter_info[] =
 	 static_cast<monitor_type_t>(
 	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
 	 MONITOR_DEFAULT_START, MONITOR_OLVD_ROW_UPDTATED},
+
+	{"dml_system_reads", "dml", "Number of system rows read",
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
+	 MONITOR_DEFAULT_START, MONITOR_OLVD_SYSTEM_ROW_READ},
+
+	{"dml_system_inserts", "dml", "Number of system rows inserted",
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
+	 MONITOR_DEFAULT_START, MONITOR_OLVD_SYSTEM_ROW_INSERTED},
+
+	{"dml_system_deletes", "dml", "Number of system rows deleted",
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
+	 MONITOR_DEFAULT_START, MONITOR_OLVD_SYSTEM_ROW_DELETED},
+
+	{"dml_system_updates", "dml", "Number of system rows updated",
+	 static_cast<monitor_type_t>(
+	 MONITOR_EXISTING | MONITOR_DEFAULT_ON),
+	 MONITOR_DEFAULT_START, MONITOR_OLVD_SYSTEM_ROW_UPDATED},
 
 	/* ========== Counters for DDL operations ========== */
 	{"module_ddl", "ddl", "Statistics for DDLs",
@@ -1398,7 +1499,10 @@ srv_mon_set_module_control(
 				module */
 				set_current_module = FALSE;
 			} else if (module_id == MONITOR_ALL_COUNTER) {
-				continue;
+				if (!(innodb_counter_info[ix].monitor_type
+				      & MONITOR_GROUP_MODULE)) {
+					continue;
+				}
 			} else {
 				/* Hitting the next module, stop */
 				break;
@@ -1620,6 +1724,21 @@ srv_mon_process_existing_counter(
 		value = stat.n_pages_read;
 		break;
 
+	/* innodb_pages0_read */
+	case MONITOR_OVLD_PAGES0_READ:
+		value = srv_stats.page0_read;
+		break;
+
+	/* Number of times secondary index lookup triggered cluster lookup */
+	case MONITOR_OVLD_INDEX_SEC_REC_CLUSTER_READS:
+		value = srv_stats.n_sec_rec_cluster_reads;
+		break;
+	/* Number of times prefix optimization avoided triggering cluster
+	lookup */
+	case MONITOR_OVLD_INDEX_SEC_REC_CLUSTER_READS_AVOIDED:
+		value = srv_stats.n_sec_rec_cluster_reads_avoided;
+		break;
+
 	/* innodb_data_reads, the total number of data reads */
 	case MONITOR_OVLD_BYTE_READ:
 		value = srv_stats.data_read;
@@ -1745,6 +1864,26 @@ srv_mon_process_existing_counter(
 		value = srv_stats.n_rows_updated;
 		break;
 
+	/* innodb_system_rows_read */
+	case MONITOR_OLVD_SYSTEM_ROW_READ:
+		value = srv_stats.n_system_rows_read;
+		break;
+
+	/* innodb_system_rows_inserted */
+	case MONITOR_OLVD_SYSTEM_ROW_INSERTED:
+		value = srv_stats.n_system_rows_inserted;
+		break;
+
+	/* innodb_system_rows_deleted */
+	case MONITOR_OLVD_SYSTEM_ROW_DELETED:
+		value = srv_stats.n_system_rows_deleted;
+		break;
+
+	/* innodb_system_rows_updated */
+	case MONITOR_OLVD_SYSTEM_ROW_UPDATED:
+		value = srv_stats.n_system_rows_updated;
+		break;
+
 	/* innodb_row_lock_current_waits */
 	case MONITOR_OVLD_ROW_LOCK_CURRENT_WAIT:
 		value = srv_stats.n_lock_wait_current_count;
@@ -1861,8 +2000,23 @@ srv_mon_process_existing_counter(
         case MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT512:
 		value = srv_stats.page_compression_trim_sect512;
 		break;
+	case MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT1024:
+		value = srv_stats.page_compression_trim_sect1024;
+		break;
+	case MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT2048:
+		value = srv_stats.page_compression_trim_sect2048;
+		break;
         case MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT4096:
 		value = srv_stats.page_compression_trim_sect4096;
+		break;
+        case MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT8192:
+		value = srv_stats.page_compression_trim_sect8192;
+		break;
+        case MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT16384:
+		value = srv_stats.page_compression_trim_sect16384;
+		break;
+        case MONITOR_OVLD_PAGE_COMPRESS_TRIM_SECT32768:
+		value = srv_stats.page_compression_trim_sect32768;
 		break;
         case MONITOR_OVLD_PAGES_PAGE_COMPRESSED:
 		value = srv_stats.pages_page_compressed;
@@ -1878,6 +2032,12 @@ srv_mon_process_existing_counter(
 		break;
         case MONITOR_OVLD_PAGES_PAGE_COMPRESSION_ERROR:
 		value = srv_stats.pages_page_compression_error;
+		break;
+        case MONITOR_OVLD_PAGES_ENCRYPTED:
+		value = srv_stats.pages_encrypted;
+		break;
+        case MONITOR_OVLD_PAGES_DECRYPTED:
+		value = srv_stats.pages_decrypted;
 		break;
 
 	default:

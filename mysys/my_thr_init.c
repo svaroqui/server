@@ -294,7 +294,7 @@ my_bool my_thread_init(void)
                          STACK_DIRECTION * (long)my_thread_stack_size;
 
   mysql_mutex_lock(&THR_LOCK_threads);
-  tmp->id= ++thread_id;
+  tmp->id= tmp->dbug_id= ++thread_id;
   ++THR_thread_count;
   mysql_mutex_unlock(&THR_LOCK_threads);
   tmp->init= 1;
@@ -372,6 +372,8 @@ void my_thread_end(void)
       mysql_cond_signal(&THR_COND_threads);
     mysql_mutex_unlock(&THR_LOCK_threads);
 
+    /* Trash variable so that we can detect false accesses to my_thread_var */
+    tmp->init= 2;
     TRASH(tmp, sizeof(*tmp));
     free(tmp);
   }
@@ -398,7 +400,7 @@ my_thread_id my_thread_dbug_id()
     my_thread_init().
   */
   struct st_my_thread_var *tmp= my_thread_var;
-  return tmp ? tmp->id : 0;
+  return tmp ? tmp->dbug_id : 0;
 }
 
 #ifdef DBUG_OFF

@@ -1,4 +1,5 @@
 /* Copyright (c) 2000, 2011, Oracle and/or its affiliates
+   Copyright (c) 2009, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -90,17 +91,17 @@
 #endif
 
 #define MYSQL_SERVER 1
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_cache.h"                          // query_cache_*
 #include "sql_show.h"                           // append_identifier
 #include "sql_table.h"                         // build_table_filename
-#include <mysql/plugin.h>
 #include <m_ctype.h>
 #include "../myisam/ha_myisam.h"
 #include "ha_myisammrg.h"
 #include "myrg_def.h"
-#include "thr_malloc.h"                         // int_sql_alloc
+#include "thr_malloc.h"                         // init_sql_alloc
 #include "sql_class.h"                          // THD
 #include "debug_sync.h"
 
@@ -1708,7 +1709,7 @@ my_bool ha_myisammrg::register_query_cache_dependant_tables(THD *thd
     /*
       There are not callback function for for MyISAM, and engine data
     */
-    if (!cache->insert_table(key_length, key, (*block_table),
+    if (!cache->insert_table(thd, key_length, key, (*block_table),
                              db_length, 0,
                              table_cache_type(),
                              0, 0, TRUE))

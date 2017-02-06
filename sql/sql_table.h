@@ -23,6 +23,7 @@
 
 class Alter_info;
 class Alter_table_ctx;
+class Column_definition;
 class Create_field;
 struct TABLE_LIST;
 class THD;
@@ -31,6 +32,7 @@ struct handlerton;
 class handler;
 typedef struct st_ha_check_opt HA_CHECK_OPT;
 struct HA_CREATE_INFO;
+struct Table_specification_st;
 typedef struct st_key KEY;
 typedef struct st_key_cache KEY_CACHE;
 typedef struct st_lock_param_type ALTER_PARTITION_PARAM_TYPE;
@@ -151,7 +153,7 @@ uint build_table_shadow_filename(char *buff, size_t bufflen,
                                  ALTER_PARTITION_PARAM_TYPE *lpt);
 uint build_tmptable_filename(THD* thd, char *buff, size_t bufflen);
 bool mysql_create_table(THD *thd, TABLE_LIST *create_table,
-                        HA_CREATE_INFO *create_info,
+                        Table_specification_st *create_info,
                         Alter_info *alter_info);
 
 /*
@@ -192,7 +194,7 @@ bool mysql_create_table(THD *thd, TABLE_LIST *create_table,
 
 int mysql_create_table_no_lock(THD *thd, const char *db,
                                const char *table_name,
-                               HA_CREATE_INFO *create_info,
+                               Table_specification_st *create_info,
                                Alter_info *alter_info, bool *is_trans,
                                int create_table_mode);
 
@@ -227,7 +229,7 @@ bool mysql_compare_tables(TABLE *table,
 bool mysql_recreate_table(THD *thd, TABLE_LIST *table_list, bool table_copy);
 bool mysql_create_like_table(THD *thd, TABLE_LIST *table,
                              TABLE_LIST *src_table,
-                             HA_CREATE_INFO *create_info);
+                             Table_specification_st *create_info);
 bool mysql_rename_table(handlerton *base, const char *old_db,
                         const char * old_name, const char *new_db,
                         const char * new_name, uint flags);
@@ -246,10 +248,11 @@ bool log_drop_table(THD *thd, const char *db_name, size_t db_name_length,
                     const char *table_name, size_t table_name_length,
                     bool temporary_table);
 bool quick_rm_table(THD *thd, handlerton *base, const char *db,
-                    const char *table_name, uint flags);
+                    const char *table_name, uint flags,
+                    const char *table_path=0);
 void close_cached_table(THD *thd, TABLE *table);
-void sp_prepare_create_field(THD *thd, Create_field *sql_field);
-int prepare_create_field(Create_field *sql_field,
+void sp_prepare_create_field(THD *thd, Column_definition *sql_field);
+int prepare_create_field(Column_definition *sql_field,
 			 uint *blob_columns,
 			 longlong table_flags);
 CHARSET_INFO* get_sql_field_charset(Create_field *sql_field,
@@ -282,5 +285,7 @@ uint explain_filename(THD* thd, const char *from, char *to, uint to_length,
 
 extern MYSQL_PLUGIN_IMPORT const char *primary_key_name;
 extern mysql_mutex_t LOCK_gdl;
+
+bool check_engine(THD *, const char *, const char *, HA_CREATE_INFO *);
 
 #endif /* SQL_TABLE_INCLUDED */

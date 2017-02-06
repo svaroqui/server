@@ -1,4 +1,4 @@
-#!/bin/bash -ue
+#!/bin/sh -ue
 
 # Copyright (C) 2010-2014 Codership Oy
 #
@@ -18,10 +18,12 @@
 
 # This is a reference script for rsync-based state snapshot tansfer
 
-RSYNC_PID=
-RSYNC_CONF=
+RSYNC_PID=                                      # rsync pid file
+RSYNC_CONF=                                     # rsync configuration file
+RSYNC_REAL_PID=                                 # rsync process id
+
 OS=$(uname)
-[ "$OS" == "Darwin" ] && export -n LD_LIBRARY_PATH
+[ "$OS" = "Darwin" ] && export -n LD_LIBRARY_PATH
 
 # Setting the path for lsof on CentOS
 export PATH="/usr/sbin:/sbin:$PATH"
@@ -32,10 +34,12 @@ wsrep_check_programs rsync
 
 cleanup_joiner()
 {
-    wsrep_log_info "Joiner cleanup."
-    local PID=$(cat "$RSYNC_PID" 2>/dev/null || echo 0)
-    [ "0" != "$PID" ] && kill $PID && sleep 0.5 && kill -9 $PID >/dev/null 2>&1 \
-    || :
+    wsrep_log_info "Joiner cleanup. rsync PID: $RSYNC_REAL_PID"
+    [ "0" != "$RSYNC_REAL_PID" ]            && \
+    kill $RSYNC_REAL_PID                    && \
+    sleep 0.5                               && \
+    kill -9 $RSYNC_REAL_PID >/dev/null 2>&1 || \
+    :
     rm -rf "$RSYNC_CONF"
     rm -rf "$MAGIC_FILE"
     rm -rf "$RSYNC_PID"
@@ -45,6 +49,7 @@ cleanup_joiner()
     fi
 }
 
+# Check whether rsync process is still running.
 check_pid()
 {
     local pid_file=$1
@@ -55,25 +60,63 @@ check_pid_and_port()
 {
     local pid_file=$1
     local rsync_pid=$2
-    local rsync_port=$3
+    local rsync_addr=$3
+    local rsync_port=$4
 
-    if ! which lsof > /dev/null; then
-      wsrep_log_error "lsof tool not found in PATH! Make sure you have it installed."
-      exit 2 # ENOENT
-    fi
+    case $OS in
+    FreeBSD)
+        local port_info="$(sockstat -46lp ${rsync_port} 2>/dev/null | \
+            grep ":${rsync_port}")"
+        local is_rsync="$(echo $port_info | \
+            grep -w '[[:space:]]\+rsync[[:space:]]\+'"$rsync_pid" 2>/dev/null)"
+        ;;
+    *)
+        if ! which lsof > /dev/null; then
+          wsrep_log_error "lsof tool not found in PATH! Make sure you have it installed."
+          exit 2 # ENOENT
+        fi
 
-    local port_info=$(lsof -i :$rsync_port -Pn 2>/dev/null | \
-        grep "(LISTEN)")
-    local is_rsync=$(echo $port_info | \
-        grep -w '^rsync[[:space:]]\+'"$rsync_pid" 2>/dev/null)
+        local port_info="$(lsof -i :$rsync_port -Pn 2>/dev/null | \
+            grep "(LISTEN)")"
+        local is_rsync="$(echo $port_info | \
+            grep -w '^rsync[[:space:]]\+'"$rsync_pid" 2>/dev/null)"
+        ;;
+    esac
 
-    if [ -n "$port_info" -a -z "$is_rsync" ]; then
-        wsrep_log_error "rsync daemon port '$rsync_port' has been taken"
-        exit 16 # EBUSY
+    local is_listening_all="$(echo $port_info | \
+        grep "*:$rsync_port" 2>/dev/null)"
+    local is_listening_addr="$(echo $port_info | \
+        grep "$rsync_addr:$rsync_port" 2>/dev/null)"
+
+    if [ ! -z "$is_listening_all" -o ! -z "$is_listening_addr" ]; then
+        if [ -z "$is_rsync" ]; then
+            wsrep_log_error "rsync daemon port '$rsync_port' has been taken"
+            exit 16 # EBUSY
+        fi
     fi
     check_pid $pid_file && \
         [ -n "$port_info" ] && [ -n "$is_rsync" ] && \
         [ $(cat $pid_file) -eq $rsync_pid ]
+}
+
+is_local_ip()
+{
+  local address="$1"
+  local get_addr_bin=`which ifconfig`
+  if [ -z "$get_addr_bin" ]
+  then
+    get_addr_bin=`which ip`
+    get_addr_bin="$get_addr_bin address show"
+    # Add an slash at the end, so we don't get false positive : 172.18.0.4 matches 172.18.0.41
+    # ip output format is "X.X.X.X/mask"
+    address="${address}/"
+  else
+    # Add an space at the end, so we don't get false positive : 172.18.0.4 matches 172.18.0.41
+    # ifconfig output format is "X.X.X.X "
+    address="$address "
+  fi
+
+  $get_addr_bin | grep "$address" > /dev/null
 }
 
 MAGIC_FILE="$WSREP_SST_OPT_DATA/rsync_sst_complete"
@@ -92,7 +135,7 @@ fi
 WSREP_LOG_DIR=${WSREP_LOG_DIR:-""}
 # if WSREP_LOG_DIR env. variable is not set, try to get it from my.cnf
 if [ -z "$WSREP_LOG_DIR" ]; then
-    WSREP_LOG_DIR=$($my_print_defaults --mysqld \
+    WSREP_LOG_DIR=$($MY_PRINT_DEFAULTS --mysqld \
                     | grep -- '--innodb[-_]log[-_]group[-_]home[-_]dir=' \
                     | cut -b 29- )
 fi
@@ -112,8 +155,8 @@ fi
 #         --exclude '*.[0-9][0-9][0-9][0-9][0-9][0-9]' --exclude '*.index')
 
 # New filter - exclude everything except dirs (schemas) and innodb files
-FILTER=(-f '- /lost+found' -f '- /.fseventsd' -f '- /.Trashes'
-        -f '+ /wsrep_sst_binlog.tar' -f '+ /ib_lru_dump' -f '+ /ibdata*' -f '+ /*/' -f '- /*')
+FILTER="-f '- /lost+found' -f '- /.fseventsd' -f '- /.Trashes'
+        -f '+ /wsrep_sst_binlog.tar' -f '+ /ib_lru_dump' -f '+ /ibdata*' -f '+ /*/' -f '- /*'"
 
 if [ "$WSREP_SST_OPT_ROLE" = "donor" ]
 then
@@ -122,7 +165,10 @@ then
     then
 
         FLUSHED="$WSREP_SST_OPT_DATA/tables_flushed"
+        ERROR="$WSREP_SST_OPT_DATA/sst_error"
+
         rm -rf "$FLUSHED"
+        rm -rf "$ERROR"
 
         # Use deltaxfer only for WAN
         inv=$(basename $0)
@@ -131,9 +177,21 @@ then
 
         echo "flush tables"
 
-        # wait for tables flushed and state ID written to the file
+        # Wait for :
+        # (a) Tables to be flushed, AND
+        # (b) Cluster state ID & wsrep_gtid_domain_id to be written to the file, OR
+        # (c) ERROR file, in case flush tables operation failed.
+
         while [ ! -r "$FLUSHED" ] && ! grep -q ':' "$FLUSHED" >/dev/null 2>&1
         do
+            # Check whether ERROR file exists.
+            if [ -f "$ERROR" ]
+            then
+                # Flush tables operation failed.
+                rm -rf "$ERROR"
+                exit 255
+            fi
+
             sleep 0.2
         done
 
@@ -145,7 +203,9 @@ then
         if ! [ -z $WSREP_SST_OPT_BINLOG ]
         then
             # Prepare binlog files
-            pushd $BINLOG_DIRNAME &> /dev/null
+            OLD_PWD="$(pwd)"
+            cd $BINLOG_DIRNAME
+
             binlog_files_full=$(tail -n $BINLOG_N_FILES ${BINLOG_FILENAME}.index)
             binlog_files=""
             for ii in $binlog_files_full
@@ -157,14 +217,14 @@ then
                 wsrep_log_info "Preparing binlog files for transfer:"
                 tar -cvf $BINLOG_TAR_FILE $binlog_files >&2
             fi
-            popd &> /dev/null
+            cd "$OLD_PWD"
         fi
 
         # first, the normal directories, so that we can detect incompatible protocol
         RC=0
-        rsync --owner --group --perms --links --specials \
+        eval rsync --owner --group --perms --links --specials \
               --ignore-times --inplace --dirs --delete --quiet \
-              $WHOLE_FILE_OPT "${FILTER[@]}" "$WSREP_SST_OPT_DATA/" \
+              $WHOLE_FILE_OPT ${FILTER} "$WSREP_SST_OPT_DATA/" \
               rsync://$WSREP_SST_OPT_ADDR >&2 || RC=$?
 
         if [ "$RC" -ne 0 ]; then
@@ -196,19 +256,21 @@ then
         fi
 
         # then, we parallelize the transfer of database directories, use . so that pathconcatenation works
-        pushd "$WSREP_SST_OPT_DATA" >/dev/null
+        OLD_PWD="$(pwd)"
+        cd $WSREP_SST_OPT_DATA
 
         count=1
-        [ "$OS" == "Linux" ] && count=$(grep -c processor /proc/cpuinfo)
-        [ "$OS" == "Darwin" -o "$OS" == "FreeBSD" ] && count=$(sysctl -n hw.ncpu)
+        [ "$OS" = "Linux" ] && count=$(grep -c processor /proc/cpuinfo)
+        [ "$OS" = "Darwin" -o "$OS" = "FreeBSD" ] && count=$(sysctl -n hw.ncpu)
 
-        find . -maxdepth 1 -mindepth 1 -type d -print0 | xargs -I{} -0 -P $count \
+        find . -maxdepth 1 -mindepth 1 -type d -not -name "lost+found" -print0 | \
+             xargs -I{} -0 -P $count \
              rsync --owner --group --perms --links --specials \
              --ignore-times --inplace --recursive --delete --quiet \
              $WHOLE_FILE_OPT --exclude '*/ib_logfile*' "$WSREP_SST_OPT_DATA"/{}/ \
              rsync://$WSREP_SST_OPT_ADDR/{} >&2 || RC=$?
 
-        popd >/dev/null
+        cd "$OLD_PWD"
 
         if [ $RC -ne 0 ]; then
             wsrep_log_error "find/rsync returned code $RC:"
@@ -217,7 +279,10 @@ then
 
     else # BYPASS
         wsrep_log_info "Bypassing state dump."
-        STATE="$WSREP_SST_OPT_GTID"
+
+        # Store donor's wsrep GTID (state ID) and wsrep_gtid_domain_id
+        # (separated by a space).
+        STATE="$WSREP_SST_OPT_GTID $WSREP_SST_OPT_GTID_DOMAIN_ID"
     fi
 
     echo "continue" # now server can resume updating data
@@ -247,6 +312,7 @@ then
 
     ADDR=$WSREP_SST_OPT_ADDR
     RSYNC_PORT=$(echo $ADDR | awk -F ':' '{ print $2 }')
+    RSYNC_ADDR=$(echo $ADDR | awk -F ':' '{ print $1 }')
     if [ -z "$RSYNC_PORT" ]
     then
         RSYNC_PORT=4444
@@ -279,11 +345,19 @@ EOF
 
 #    rm -rf "$DATA"/ib_logfile* # we don't want old logs around
 
-    # listen at all interfaces (for firewalled setups)
-    rsync --daemon --no-detach --port $RSYNC_PORT --config "$RSYNC_CONF" &
+    # If the IP is local listen only in it
+    if is_local_ip $RSYNC_ADDR
+    then
+      rsync --daemon --no-detach --address $RSYNC_ADDR --port $RSYNC_PORT --config "$RSYNC_CONF" &
+    else
+      # Not local, possibly a NAT, listen in all interface
+      rsync --daemon --no-detach --port $RSYNC_PORT --config "$RSYNC_CONF" &
+      # Overwrite address with all
+      RSYNC_ADDR="*"
+    fi
     RSYNC_REAL_PID=$!
 
-    until check_pid_and_port $RSYNC_PID $RSYNC_REAL_PID $RSYNC_PORT
+    until check_pid_and_port $RSYNC_PID $RSYNC_REAL_PID $RSYNC_ADDR $RSYNC_PORT
     do
         sleep 0.2
     done
@@ -307,7 +381,9 @@ EOF
     if ! [ -z $WSREP_SST_OPT_BINLOG ]
     then
 
-        pushd $BINLOG_DIRNAME &> /dev/null
+        OLD_PWD="$(pwd)"
+        cd $BINLOG_DIRNAME
+
         if [ -f $BINLOG_TAR_FILE ]
         then
             # Clean up old binlog files first
@@ -319,11 +395,13 @@ EOF
                 echo ${BINLOG_DIRNAME}/${ii} >> ${BINLOG_FILENAME}.index
             done
         fi
-        popd &> /dev/null
+        cd "$OLD_PWD"
+
     fi
     if [ -r "$MAGIC_FILE" ]
     then
-        cat "$MAGIC_FILE" # output UUID:seqno
+        # UUID:seqno & wsrep_gtid_domain_id is received here.
+        cat "$MAGIC_FILE" # Output : UUID:seqno wsrep_gtid_domain_id
     else
         # this message should cause joiner to abort
         echo "rsync process ended without creating '$MAGIC_FILE'"

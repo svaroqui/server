@@ -2,6 +2,9 @@
  * Copyright (c)  2000
  * SWsoft  company
  *
+ * Modifications copyright (c) 2001, 2013. Oracle and/or its affiliates.
+ * All rights reserved.
+ *
  * This material is provided "as is", with absolutely no warranty expressed
  * or implied. Any use is at your own risk.
  *
@@ -127,10 +130,6 @@ emb_advanced_command(MYSQL *mysql, enum enum_server_command command,
     thd= (THD *) mysql->thd;
   }
 
-#if defined(ENABLED_PROFILING)
-  thd->profiling.start_new_query();
-#endif
-
   thd->clear_data_list();
   /* Check that we are calling the client functions in right order */
   if (mysql->status != MYSQL_STATUS_READY)
@@ -166,7 +165,8 @@ emb_advanced_command(MYSQL *mysql, enum enum_server_command command,
     arg_length= header_length;
   }
 
-  result= dispatch_command(command, thd, (char *) arg, arg_length);
+  result= dispatch_command(command, thd, (char *) arg, arg_length, FALSE,
+                           FALSE);
   thd->cur_data= 0;
   thd->mysys_var= NULL;
 
@@ -174,10 +174,6 @@ emb_advanced_command(MYSQL *mysql, enum enum_server_command command,
     result= thd->is_error() ? -1 : 0;
 
   thd->mysys_var= 0;
-
-#if defined(ENABLED_PROFILING)
-  thd->profiling.finish_current_query();
-#endif
 
 end:
   thd->reset_globals();
@@ -338,6 +334,12 @@ static int emb_stmt_execute(MYSQL_STMT *stmt)
   THD *thd;
   my_bool res;
 
+  if (stmt->param_count && !stmt->bind_param_done)
+  {
+    set_stmt_error(stmt, CR_PARAMS_NOT_BOUND, unknown_sqlstate, NULL);
+    DBUG_RETURN(1);
+  }
+
   int4store(header, stmt->stmt_id);
   header[4]= (uchar) stmt->flags;
   thd= (THD*)stmt->mysql->thd;
@@ -430,11 +432,10 @@ static void emb_free_embedded_thd(MYSQL *mysql)
   THD *thd= (THD*)mysql->thd;
   mysql_mutex_lock(&LOCK_thread_count);
   thd->clear_data_list();
-  thread_count--;
   thd->store_globals();
   thd->unlink();
-  delete thd;
   mysql_mutex_unlock(&LOCK_thread_count);
+  delete thd;
   my_pthread_setspecific_ptr(THR_THD,  0);
   mysql->thd=0;
 }
@@ -519,6 +520,9 @@ int init_embedded_server(int argc, char **argv, char **groups)
   my_bool acl_error;
 
   if (my_thread_init())
+    return 1;
+
+  if (init_early_variables())
     return 1;
 
   if (argc)
@@ -668,8 +672,7 @@ void init_embedded_mysql(MYSQL *mysql, int client_flag)
 */
 void *create_embedded_thd(int client_flag)
 {
-  THD * thd= new THD;
-  thd->thread_id= thd->variables.pseudo_thread_id= thread_id++;
+  THD * thd= new THD(next_thread_id());
 
   thd->thread_stack= (char*) &thd;
   if (thd->store_globals())
@@ -702,10 +705,10 @@ void *create_embedded_thd(int client_flag)
   bzero((char*) &thd->net, sizeof(thd->net));
 
   mysql_mutex_lock(&LOCK_thread_count);
-  thread_count++;
   threads.append(thd);
   mysql_mutex_unlock(&LOCK_thread_count);
   thd->mysys_var= 0;
+  thd->reset_globals();
   return thd;
 err:
   delete(thd);
@@ -1033,7 +1036,7 @@ bool Protocol::send_result_set_metadata(List<Item> *list, uint flags)
   while ((item= it++))
   {
     Send_field server_field;
-    item->make_field(&server_field);
+    item->make_field(thd, &server_field);
 
     /* Keep things compatible for old clients */
     if (server_field.type == MYSQL_TYPE_VARCHAR)
@@ -1070,6 +1073,10 @@ bool Protocol::send_result_set_metadata(List<Item> *list, uint flags)
     client_field->type=   server_field.type;
     client_field->flags= (uint16) server_field.flags;
     client_field->decimals= server_field.decimals;
+    if (server_field.type == MYSQL_TYPE_FLOAT ||
+        server_field.type == MYSQL_TYPE_DOUBLE)
+      set_if_smaller(client_field->decimals, FLOATING_POINT_DECIMALS);
+
     client_field->db_length=		strlen(client_field->db);
     client_field->table_length=		strlen(client_field->table);
     client_field->name_length=		strlen(client_field->name);
@@ -1170,7 +1177,8 @@ bool Protocol_binary::write()
 bool
 net_send_ok(THD *thd,
             uint server_status, uint statement_warn_count,
-            ulonglong affected_rows, ulonglong id, const char *message)
+            ulonglong affected_rows, ulonglong id, const char *message,
+            bool, bool)
 {
   DBUG_ENTER("emb_net_send_ok");
   MYSQL_DATA *data;

@@ -2,9 +2,9 @@
 /*  TABWMI: Author Olivier Bertrand -- PlugDB -- 2012 - 2013           */
 /*  TABWMI: Virtual table to get WMI information.                      */
 /***********************************************************************/
-#if !defined(WIN32)
-#error This is a WIN32 only table type
-#endif   // !WIN32
+#if !defined(__WIN__)
+#error This is a WINDOWS only table type
+#endif   // !__WIN__
 #include "my_global.h"
 #include <stdio.h>
 
@@ -20,8 +20,6 @@
 #include "valblk.h"
 #include "plgcnx.h"                       // For DB types
 #include "resource.h"
-
-extern "C" int trace;
 
 /* ------------------- Functions WMI Column info --------------------- */
 
@@ -200,7 +198,7 @@ PQRYRES WMIColumns(PGLOBAL g, char *nsp, char *cls, bool info)
         }  // endif res
 
       len = (unsigned)SysStringLen(propname);
-      length[0] = max(length[0], len);
+      length[0] = MY_MAX(length[0], len);
       } // enfor i
 
     res = SafeArrayDestroy(prnlist);

@@ -144,7 +144,7 @@ static uchar *next_free_record_pos(HP_SHARE *info)
     pos=info->del_link;
     info->del_link= *((uchar**) pos);
     info->deleted--;
-    DBUG_PRINT("exit",("Used old position: 0x%lx",(long) pos));
+    DBUG_PRINT("exit",("Used old position: %p", pos));
     DBUG_RETURN(pos);
   }
   if (!(block_pos=(info->records % info->block.records_in_block)))
@@ -166,9 +166,9 @@ static uchar *next_free_record_pos(HP_SHARE *info)
       DBUG_RETURN(NULL);
     info->data_length+=length;
   }
-  DBUG_PRINT("exit",("Used new position: 0x%lx",
-		     (long) ((uchar*) info->block.level_info[0].last_blocks+
-                             block_pos * info->block.recbuffer)));
+  DBUG_PRINT("exit",("Used new position: %p",
+		     ((uchar*) info->block.level_info[0].last_blocks+
+                      block_pos * info->block.recbuffer)));
   DBUG_RETURN((uchar*) info->block.level_info[0].last_blocks+
 	      block_pos*info->block.recbuffer);
 }
@@ -386,7 +386,7 @@ int hp_write_key(HP_INFO *info, HP_KEYDEF *keyinfo,
       do
       {
 	if (pos->hash_of_key == hash_of_key &&
-            ! hp_rec_key_cmp(keyinfo, record, pos->ptr_to_rec, 1))
+            ! hp_rec_key_cmp(keyinfo, record, pos->ptr_to_rec))
 	{
 	  DBUG_RETURN(my_errno=HA_ERR_FOUND_DUPP_KEY);
 	}

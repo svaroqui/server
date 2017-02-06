@@ -1,10 +1,11 @@
+set sql_mode="";
 drop database if exists events_test;
 create database events_test;
 use events_test;
-create event e_26 on schedule at '2017-01-01 00:00:00' disable do set @a = 5;
+create event e_26 on schedule at '2027-01-01 00:00:00' disable do set @a = 5;
 select db, name, body, definer, convert_tz(execute_at, 'UTC', 'SYSTEM'), on_completion from mysql.event;
 db	name	body	definer	convert_tz(execute_at, 'UTC', 'SYSTEM')	on_completion
-events_test	e_26	set @a = 5	root@localhost	2017-01-01 00:00:00	DROP
+events_test	e_26	set @a = 5	root@localhost	2027-01-01 00:00:00	DROP
 drop event e_26;
 create event e_26 on schedule at NULL disable do set @a = 5;
 ERROR HY000: Incorrect AT value: 'NULL'
@@ -261,13 +262,13 @@ begin
 alter event e1 rename to e2;
 return 1;
 end|
-ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger.
+ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger
 create function f1() returns int
 begin
 drop event e2;
 return 1;
 end|
-ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger.
+ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger
 ----------------------------------------------------------------------
 create trigger trg before insert on t1 for each row
 begin
@@ -308,14 +309,14 @@ begin
 alter event e1 rename to e2;
 end|
 insert into t1 (a) values (1)|
-ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger.
+ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger
 drop procedure p1|
 create procedure p1()
 begin
 drop event e1;
 end|
 insert into t1 (a) values (1)|
-ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger.
+ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger
 drop table t1|
 drop event e1|
 set names utf8;
@@ -378,7 +379,7 @@ do
 select 1;
 alter event event_35981 on schedule every 1 hour starts '1999-01-01 00:00:00'
   ends '1999-01-02 00:00:00';
-ERROR HY000: Event execution time is in the past and ON COMPLETION NOT PRESERVE is set. The event was not changed. Specify a time in the future.
+ERROR HY000: Event execution time is in the past and ON COMPLETION NOT PRESERVE is set. The event was not changed. Specify a time in the future
 drop event event_35981;
 create event event_35981 on schedule every 1 hour starts current_timestamp
 on completion not preserve
@@ -399,7 +400,7 @@ Warnings:
 Note	1544	Event execution time is in the past. Event has been disabled
 alter event event_35981 on schedule every 1 hour starts '1999-01-01 00:00:00'
   ends '1999-01-02 00:00:00' on completion not preserve;
-ERROR HY000: Event execution time is in the past and ON COMPLETION NOT PRESERVE is set. The event was not changed. Specify a time in the future.
+ERROR HY000: Event execution time is in the past and ON COMPLETION NOT PRESERVE is set. The event was not changed. Specify a time in the future
 alter event event_35981 on schedule every 1 hour starts '1999-01-01 00:00:00'
   ends '1999-01-02 00:00:00' on completion preserve;
 Warnings:

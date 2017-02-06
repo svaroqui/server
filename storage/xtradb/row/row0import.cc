@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 2012, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2012, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2015, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -137,14 +138,6 @@ struct row_import {
 	@param name - of column to look for.
 	@return ULINT_UNDEFINED if not found. */
 	ulint find_col(const char* name) const UNIV_NOTHROW;
-
-	/**
-	Find the index field entry in in the cfg indexes fields.
-	@name - of the index to look for
-	@return instance if found else 0. */
-	const dict_field_t* find_field(
-		const row_index_t*	cfg_index,
-		const char* 		name) const UNIV_NOTHROW;
 
 	/**
 	Get the number of rows for which purge failed during the convert phase.
@@ -378,8 +371,7 @@ public:
 		m_space(ULINT_UNDEFINED),
 		m_xdes(),
 		m_xdes_page_no(ULINT_UNDEFINED),
-		m_space_flags(ULINT_UNDEFINED),
-		m_table_flags(ULINT_UNDEFINED) UNIV_NOTHROW { }
+		m_space_flags(ULINT_UNDEFINED) UNIV_NOTHROW { }
 
 	/**
 	Free any extent descriptor instance */
@@ -542,10 +534,6 @@ protected:
 
 	/** Flags value read from the header page */
 	ulint			m_space_flags;
-
-	/** Derived from m_space_flags and row format type, the row format
-	type is determined from the page header. */
-	ulint			m_table_flags;
 };
 
 /** Determine the page size to use for traversing the tablespace
@@ -560,6 +548,19 @@ AbstractCallback::init(
 	const page_t*		page = block->frame;
 
 	m_space_flags = fsp_header_get_flags(page);
+	if (!fsp_flags_is_valid(m_space_flags)) {
+		ulint cflags = fsp_flags_convert_from_101(m_space_flags);
+		if (cflags == ULINT_UNDEFINED) {
+			ib_logf(IB_LOG_LEVEL_ERROR,
+				"Invalid FSP_SPACE_FLAGS=0x%x",
+				int(m_space_flags));
+			return(DB_CORRUPTION);
+		}
+		m_space_flags = cflags;
+	}
+
+	/* Clear the DATA_DIR flag, which is basically garbage. */
+	m_space_flags &= ~(1U << FSP_FLAGS_POS_RESERVED);
 
 	/* Since we don't know whether it is a compressed table
 	or not, the data is always read into the block->frame. */
@@ -648,46 +649,6 @@ struct FetchIndexRootPages : public AbstractCallback {
 	}
 
 	/**
-	Check if the .ibd file row format is the same as the table's.
-	@param ibd_table_flags - determined from space and page.
-	@return DB_SUCCESS or error code. */
-	dberr_t check_row_format(ulint ibd_table_flags) UNIV_NOTHROW
-	{
-		dberr_t		err;
-		rec_format_t	ibd_rec_format;
-		rec_format_t	table_rec_format;
-
-		if (!dict_tf_is_valid(ibd_table_flags)) {
-
-			ib_errf(m_trx->mysql_thd, IB_LOG_LEVEL_ERROR,
-				ER_TABLE_SCHEMA_MISMATCH,
-				".ibd file has invlad table flags: %lx",
-				ibd_table_flags);
-
-			return(DB_CORRUPTION);
-		}
-
-		ibd_rec_format = dict_tf_get_rec_format(ibd_table_flags);
-		table_rec_format = dict_tf_get_rec_format(m_table->flags);
-
-		if (table_rec_format != ibd_rec_format) {
-
-			ib_errf(m_trx->mysql_thd, IB_LOG_LEVEL_ERROR,
-				ER_TABLE_SCHEMA_MISMATCH,
-				"Table has %s row format, .ibd "
-				"file has %s row format.",
-				dict_tf_to_row_format_string(m_table->flags),
-				dict_tf_to_row_format_string(ibd_table_flags));
-
-			err = DB_CORRUPTION;
-		} else {
-			err = DB_SUCCESS;
-		}
-
-		return(err);
-	}
-
-	/**
 	Called for each block as it is read from the file.
 	@param offset - physical offset in the file
 	@param block - block to convert, it is not from the buffer pool.
@@ -750,12 +711,17 @@ FetchIndexRootPages::operator() (
 		m_indexes.push_back(Index(id, page_no));
 
 		if (m_indexes.size() == 1) {
-
-			m_table_flags = dict_sys_tables_type_to_tf(
-				m_space_flags,
-				page_is_comp(page) ? DICT_N_COLS_COMPACT : 0);
-
-			err = check_row_format(m_table_flags);
+			/* Check that the tablespace flags match the table flags. */
+			ulint expected = dict_tf_to_fsp_flags(m_table->flags);
+			if (!fsp_flags_match(expected, m_space_flags)) {
+				ib_errf(m_trx->mysql_thd, IB_LOG_LEVEL_ERROR,
+					ER_TABLE_SCHEMA_MISMATCH,
+					"Expected FSP_SPACE_FLAGS=0x%x, .ibd "
+					"file contains 0x%x.",
+					unsigned(expected),
+					unsigned(m_space_flags));
+				return(DB_CORRUPTION);
+			}
 		}
 	}
 
@@ -1141,30 +1107,6 @@ row_import::find_col(
 }
 
 /**
-Find the index field entry in in the cfg indexes fields.
-@name - of the index to look for
-@return instance if found else 0. */
-const dict_field_t*
-row_import::find_field(
-	const row_index_t*	cfg_index,
-	const char* 		name) const UNIV_NOTHROW
-{
-	const dict_field_t*	field = cfg_index->m_fields;
-
-	for (ulint i = 0; i < cfg_index->m_n_fields; ++i, ++field) {
-		const char*	field_name;
-
-		field_name = reinterpret_cast<const char*>(field->name);
-
-		if (strcmp(field_name, name) == 0) {
-			return(field);
-		}
-	}
-
-	return(0);
-}
-
-/**
 Check if the index schema that was read from the .cfg file matches the
 in memory index definition.
 @return DB_SUCCESS or error code. */
@@ -1187,51 +1129,60 @@ row_import::match_index_columns(
 		return(DB_ERROR);
 	}
 
+	if (cfg_index->m_n_fields != index->n_fields) {
+
+		ib_errf(thd, IB_LOG_LEVEL_ERROR,
+			 ER_TABLE_SCHEMA_MISMATCH,
+			 "Index field count %lu doesn't match"
+			 " tablespace metadata file value %lu",
+			 (ulong) index->n_fields,
+			 (ulong) cfg_index->m_n_fields);
+
+		return(DB_ERROR);
+	}
+
 	cfg_index->m_srv_index = index;
 
 	const dict_field_t*	field = index->fields;
+	const dict_field_t*	cfg_field = cfg_index->m_fields;
 
-	for (ulint i = 0; i < index->n_fields; ++i, ++field) {
+	for (ulint i = 0; i < index->n_fields; ++i, ++field, ++cfg_field) {
 
-		const dict_field_t*	cfg_field;
-
-		cfg_field = find_field(cfg_index, field->name);
-
-		if (cfg_field == 0) {
+		if (strcmp(field->name, cfg_field->name) != 0) {
 			ib_errf(thd, IB_LOG_LEVEL_ERROR,
 				 ER_TABLE_SCHEMA_MISMATCH,
-				 "Index %s field %s not found in tablespace "
-				 "meta-data file.",
-				 index->name, field->name);
+				 "Index field name %s doesn't match"
+				 " tablespace metadata field name %s"
+				 " for field position %lu",
+				 field->name, cfg_field->name, (ulong) i);
 
 			err = DB_ERROR;
-		} else {
+		}
 
-			if (cfg_field->prefix_len != field->prefix_len) {
-				ib_errf(thd, IB_LOG_LEVEL_ERROR,
-					 ER_TABLE_SCHEMA_MISMATCH,
-					 "Index %s field %s prefix len %lu "
-					 "doesn't match meta-data file value "
-					 "%lu",
-					 index->name, field->name,
-					 (ulong) field->prefix_len,
-					 (ulong) cfg_field->prefix_len);
+		if (cfg_field->prefix_len != field->prefix_len) {
+			ib_errf(thd, IB_LOG_LEVEL_ERROR,
+				 ER_TABLE_SCHEMA_MISMATCH,
+				 "Index %s field %s prefix len %lu"
+				 " doesn't match metadata file value"
+				 " %lu",
+				 index->name, field->name,
+				 (ulong) field->prefix_len,
+				 (ulong) cfg_field->prefix_len);
 
-				err = DB_ERROR;
-			}
+			err = DB_ERROR;
+		}
 
-			if (cfg_field->fixed_len != field->fixed_len) {
-				ib_errf(thd, IB_LOG_LEVEL_ERROR,
-					 ER_TABLE_SCHEMA_MISMATCH,
-					 "Index %s field %s fixed len %lu "
-					 "doesn't match meta-data file value "
-					 "%lu",
-					 index->name, field->name,
-					 (ulong) field->fixed_len,
-					 (ulong) cfg_field->fixed_len);
+		if (cfg_field->fixed_len != field->fixed_len) {
+			ib_errf(thd, IB_LOG_LEVEL_ERROR,
+				 ER_TABLE_SCHEMA_MISMATCH,
+				 "Index %s field %s fixed len %lu"
+				 " doesn't match metadata file value"
+				 " %lu",
+				 index->name, field->name,
+				 (ulong) field->fixed_len,
+				 (ulong) cfg_field->fixed_len);
 
-				err = DB_ERROR;
-			}
+			err = DB_ERROR;
 		}
 	}
 
@@ -1358,12 +1309,15 @@ row_import::match_schema(
 	THD*		thd) UNIV_NOTHROW
 {
 	/* Do some simple checks. */
+	const unsigned relevant_flags = m_flags & ~DICT_TF_MASK_DATA_DIR;
+	const unsigned relevant_table_flags
+		= m_table->flags & ~DICT_TF_MASK_DATA_DIR;
 
-	if (m_flags != m_table->flags) {
+	if (relevant_flags != relevant_table_flags) {
 		ib_errf(thd, IB_LOG_LEVEL_ERROR, ER_TABLE_SCHEMA_MISMATCH,
-			 "Table flags don't match, server table has 0x%lx "
-			 "and the meta-data file has 0x%lx",
-			 (ulong) m_table->n_cols, (ulong) m_flags);
+			 "Table flags don't match, server table has 0x%x "
+			 "and the meta-data file has 0x%x",
+			 relevant_table_flags, relevant_flags);
 
 		return(DB_ERROR);
 	} else if (m_table->n_cols != m_n_cols) {
@@ -1918,6 +1872,15 @@ PageConverter::update_index_page(
 		row_index_t*	index = find_index(id);
 
 		if (index == 0) {
+			ib_logf(IB_LOG_LEVEL_ERROR,
+				"Page for tablespace %lu is "
+				" index page with id %lu but that"
+				" index is not found from configuration file."
+				" Current index name %s and id %lu.",
+				m_space,
+				id,
+				m_index->m_name,
+				m_index->m_id);
 			m_index = 0;
 			return(DB_CORRUPTION);
 		}
@@ -1978,19 +1941,13 @@ PageConverter::update_header(
 			"- ignored");
 	}
 
-	ulint		space_flags = fsp_header_get_flags(get_frame(block));
-
-	if (!fsp_flags_is_valid(space_flags)) {
-
-		ib_logf(IB_LOG_LEVEL_ERROR,
-			"Unsupported tablespace format %lu",
-			(ulong) space_flags);
-
-		return(DB_UNSUPPORTED);
-	}
-
 	mach_write_to_8(
-		get_frame(block) + FIL_PAGE_FILE_FLUSH_LSN, m_current_lsn);
+		get_frame(block) + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION,
+		m_current_lsn);
+
+	/* Write back the adjusted flags. */
+	mach_write_to_4(FSP_HEADER_OFFSET + FSP_SPACE_FLAGS
+			+ get_frame(block), m_space_flags);
 
 	/* Write space_id to the tablespace header, page 0. */
 	mach_write_to_4(
@@ -2091,8 +2048,20 @@ PageConverter::validate(
 		return(IMPORT_PAGE_STATUS_CORRUPTED);
 
 	} else if (offset > 0 && page_get_page_no(page) == 0) {
-		const byte*	b = page;
-		const byte*	e = b + m_page_size;
+		ulint		checksum;
+
+		checksum = mach_read_from_4(page + FIL_PAGE_SPACE_OR_CHKSUM);
+		if (checksum != 0) {
+			/* Checksum check passed in buf_page_is_corrupted(). */
+			ib_logf(IB_LOG_LEVEL_WARN,
+				"%s: Page %lu checksum %lu should be zero.",
+				m_filepath, (ulong) (offset / m_page_size),
+				checksum);
+		}
+
+		const byte*	b = page + FIL_PAGE_OFFSET;
+		const byte*	e = page + m_page_size
+				    - FIL_PAGE_END_LSN_OLD_CHKSUM;
 
 		/* If the page number is zero and offset > 0 then
 		the entire page MUST consist of zeroes. If not then
@@ -2190,7 +2159,7 @@ PageConverter::operator() (
 Clean up after import tablespace failure, this function will acquire
 the dictionary latches on behalf of the transaction if the transaction
 hasn't already acquired them. */
-static	__attribute__((nonnull))
+static	MY_ATTRIBUTE((nonnull))
 void
 row_import_discard_changes(
 /*=======================*/
@@ -2241,7 +2210,7 @@ row_import_discard_changes(
 
 /*****************************************************************//**
 Clean up after import tablespace. */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_cleanup(
 /*===============*/
@@ -2276,7 +2245,7 @@ row_import_cleanup(
 
 /*****************************************************************//**
 Report error during tablespace import. */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_error(
 /*=============*/
@@ -2304,7 +2273,7 @@ row_import_error(
 Adjust the root page index node and leaf node segment headers, update
 with the new space id. For all the table's secondary indexes.
 @return error code */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_adjust_root_pages_of_secondary_indexes(
 /*==============================================*/
@@ -2420,7 +2389,7 @@ row_import_adjust_root_pages_of_secondary_indexes(
 /*****************************************************************//**
 Ensure that dict_sys->row_id exceeds SELECT MAX(DB_ROW_ID).
 @return error code */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_set_sys_max_row_id(
 /*==========================*/
@@ -2570,7 +2539,7 @@ row_import_cfg_read_string(
 /*********************************************************************//**
 Write the meta data (index user fields) config file.
 @return DB_SUCCESS or error code. */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_cfg_read_index_fields(
 /*=============================*/
@@ -2653,7 +2622,7 @@ row_import_cfg_read_index_fields(
 Read the index names and root page numbers of the indexes and set the values.
 Row format [root_page_no, len of str, str ... ]
 @return DB_SUCCESS or error code. */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_read_index_data(
 /*=======================*/
@@ -2848,7 +2817,7 @@ row_import_read_indexes(
 /*********************************************************************//**
 Read the meta data (table columns) config file. Deserialise the contents of
 dict_col_t structure, along with the column name. */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_read_columns(
 /*====================*/
@@ -2973,7 +2942,7 @@ row_import_read_columns(
 /*****************************************************************//**
 Read the contents of the <tablespace>.cfg file.
 @return DB_SUCCESS or error code. */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_read_v1(
 /*===============*/
@@ -3139,7 +3108,7 @@ row_import_read_v1(
 /**
 Read the contents of the <tablespace>.cfg file.
 @return DB_SUCCESS or error code. */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_read_meta_data(
 /*======================*/
@@ -3182,7 +3151,7 @@ row_import_read_meta_data(
 /**
 Read the contents of the <tablename>.cfg file.
 @return DB_SUCCESS or error code. */
-static	__attribute__((nonnull, warn_unused_result))
+static	MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_import_read_cfg(
 /*================*/
@@ -3619,10 +3588,13 @@ row_import_for_mysql(
 		innobase_format_name(
 			table_name, sizeof(table_name), table->name, FALSE);
 
-		ib_errf(trx->mysql_thd, IB_LOG_LEVEL_ERROR,
-			ER_INTERNAL_ERROR,
-			"Cannot reset LSNs in table '%s' : %s",
-			table_name, ut_strerr(err));
+		if (err != DB_DECRYPTION_FAILED) {
+
+			ib_errf(trx->mysql_thd, IB_LOG_LEVEL_ERROR,
+				ER_INTERNAL_ERROR,
+				"Cannot reset LSNs in table '%s' : %s",
+				table_name, ut_strerr(err));
+		}
 
 		return(row_import_cleanup(prebuilt, trx, err));
 	}
@@ -3650,7 +3622,7 @@ row_import_for_mysql(
 	err = fil_open_single_table_tablespace(
 		true, true, table->space,
 		dict_tf_to_fsp_flags(table->flags),
-		table->name, filepath);
+		table->name, filepath, table);
 
 	DBUG_EXECUTE_IF("ib_import_open_tablespace_failure",
 			err = DB_TABLESPACE_NOT_FOUND;);

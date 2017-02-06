@@ -14,7 +14,6 @@
 # Tests that require --with-geometry go into sp_gis.test
 # Tests that require multibyte character sets, which are not always available,
 #   go into separate files (e.g. sp-ucs2.test)
-
 use test;
 
 # Test tables
@@ -1369,11 +1368,6 @@ select f10()|
 create table t4 as select 1 as id|
 select f10()|
 
-# Practical cases which we don't handle well (yet)
-#
-# Function which does not work because of well-known and documented
-# limitation of MySQL. We can't use the several instances of the
-# same temporary table in statement.
 create function f11() returns int
 begin
   drop temporary table if exists t3;
@@ -1381,9 +1375,7 @@ begin
   insert into t3 values (1), (2), (3);
   return (select count(*) from t3 as a, t3 as b);
 end|
---error ER_CANT_REOPEN_TABLE
 select f11()|
---error ER_CANT_REOPEN_TABLE
 select f11() from t1|
 # Test that using a single table instance at a time works
 create function f12_1() returns int
@@ -1398,6 +1390,7 @@ create function f12_2() returns int
 
 drop temporary table t3|
 select f12_1()|
+drop temporary table t3|
 select f12_1() from t1 limit 1|
 
 # Cleanup
@@ -4355,17 +4348,14 @@ begin
   return f1;
 end|
 drop function bug9048|
-#
-# This was disabled in 5.1.12. See bug #20701
-# When collation support in SP is implemented, then this test should
-# be removed.
-#
---error ER_NOT_SUPPORTED_YET
+
 create function bug9048(f1 char binary) returns char binary
 begin
   set f1= concat( 'hello', f1 );
   return f1;
 end|
+select collation(bug9048("foo"))|
+drop function bug9048|
 
 # Bug #12849 Stored Procedure: Crash on procedure call with CHAR type
 # 'INOUT' parameter
@@ -8282,7 +8272,6 @@ delimiter |;
 CREATE PROCEDURE p1 () BEGIN SELECT f1 FROM t3 AS A WHERE A.f1 IN ( SELECT f1 FROM t3 ) ;
 END|
 delimiter ;|
---error ER_CANT_REOPEN_TABLE
 CALL p1;
 CREATE VIEW t3 AS SELECT f1 FROM t2 A WHERE A.f1 IN ( SELECT f1 FROM t2 );
 DROP TABLE t3;
@@ -9302,4 +9291,260 @@ CALL p1;
 DROP PROCEDURE p1;
 DROP TABLE t1;
 
+--echo #
+--echo # MDEV-10713: signal 11 error on multi-table update - crash in
+--echo # handler::increment_statistics or in make_select or assertion
+--echo # failure pfs_thread == ((PFS_thread*) pthread_getspecific((THR_PFS)))
+--echo #
+
+CREATE TABLE `t1` (
+  `CLOSE_YN` varchar(10) COLLATE utf8_bin DEFAULT NULL
+) DEFAULT CHARSET=utf8 COLLATE=utf8_bin ;
+
+
+CREATE TABLE `t2` (
+  `ap_close_to` varchar(8) COLLATE utf8_bin DEFAULT NULL
+) DEFAULT CHARSET=utf8 COLLATE=utf8_bin ;
+insert t1 values (1);
+
+
+--delimiter $$
+
+CREATE  FUNCTION `f1`(`P_DC_CD` VARBINARY(50), `P_SYS_DATE` DATETIME) RETURNS datetime
+    DETERMINISTIC
+    SQL SECURITY INVOKER
+BEGIN
+  DECLARE V_SYS_DATE DATETIME;
+  SELECT now() AS LOC_DATE INTO V_SYS_DATE ;
+  RETURN v_sys_date ;
+END $$
+
+--delimiter ;
+
+update t1 S
+JOIN
+(
+  SELECT CASE
+           WHEN DATE_FORMAT( f1('F01', NOW()) , '%Y%m%d') <= CLOSE_YMD
+             THEN '99991231'
+	     ELSE '' END ACCOUNT_APPLY_YYYYMMDD
+  FROM (
+        select case
+                 when 'AP'='AP'
+                   then ap_close_to
+                   end AS CLOSE_YMD
+	from t2
+       ) A
+) X
+SET S.CLOSE_YN = ''
+where 1=1;
+
+drop function if exists f1;
+drop table t1,t2;
+
 --echo # End of 5.5 test
+
+--echo #
+--echo #  MDEV-7040: Crash in field_conv, memcpy_field_possible, part#2
+--echo #
+create table t1 (
+  col1 bigint(20),
+  col2 char(1),
+  col3 char(2)
+);
+insert into t1 values (1,'a','a'), (2,'b','b');
+
+create table t2 as select * from t1;
+create table t3 as select * from t1;
+create table t4 as select * from t1;
+create table t5 as select * from t1;
+create table t6 as select * from t1;
+
+flush tables;
+
+DELIMITER |;
+
+CREATE PROCEDURE p1()
+begin
+   DECLARE _var1 bigint(20) UNSIGNED;
+   DECLARE _var2 CHAR(1) DEFAULT NULL;
+   DECLARE _var3 CHAR(1) DEFAULT NULL;
+
+   DECLARE _done BOOLEAN DEFAULT 0;
+
+   declare cur1 cursor for
+   select col1, col2, col3 
+   from t1 
+   where 
+     col1 in (select t2.col1 from t2 where t2.col2=t1.col2) or
+     col2 in (select t3.col3 from t3 where t3.col3=t1.col2) ;
+   
+   DECLARE CONTINUE HANDLER FOR NOT FOUND SET _done = 1;
+
+   OPEN cur1;
+   
+   set _var1 = (select _var1 from t4 limit 1);
+   set _var1 = (select _var1 from t5 limit 1);
+   set _var1 = (select _var1 from t6 limit 1);
+label1:
+   LOOP
+     SET _done = 0;
+     FETCH cur1 INTO _var1, _var2, _var3;
+     IF _done THEN
+         LEAVE label1;
+     END IF;
+   END LOOP label1;
+   CLOSE cur1;
+end|
+DELIMITER ;|
+
+set @tmp_toc= @@table_open_cache;
+set @tmp_tdc= @@table_definition_cache;
+
+set global table_open_cache=1;
+set global table_definition_cache=1;
+call p1();
+
+set global table_open_cache= @tmp_toc;
+set global table_definition_cache= @tmp_tdc;
+drop procedure p1;
+
+drop table t1,t2,t3,t4,t5,t6;
+
+--echo # End of 10.0 test
+
+DELIMITER |;
+CREATE FUNCTION f(f1 VARCHAR(64) COLLATE latin1_german2_ci)
+  RETURNS VARCHAR(64)
+BEGIN
+  RETURN 'str';
+END|
+DROP FUNCTION f|
+
+CREATE FUNCTION f(f1 VARCHAR(64))
+  RETURNS VARCHAR(64) COLLATE latin1_german2_ci
+BEGIN
+  RETURN 'str';
+END|
+DROP FUNCTION f|
+
+CREATE FUNCTION f(f1 VARCHAR(64))
+  RETURNS VARCHAR(64)
+BEGIN
+  DECLARE f2 VARCHAR(64) COLLATE latin1_german2_ci;
+  RETURN 'str';
+END|
+DROP FUNCTION f|
+DELIMITER ;|
+
+--echo #
+--echo # MDEV-7023: Error 2027: Malformed packet and assertion
+--echo # `field_types == 0 || field_types[field_pos] == MYSQL_TYPE_INT24 ||
+--echo #field_types[field_pos] == MYSQL_TYPE_LONG' failure in
+--echo #Protocol_text::store_long
+--echo #
+create table t1 (i int);
+create table t2 (i int);
+--delimiter |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze insert into t1 values (1); 
+  return 1; 
+end |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze insert t1 select * from t2; 
+  return 1; 
+end |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze delete from t1; 
+  return 1; 
+end |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze delete t1 from t1,t2; 
+  return 1; 
+end |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze update t1 set i=1; 
+  return 1; 
+end |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze update t1,t2 set i=1; 
+  return 1; 
+end |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze replace t1 set i=1; 
+  return 1; 
+end |
+--error ER_SP_NO_RETSET
+create function f() returns int 
+begin 
+  analyze replace t1 select * from t2; 
+  return 1; 
+end |
+--delimiter ;
+
+drop table t1,t2;
+
+--echo #
+--echo # MDEV-11584: GRANT inside an SP does not work well on 2nd execution
+--echo #
+
+CREATE PROCEDURE sp1()
+  GRANT ALL PRIVILEGES ON *.* TO 'foo'@'%' IDENTIFIED BY 'pass';
+CALL sp1();
+CALL sp1();
+drop user 'foo'@'%';
+drop procedure sp1;
+
+
+--echo #End of 10.1 tests
+
+--echo #
+--echo # MDEV-11081: CURSOR for query with GROUP BY
+--echo #
+
+CREATE TABLE t1 (name VARCHAR(10), value INT);
+INSERT INTO t1 VALUES ('b',1);
+INSERT INTO t1 VALUES ('b',1);
+INSERT INTO t1 VALUES ('c',1);
+INSERT INTO t1 VALUES ('a',1);
+INSERT INTO t1 VALUES ('a',1);
+INSERT INTO t1 VALUES ('a',1);
+DELIMITER |;
+CREATE PROCEDURE p1 ()
+BEGIN
+  DECLARE done INT DEFAULT FALSE;
+  DECLARE v_name VARCHAR(10);
+  DECLARE v_total INT;
+  DECLARE c CURSOR FOR
+    SELECT name, SUM(value) AS total FROM t1 GROUP BY name;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+  OPEN c;
+read_loop:
+  LOOP
+    FETCH c INTO v_name, v_total;
+    IF done THEN
+      LEAVE read_loop;
+    END IF;
+    SELECT v_name, v_total;
+  END LOOP;
+  CLOSE c;
+END;
+|
+DELIMITER ;|
+CALL p1();
+DROP PROCEDURE p1;
+DROP TABLE t1;

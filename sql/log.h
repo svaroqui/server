@@ -1,5 +1,5 @@
-/* Copyright (c) 2005, 2012, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2012, Monty Program Ab
+/* Copyright (c) 2005, 2016, Oracle and/or its affiliates.
+   Copyright (c) 2009, 2016, Monty Program Ab
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,15 +17,16 @@
 #ifndef LOG_H
 #define LOG_H
 
-#include "unireg.h"                    // REQUIRED: for other includes
 #include "handler.h"                            /* my_xid */
 #include "wsrep.h"
 #include "wsrep_mysqld.h"
+#include "rpl_constants.h"
 
 class Relay_log_info;
 
 class Format_description_log_event;
 
+void setup_log_handling();
 bool trans_has_updated_trans_table(const THD* thd);
 bool stmt_has_updated_trans_table(const THD *thd);
 bool use_trans_cache(const THD* thd, bool is_transactional);
@@ -88,9 +89,11 @@ protected:
 */
 extern mysql_mutex_t LOCK_prepare_ordered;
 extern mysql_cond_t COND_prepare_ordered;
+extern mysql_mutex_t LOCK_after_binlog_sync;
 extern mysql_mutex_t LOCK_commit_ordered;
 #ifdef HAVE_PSI_INTERFACE
 extern PSI_mutex_key key_LOCK_prepare_ordered, key_LOCK_commit_ordered;
+extern PSI_mutex_key key_LOCK_after_binlog_sync;
 extern PSI_cond_key key_COND_prepare_ordered;
 #endif
 
@@ -116,7 +119,6 @@ public:
 };
 
 #define TC_LOG_PAGE_SIZE   8192
-#define TC_LOG_MIN_SIZE    (3*TC_LOG_PAGE_SIZE)
 
 #ifdef HAVE_MMAP
 class TC_LOG_MMAP: public TC_LOG
@@ -131,7 +133,7 @@ class TC_LOG_MMAP: public TC_LOG
   struct pending_cookies {
     uint count;
     uint pending_count;
-    ulong cookies[TC_LOG_PAGE_SIZE/sizeof(my_xid)];
+    ulong cookies[1];
   };
 
   private:
@@ -312,19 +314,22 @@ public:
 #endif
             const char *log_name,
             enum_log_type log_type,
-            const char *new_name,
+            const char *new_name, ulong next_file_number,
             enum cache_type io_cache_type_arg);
   bool init_and_set_log_file_name(const char *log_name,
                                   const char *new_name,
+                                  ulong next_log_number,
                                   enum_log_type log_type_arg,
                                   enum cache_type io_cache_type_arg);
   void init(enum_log_type log_type_arg,
             enum cache_type io_cache_type_arg);
   void close(uint exiting);
   inline bool is_open() { return log_state != LOG_CLOSED; }
-  const char *generate_name(const char *log_name, const char *suffix,
+  const char *generate_name(const char *log_name,
+                            const char *suffix,
                             bool strip_ext, char *buff);
-  int generate_new_name(char *new_name, const char *log_name);
+  int generate_new_name(char *new_name, const char *log_name,
+                        ulong next_log_number);
  protected:
   /* LOCK_log is inited by init_pthread_objects() */
   mysql_mutex_t LOCK_log;
@@ -341,6 +346,7 @@ public:
   /** Instrumentation key to use for file io in @c log_file */
   PSI_file_key m_log_file_key;
 #endif
+  /* for documentation of mutexes held in various places in code */
 };
 
 class MYSQL_QUERY_LOG: public MYSQL_LOG
@@ -364,7 +370,7 @@ public:
                 key_file_slow_log,
 #endif
                 generate_name(log_name, "-slow.log", 0, buf),
-                LOG_NORMAL, 0, WRITE_CACHE);
+                LOG_NORMAL, 0, 0, WRITE_CACHE);
   }
   bool open_query_log(const char *log_name)
   {
@@ -374,7 +380,7 @@ public:
                 key_file_query_log,
 #endif
                 generate_name(log_name, ".log", 0, buf),
-                LOG_NORMAL, 0, WRITE_CACHE);
+                LOG_NORMAL, 0, 0, WRITE_CACHE);
   }
 
 private:
@@ -472,11 +478,12 @@ class MYSQL_BIN_LOG: public TC_LOG, private MYSQL_LOG
     anyway). Instead we should signal COND_xid_list whenever a new binlog
     checkpoint arrives - when all have arrived, RESET MASTER will complete.
   */
-  bool reset_master_pending;
+  uint reset_master_pending;
   ulong mark_xid_done_waiting;
 
   /* LOCK_log and LOCK_index are inited by init_pthread_objects() */
   mysql_mutex_t LOCK_index;
+  mysql_mutex_t LOCK_binlog_end_pos;
   mysql_mutex_t LOCK_xid_list;
   mysql_cond_t  COND_xid_list;
   mysql_cond_t update_cond;
@@ -517,6 +524,12 @@ class MYSQL_BIN_LOG: public TC_LOG, private MYSQL_LOG
   ulonglong num_commits;
   /* Number of group commits done. */
   ulonglong num_group_commits;
+  /* The reason why the group commit was grouped */
+  ulonglong group_commit_trigger_count, group_commit_trigger_timeout;
+  ulonglong group_commit_trigger_lock_wait;
+
+  /* binlog encryption data */
+  struct Binlog_crypt_data crypto;
 
   /* pointer to the sync period variable, for binlog this will be
      sync_binlog_period, for relay log this will be
@@ -576,13 +589,15 @@ public:
   mysql_cond_t COND_binlog_background_thread;
   mysql_cond_t COND_binlog_background_thread_end;
 
+  void stop_background_thread();
+
   using MYSQL_LOG::generate_name;
   using MYSQL_LOG::is_open;
 
   /* This is relay log */
   bool is_relay_log;
   ulong signal_cnt;  // update of the counter is checked by heartbeat
-  uint8 checksum_alg_reset; // to contain a new value when binlog is rotated
+  enum enum_binlog_checksum_alg checksum_alg_reset; // to contain a new value when binlog is rotated
   /*
     Holds the last seen in Relay-Log FD's checksum alg value.
     The initial value comes from the slave's local FD that heads
@@ -616,7 +631,7 @@ public:
     (A)    - checksum algorithm descriptor value
     FD.(A) - the value of (A) in FD
   */
-  uint8 relay_log_checksum_alg;
+  enum enum_binlog_checksum_alg relay_log_checksum_alg;
   /*
     These describe the log's format. This is used only for relay logs.
     _for_exec is used by the SQL thread, _for_queue by the I/O thread. It's
@@ -692,6 +707,7 @@ public:
   void set_max_size(ulong max_size_arg);
   void signal_update();
   void wait_for_sufficient_commits();
+  void binlog_trigger_immediate_group_commit();
   void wait_for_update_relay_log(THD* thd);
   int  wait_for_update_bin_log(THD* thd, const struct timespec * timeout);
   void init(ulong max_size);
@@ -700,6 +716,7 @@ public:
   bool open(const char *log_name,
             enum_log_type log_type,
             const char *new_name,
+            ulong next_log_number,
 	    enum cache_type io_cache_type_arg,
 	    ulong max_size,
             bool null_created,
@@ -726,11 +743,10 @@ public:
   void stop_union_events(THD *thd);
   bool is_query_in_union(THD *thd, query_id_t query_id_param);
 
-  /*
-    v stands for vector
-    invoked as appendv(buf1,len1,buf2,len2,...,bufn,lenn,0)
-  */
-  bool appendv(const char* buf,uint len,...);
+  bool write_event(Log_event *ev, IO_CACHE *file);
+  bool write_event(Log_event *ev) { return write_event(ev, &log_file); }
+
+  bool write_event_buffer(uchar* buf,uint len);
   bool append(Log_event* ev);
   bool append_no_lock(Log_event* ev);
 
@@ -773,7 +789,9 @@ public:
   int purge_index_entry(THD *thd, ulonglong *decrease_log_space,
                         bool need_mutex);
   bool reset_logs(THD* thd, bool create_new_log,
-                  rpl_gtid *init_state, uint32 init_state_len);
+                  rpl_gtid *init_state, uint32 init_state_len,
+                  ulong next_log_number);
+  void wait_for_last_checkpoint_event();
   void close(uint exiting);
   void clear_inuse_flag_when_closing(File file);
 
@@ -811,6 +829,67 @@ public:
   int bump_seq_no_counter_if_needed(uint32 domain_id, uint64 seq_no);
   bool check_strict_gtid_sequence(uint32 domain_id, uint32 server_id,
                                   uint64 seq_no);
+
+
+  void update_binlog_end_pos(my_off_t pos)
+  {
+    mysql_mutex_assert_owner(&LOCK_log);
+    mysql_mutex_assert_not_owner(&LOCK_binlog_end_pos);
+    lock_binlog_end_pos();
+    /**
+     * note: it would make more sense to assert(pos > binlog_end_pos)
+     * but there are two places triggered by mtr that has pos == binlog_end_pos
+     * i didn't investigate but accepted as it should do no harm
+     */
+    DBUG_ASSERT(pos >= binlog_end_pos);
+    binlog_end_pos= pos;
+    signal_update();
+    unlock_binlog_end_pos();
+  }
+
+  /**
+   * used when opening new file, and binlog_end_pos moves backwards
+   */
+  void reset_binlog_end_pos(const char file_name[FN_REFLEN], my_off_t pos)
+  {
+    mysql_mutex_assert_owner(&LOCK_log);
+    mysql_mutex_assert_not_owner(&LOCK_binlog_end_pos);
+    lock_binlog_end_pos();
+    binlog_end_pos= pos;
+    strcpy(binlog_end_pos_file, file_name);
+    signal_update();
+    unlock_binlog_end_pos();
+  }
+
+  /*
+    It is called by the threads(e.g. dump thread) which want to read
+    log without LOCK_log protection.
+  */
+  my_off_t get_binlog_end_pos(char file_name_buf[FN_REFLEN]) const
+  {
+    mysql_mutex_assert_not_owner(&LOCK_log);
+    mysql_mutex_assert_owner(&LOCK_binlog_end_pos);
+    strcpy(file_name_buf, binlog_end_pos_file);
+    return binlog_end_pos;
+  }
+  void lock_binlog_end_pos() { mysql_mutex_lock(&LOCK_binlog_end_pos); }
+  void unlock_binlog_end_pos() { mysql_mutex_unlock(&LOCK_binlog_end_pos); }
+  mysql_mutex_t* get_binlog_end_pos_lock() { return &LOCK_binlog_end_pos; }
+
+  int wait_for_update_binlog_end_pos(THD* thd, struct timespec * timeout);
+
+  /*
+    Binlog position of end of the binlog.
+    Access to this is protected by LOCK_binlog_end_pos
+
+    The difference between this and last_commit_pos_{file,offset} is that
+    the commit position is updated later. If semi-sync wait point is set
+    to WAIT_AFTER_SYNC, the commit pos is update after semi-sync-ack has
+    been received and the end point is updated after the write as it's needed
+    for the dump threads to be able to semi-sync the event.
+  */
+  my_off_t binlog_end_pos;
+  char binlog_end_pos_file[FN_REFLEN];
 };
 
 class Log_event_handler
@@ -988,11 +1067,9 @@ uint purge_log_get_error_code(int res);
 
 int vprint_msg_to_log(enum loglevel level, const char *format, va_list args);
 void sql_print_error(const char *format, ...);
-void sql_print_warning(const char *format, ...) ATTRIBUTE_FORMAT(printf, 1, 2);
-void sql_print_information(const char *format, ...)
-  ATTRIBUTE_FORMAT(printf, 1, 2);
-typedef void (*sql_print_message_func)(const char *format, ...)
-  ATTRIBUTE_FORMAT_FPTR(printf, 1, 2);
+void sql_print_warning(const char *format, ...);
+void sql_print_information(const char *format, ...);
+typedef void (*sql_print_message_func)(const char *format, ...);
 extern sql_print_message_func sql_print_message_handlers[];
 
 int error_log_print(enum loglevel level, const char *format,
@@ -1007,6 +1084,7 @@ bool general_log_print(THD *thd, enum enum_server_command command,
 bool general_log_write(THD *thd, enum enum_server_command command,
                        const char *query, uint query_length);
 
+void binlog_report_wait_for(THD *thd, THD *other_thd);
 void sql_perror(const char *message);
 bool flush_error_log();
 
@@ -1019,6 +1097,8 @@ void binlog_reset_cache(THD *thd);
 extern MYSQL_PLUGIN_IMPORT MYSQL_BIN_LOG mysql_bin_log;
 extern LOGGER logger;
 
+extern const char *log_bin_index;
+extern const char *log_bin_basename;
 
 /**
   Turns a relative log binary log path into a full path, based on the

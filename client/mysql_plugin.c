@@ -1,5 +1,5 @@
 /*
-   Copyright (c) 2011, 2013, Oracle and/or its affiliates. All rights reserved.
+   Copyright (c) 2011, 2015, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,14 +15,12 @@
    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 */
 
+#include <my_global.h>
 #include <m_string.h>
 #include <mysql.h>
 #include <my_getopt.h>
 #include <my_dir.h>
-#include <my_global.h>
-#include <stdio.h>
-#include <string.h>
-
+#include <mysql_version.h>
 
 #define SHOW_VERSION "1.0.0"
 #define PRINT_VERSION do { printf("%s  Ver %s Distrib %s\n",    \
@@ -407,7 +405,7 @@ exit:
 static void usage(void)
 {
   PRINT_VERSION;
-  puts("Copyright (c) 2011, Oracle and/or its affiliates. "
+  puts("Copyright (c) 2011, 2015, Oracle and/or its affiliates. "
        "All rights reserved.\n");
   puts("Enable or disable plugins.");
   printf("\nUsage: %s [options] <plugin> ENABLE|DISABLE\n\nOptions:\n",
@@ -758,6 +756,11 @@ static int check_options(int argc, char **argv, char *operation)
     /* read the plugin config file and check for match against argument */
     else
     {
+      if (strlen(argv[i]) + 4 + 1 > FN_REFLEN)
+      {
+        fprintf(stderr, "ERROR: argument is too long.\n");
+        return 1;
+      }
       strcpy(plugin_name, argv[i]);
       strcpy(config_file, argv[i]);
       strcat(config_file, ".ini");
@@ -849,6 +852,7 @@ static int process_options(int argc, char *argv[], char *operation)
     if (opt_basedir[i-1] != FN_LIBCHAR || opt_basedir[i-1] != FN_LIBCHAR2)
     {
       char buff[FN_REFLEN];
+      memset(buff, 0, sizeof(buff));
       
       strncpy(buff, opt_basedir, sizeof(buff) - 1);
 #ifdef __WIN__

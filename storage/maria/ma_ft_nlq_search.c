@@ -83,8 +83,6 @@ static int walk_and_match(FT_WORD *word, uint32 count, ALL_IN_ONE *aio)
 #error
 #endif
   DBUG_ENTER("walk_and_match");
-  LINT_INIT(subkeys.i);
-
   LINT_INIT_STRUCT(subkeys);
 
   word->weight=LWS_FOR_QUERY;
@@ -121,7 +119,7 @@ static int walk_and_match(FT_WORD *word, uint32 count, ALL_IN_ONE *aio)
                         info->last_key.data+1,
                         info->last_key.data_length +
                         info->last_key.ref_length - extra - 1,
-                        key.data+1, key.data_length-1, 0, 0))
+                        key.data+1, key.data_length-1, 0))
      break;
 
     if (subkeys.i < 0)

@@ -204,6 +204,13 @@ int spider_free_share(
   SPIDER_SHARE *share
 );
 
+void spider_update_link_status_for_share(
+  const char *table_name,
+  uint table_name_length,
+  int link_idx,
+  long link_status
+);
+
 #ifdef WITH_PARTITION_STORAGE_ENGINE
 SPIDER_PARTITION_SHARE *spider_get_pt_share(
   SPIDER_SHARE *share,
@@ -412,6 +419,11 @@ void spider_next_split_read_param(
 
 bool spider_check_direct_order_limit(
   ha_spider *spider
+);
+
+bool spider_check_index_merge(
+  TABLE *table,
+  st_select_lex *select_lex
 );
 
 int spider_compare_for_sort(

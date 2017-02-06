@@ -15,6 +15,7 @@
 
 # Build comp_sql - used for embedding SQL in C or C++ programs
 IF(NOT CMAKE_CROSSCOMPILING)
+ INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include)
  ADD_EXECUTABLE(comp_sql comp_sql.c)
  TARGET_LINK_LIBRARIES(comp_sql)
 ENDIF()
@@ -78,6 +79,7 @@ INSTALL(FILES
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_performance_tables.sql
   ${CMAKE_CURRENT_SOURCE_DIR}/fill_help_tables.sql
   ${CMAKE_CURRENT_SOURCE_DIR}/mysql_test_data_timezone.sql
+  ${CMAKE_CURRENT_SOURCE_DIR}/mysql_to_mariadb.sql
   ${FIX_PRIVILEGES_SQL}
   DESTINATION ${INSTALL_MYSQLSHAREDIR} COMPONENT Server
 )
@@ -89,17 +91,10 @@ IF(MALLOC_LIB)
 ENDIF()
 
 IF(CMAKE_GENERATOR MATCHES "Makefiles|Ninja")
-  # Strip maintainer mode options if necessary
-  STRING(REPLACE "${MY_MAINTAINER_C_WARNINGS}" "" CFLAGS "${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_RELWITHDEBINFO}")
-  STRING(REPLACE "${MY_MAINTAINER_CXX_WARNINGS}" "" CXXFLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
   FOREACH(ARCH ${CMAKE_OSX_ARCHITECTURES})
     SET(CFLAGS   "${CFLAGS} -arch ${ARCH}")
     SET(CXXFLAGS "${CXXFLAGS} -arch ${ARCH}")
   ENDFOREACH()
-ELSE()
-  # Strip maintainer mode options if necessary
-  STRING(REPLACE "${MY_MAINTAINER_C_WARNINGS}" "" CFLAGS "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
-  STRING(REPLACE "${MY_MAINTAINER_CXX_WARNINGS}" "" CXXFLAGS "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
 ENDIF()
 
 IF(UNIX)
@@ -139,48 +134,6 @@ ENDIF()
 
 SET(HOSTNAME "hostname")
 SET(MYSQLD_USER "mysql")
-
-# Required for mysqlbug until autotools are deprecated, once done remove these
-# and expand default cmake variables
-SET(CC ${CMAKE_C_COMPILER})
-SET(CXX ${CMAKE_CXX_COMPILER})
-SET(SAVE_CC ${CMAKE_C_COMPILER})
-SET(SAVE_CXX ${CMAKE_CXX_COMPILER})
-SET(SAVE_CFLAGS ${CFLAGS})
-SET(SAVE_CXXFLAGS ${CXXFLAGS})
-# XXX no cmake equivalent for this, just make one up
-SET(CONFIGURE_LINE "Built using CMake")
-
-# Also required for mysqlbug, autoconf only supports --version so for now we
-# just explicitly require GNU
-IF(CMAKE_COMPILER_IS_GNUCC)
-  EXECUTE_PROCESS(
-    COMMAND ${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_ARG1} --version
-    COMMAND sed 1q
-    OUTPUT_VARIABLE CC_VERSION)
-ELSE()
-  SET(CC_VERSION "")
-ENDIF()
-IF(CMAKE_COMPILER_IS_GNUCXX)
-  EXECUTE_PROCESS(
-    COMMAND ${CMAKE_CXX_COMPILER} ${CMAKE_CXX_COMPILER_ARG1} --version
-    COMMAND sed 1q
-    OUTPUT_VARIABLE CXX_VERSION)
-ELSE()
-  SET(CXX_VERSION "")
-ENDIF()
-
-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/mysqlbug.sh
-  ${CMAKE_CURRENT_BINARY_DIR}/mysqlbug ESCAPE_QUOTES @ONLY)
-  EXECUTE_PROCESS(
-  COMMAND chmod +x ${CMAKE_CURRENT_BINARY_DIR}/mysqlbug
-  )
-
-INSTALL_SCRIPT(${CMAKE_CURRENT_BINARY_DIR}/mysqlbug
-  DESTINATION ${INSTALL_BINDIR}
-  COMPONENT Server
-  )
-
 ENDIF(UNIX)
 
 # Really ugly, one script, "mysql_install_db", needs prefix set to ".",
@@ -189,33 +142,32 @@ ENDIF(UNIX)
 
 IF(INSTALL_LAYOUT MATCHES "STANDALONE")
   SET(prefix ".")
-ELSE()
-  SET(prefix "${CMAKE_INSTALL_PREFIX}")
-ENDIF()
-
-SET(bindir ${prefix}/${INSTALL_BINDIR})
-SET(sbindir ${prefix}/${INSTALL_SBINDIR})
-SET(scriptdir ${prefix}/${INSTALL_BINDIR})
-SET(libexecdir ${prefix}/${INSTALL_SBINDIR})
-SET(pkgdatadir ${prefix}/${INSTALL_MYSQLSHAREDIR})
-IF(INSTALL_LAYOUT MATCHES "STANDALONE")
+  SET(bindir ${prefix}/${INSTALL_BINDIR})
+  SET(sbindir ${prefix}/${INSTALL_SBINDIR})
+  SET(scriptdir ${prefix}/${INSTALL_BINDIR})
+  SET(libexecdir ${prefix}/${INSTALL_SBINDIR})
+  SET(pkgdatadir ${prefix}/${INSTALL_MYSQLSHAREDIR})
   SET(localstatedir ${prefix}/data)
 ELSE()
+  SET(prefix "${CMAKE_INSTALL_PREFIX}")
+  SET(bindir ${INSTALL_BINDIRABS})
+  SET(sbindir ${INSTALL_SBINDIRABS})
+  SET(scriptdir ${INSTALL_BINDIRABS})
+  SET(libexecdir ${INSTALL_SBINDIRABS})
+  SET(pkgdatadir ${INSTALL_MYSQLSHAREDIRABS})
   SET(localstatedir ${MYSQL_DATADIR})
 ENDIF()
 
 IF(UNIX)
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/mysql_install_db.sh
   ${CMAKE_CURRENT_BINARY_DIR}/mysql_install_db ESCAPE_QUOTES @ONLY)
-  SET(DEST ${INSTALL_SCRIPTDIR})
-  SET(EXT)
   EXECUTE_PROCESS(
   COMMAND chmod +x ${CMAKE_CURRENT_BINARY_DIR}/mysql_install_db
   )
 
 INSTALL_SCRIPT(
  "${CMAKE_CURRENT_BINARY_DIR}/mysql_install_db"
-  DESTINATION ${DEST}
+  DESTINATION ${INSTALL_SCRIPTDIR}
   COMPONENT Server
   )
 ENDIF()
@@ -226,15 +178,15 @@ IF(INSTALL_SYSCONFDIR)
 ELSE()
   SET(sysconfdir "/etc")
 ENDIF()
-SET(bindir ${prefix}/${INSTALL_BINDIR})
-SET(libexecdir ${prefix}/${INSTALL_SBINDIR})
-SET(scriptdir ${prefix}/${INSTALL_BINDIR})
-SET(datadir ${prefix}/${INSTALL_MYSQLSHAREDIR})
-SET(pkgdatadir ${prefix}/${INSTALL_MYSQLSHAREDIR})
+SET(bindir ${INSTALL_BINDIRABS})
+SET(libexecdir ${INSTALL_SBINDIRABS})
+SET(scriptdir ${INSTALL_BINDIRABS})
+SET(datadir ${INSTALL_MYSQLSHAREDIRABS})
+SET(pkgdatadir ${INSTALL_MYSQLSHAREDIRABS})
 SET(libsubdir  ${INSTALL_LIBDIR})
-SET(pkgincludedir ${prefix}/${INSTALL_INCLUDEDIR})
-SET(pkglibdir ${prefix}/${INSTALL_LIBDIR})
-SET(pkgplugindir ${prefix}/${INSTALL_PLUGINDIR})
+SET(pkgincludedir ${INSTALL_INCLUDEDIRABS})
+SET(pkglibdir ${INSTALL_LIBDIRABS})
+SET(pkgplugindir ${INSTALL_PLUGINDIRABS})
 SET(localstatedir ${MYSQL_DATADIR})
 
 SET(RPATH_OPTION "")
@@ -290,6 +242,14 @@ ELSE()
       wsrep_sst_xtrabackup-v2
     )
   ENDIF()
+  IF (NOT WITHOUT_SERVER)
+    SET(SERVER_SCRIPTS
+      mysql_fix_extensions
+      mysqld_multi
+      mysqld_safe
+      mysqldumpslow
+    )
+  ENDIF()
   # Configure this one, for testing, but do not install it.
   CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/mysql_config.pl.in
     ${CMAKE_CURRENT_BINARY_DIR}/mysql_config.pl ESCAPE_QUOTES @ONLY)
@@ -297,19 +257,16 @@ ELSE()
   SET(BIN_SCRIPTS
     msql2mysql
     mysql_config
-    mysql_fix_extensions
     mysql_setpermission
     mysql_secure_installation
-    mysql_zap
     mysqlaccess
     mysql_convert_table_format
     mysql_find_rows
     mytop
     mysqlhotcopy
-    mysqldumpslow
-    mysqld_multi
-    mysqld_safe
+    ${SERVER_SCRIPTS}
     ${WSREP_BINARIES}
+    ${SYSTEMD_SCRIPTS}
   )
   FOREACH(file ${BIN_SCRIPTS})
     IF(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${file}.sh)
@@ -333,6 +290,29 @@ ELSE()
      )
   ENDFOREACH()
 ENDIF()
+
+# Configure two scripts from one 'in' file.
+# The maria_add_gis_sp.sql - to be sent to 'mysql' tool
+# and the maria_add_gis_sp_bootstrap.sql, that can be sent to
+# the server as a bootstrap command.
+
+SET(ADD_GIS_SP_SET_DELIMITER "delimiter |")
+SET(ADD_GIS_SP_RESET_DELIMITER "delimiter ;")
+SET(ADD_GIS_SP_EOL "|")
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/maria_add_gis_sp.sql.in
+  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp.sql ESCAPE_QUOTES @ONLY)
+
+SET(ADD_GIS_SP_SET_DELIMITER "")
+SET(ADD_GIS_SP_RESET_DELIMITER "")
+SET(ADD_GIS_SP_EOL ";")
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/maria_add_gis_sp.sql.in
+  ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp_bootstrap.sql ESCAPE_QUOTES @ONLY)
+
+INSTALL_SCRIPT(${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp.sql
+               ${CMAKE_CURRENT_BINARY_DIR}/maria_add_gis_sp_bootstrap.sql
+  DESTINATION ${INSTALL_MYSQLSHAREDIR}
+  COMPONENT Server
+  )
 
 # Install libgcc as  mylibgcc.a
 IF(CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_FLAGS MATCHES "-static")

@@ -13,8 +13,8 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
-#include "unireg.h"                      // REQUIRED by other includes
 #include "rpl_rli.h"
 #include "rpl_record_old.h"
 #include "log_event.h"                          // Log_event_type

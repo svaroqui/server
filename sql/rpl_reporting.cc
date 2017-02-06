@@ -14,6 +14,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "rpl_reporting.h"
 #include "log.h" // sql_print_error, sql_print_warning,
@@ -58,6 +59,7 @@ Slave_reporting_capability::report(loglevel level, int err_code,
     report_function= sql_print_information;
     break;
   default:
+    va_end(args);
     DBUG_ASSERT(0);                            // should not come here
     return;          // don't crash production builds, just do nothing
   }

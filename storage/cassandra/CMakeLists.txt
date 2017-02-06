@@ -50,10 +50,6 @@ SET(cassandra_sources
 LINK_DIRECTORIES(${LINK_DIR})
 
 IF(CASSANDRASE_OK)
-  SET(CASSANDRA_DEB_FILES "usr/lib/mysql/plugin/ha_cassandra.so" PARENT_SCOPE)
+  MYSQL_ADD_PLUGIN(cassandra ${cassandra_sources} STORAGE_ENGINE
+    MODULE_ONLY LINK_LIBRARIES thrift COMPONENT cassandra-engine)
 ENDIF(CASSANDRASE_OK)
-
-MYSQL_ADD_PLUGIN(cassandra ${cassandra_sources} STORAGE_ENGINE
-  ONLY_IF CASSANDRASE_OK
-  MODULE_ONLY LINK_LIBRARIES thrift COMPONENT cassandra-engine)
-

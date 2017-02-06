@@ -28,14 +28,11 @@ source include/have_innodb.inc;
 
 --echo ==== Test Without sql_mode=strict_trans_tables ====
 
---echo [on master]
 create table t1 (n int not null primary key);
 
---echo [on slave]
 sync_slave_with_master;
 insert into t1 values (1);
 
---echo [on master]
 connection master;
 # Here we expect (ignored) error, since 1 is already in slave table 
 insert into t1 values (1);
@@ -43,16 +40,13 @@ insert into t1 values (1);
 insert into t1 values (2),(3);
 
 sync_slave_with_master;
---echo [on slave]
 select * from t1 order by n;
 
 --echo ==== Test With sql_mode=strict_trans_tables ====
 insert into t1 values (7),(8);
---echo [on master]
 connection master;
 set sql_mode=strict_trans_tables;
 insert into t1 values (7), (8), (9);
---echo [on slave]
 sync_slave_with_master;
 select * from t1 order by n;
 source include/check_slave_is_running.inc;
@@ -75,7 +69,6 @@ SET SQL_LOG_BIN=1;
 set sql_mode=strict_trans_tables;
 insert into t1 values (1), (2), (3);
 
---echo [on slave]
 sync_slave_with_master;
 select * from t1;
 source include/check_slave_is_running.inc;
@@ -140,6 +133,7 @@ connection slave;
 
 CREATE TABLE t2(id INT NOT NULL PRIMARY KEY, data INT) Engine=MyIsam;
 SHOW CREATE TABLE t2;
+show global status like 'slave_skipped_errors';
 
 connection master;
 
@@ -157,6 +151,7 @@ sync_slave_with_master;
 
 let $error= query_get_value("SHOW SLAVE STATUS", Last_SQL_Error, 1);
 echo $error;
+show global status like 'slave_skipped_errors';
 
 --echo **** We cannot execute a select as there are differences in the 
 --echo **** behavior between STMT and RBR.

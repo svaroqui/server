@@ -179,28 +179,6 @@ static const uchar sort_order_ujis[]=
 };
 
 
-#define isujis(c)     ((0xa1<=((c)&0xff) && ((c)&0xff)<=0xfe))
-#define iskata(c)     ((0xa1<=((c)&0xff) && ((c)&0xff)<=0xdf))
-#define isujis_ss2(c) (((c)&0xff) == 0x8e)
-#define isujis_ss3(c) (((c)&0xff) == 0x8f)
-
-
-static uint ismbchar_ujis(CHARSET_INFO *cs __attribute__((unused)),
-		  const char* p, const char *e)
-{
-  return ((*(uchar*)(p)<0x80)? 0:\
-    isujis(*(p)) && (e)-(p)>1 && isujis(*((p)+1))? 2:\
-    isujis_ss2(*(p)) && (e)-(p)>1 && iskata(*((p)+1))? 2:\
-    isujis_ss3(*(p)) && (e)-(p)>2 && isujis(*((p)+1)) && isujis(*((p)+2))? 3:\
-    0);
-}
-
-static uint mbcharlen_ujis(CHARSET_INFO *cs __attribute__((unused)),uint c)
-{
-  return (isujis(c)? 2: isujis_ss2(c)? 2: isujis_ss3(c)? 3: 1);
-}
-
-
 /*
   EUC-JP encoding subcomponents:
   [x00-x7F]                        # ASCII/JIS-Roman (one-byte/character)  
@@ -209,53 +187,57 @@ static uint mbcharlen_ujis(CHARSET_INFO *cs __attribute__((unused)),uint c)
   [xA1-xFE][xA1-xFE]               # JIS X 0208:1997 (two bytes/char)
 */
 
-static
-size_t my_well_formed_len_ujis(CHARSET_INFO *cs __attribute__((unused)),
-                               const char *beg, const char *end,
-                               size_t pos, int *error)
-{
-  const uchar *b= (uchar *) beg;
-  
-  for ( *error= 0 ; pos && b < (uchar*) end; pos--, b++)
-  {
-    char *chbeg;
-    uint ch= *b;
-    
-    if (ch <= 0x7F)                 /* one byte */
-      continue;
-    
-    chbeg= (char *) b++;
-    if (b >= (uchar *) end)         /* need more bytes */
-    {
-      *error= 1;
-      return (size_t) (chbeg - beg);            /* unexpected EOL  */ 
-    }
-    
-    if (isujis_ss2(ch))            /* [x8E][xA1-xDF] */
-    {
-      if (iskata(*b))
-        continue;
-      *error= 1;
-      return (size_t) (chbeg - beg);  /* invalid sequence */
-    }
-    
-    if (isujis_ss3(ch))           /* [x8F][xA1-xFE][xA1-xFE] */
-    {
-      ch= *b++;
-      if (b >= (uchar*) end)
-      {
-        *error= 1;
-        return (size_t) (chbeg - beg); /* unexpected EOL */
-      }
-    }
-    
-    if (isujis(ch) && isujis(*b)) /* [xA1-xFE][xA1-xFE] */
-      continue;
-    *error= 1;
-    return (size_t) (chbeg - beg);    /* invalid sequence */
-  }
-  return (size_t) (b - (uchar *) beg);
-}
+#define isujis(c)             (0xa1 <= (uchar) (c) && (uchar) (c) <= 0xfe)
+#define iskata(c)             (0xa1 <= (uchar) (c) && (uchar) (c) <= 0xdf)
+#define isujis_ss2(c)         ((uchar) (c) == 0x8e)
+#define isujis_ss3(c)         ((uchar) (c) == 0x8f)
+
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _ujis
+#define IS_MB1_CHAR(x)        ((uchar) (x) < 0x80)
+#define IS_MB2_JIS(x,y)       (isujis(x)        && isujis(y))
+#define IS_MB2_KATA(x,y)      (isujis_ss2(x)    && iskata(y))
+#define IS_MB2_CHAR(x, y)     (IS_MB2_KATA(x,y) || IS_MB2_JIS(x,y))
+#define IS_MB3_CHAR(x, y, z)  (isujis_ss3(x)    && IS_MB2_JIS(y,z))
+#define IS_MB_PREFIX2(x,y)    (isujis_ss3(x)    && isujis(y))
+#define DEFINE_ASIAN_ROUTINES
+#include "ctype-mb.ic"
+
+#define MY_FUNCTION_NAME(x)  my_ ## x ## _ujis_japanese_ci
+#define WEIGHT_ILSEQ(x)      (0xFF0000 + (uchar) (x))
+#define WEIGHT_MB1(x)        ((int) sort_order_ujis[(uchar) (x)])
+#define WEIGHT_MB2(x,y)      ((((uint) (uchar)(x)) << 16) | \
+                             (((uint) (uchar) (y)) <<  8))
+#define WEIGHT_MB3(x,y,z)    (WEIGHT_MB2(x,y) | ((uint) (uchar) z))
+#include "strcoll.ic"
+
+
+#define MY_FUNCTION_NAME(x)  my_ ## x ## _ujis_bin
+#define WEIGHT_ILSEQ(x)      (0xFF0000 + (uchar) (x))
+#define WEIGHT_MB1(x)        ((int) (uchar) (x))
+#define WEIGHT_MB2(x,y)      ((((uint) (uchar)(x)) << 16) | \
+                             (((uint) (uchar) (y)) <<  8))
+#define WEIGHT_MB3(x,y,z)    (WEIGHT_MB2(x,y) | ((uint) (uchar) z))
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)  my_ ## x ## _ujis_japanese_nopad_ci
+#define WEIGHT_ILSEQ(x)      (0xFF0000 + (uchar) (x))
+#define WEIGHT_MB1(x)        ((int) sort_order_ujis[(uchar) (x)])
+#define WEIGHT_MB2(x,y)      ((((uint) (uchar)(x)) << 16) | \
+                             (((uint) (uchar) (y)) <<  8))
+#define WEIGHT_MB3(x,y,z)    (WEIGHT_MB2(x,y) | ((uint) (uchar) z))
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)  my_ ## x ## _ujis_nopad_bin
+#define WEIGHT_ILSEQ(x)      (0xFF0000 + (uchar) (x))
+#define WEIGHT_MB1(x)        ((int) (uchar) (x))
+#define WEIGHT_MB2(x,y)      ((((uint) (uchar)(x)) << 16) | \
+                             (((uint) (uchar) (y)) <<  8))
+#define WEIGHT_MB3(x,y,z)    (WEIGHT_MB2(x,y) | ((uint) (uchar) z))
+#include "strcoll.ic"
 
 
 static
@@ -67252,11 +67234,11 @@ my_caseup_ujis(CHARSET_INFO * cs, char *src, size_t srclen,
 
 #ifdef HAVE_CHARSET_ujis
 
-static MY_COLLATION_HANDLER my_collation_ci_handler =
+static MY_COLLATION_HANDLER my_collation_ujis_japanese_ci_handler =
 {
     NULL,		/* init */
-    my_strnncoll_simple,/* strnncoll    */
-    my_strnncollsp_simple,
+    my_strnncoll_ujis_japanese_ci,
+    my_strnncollsp_ujis_japanese_ci,
     my_strnxfrm_mb,     /* strnxfrm     */
     my_strnxfrmlen_simple,
     my_like_range_mb,   /* like_range   */
@@ -67267,14 +67249,60 @@ static MY_COLLATION_HANDLER my_collation_ci_handler =
     my_propagate_simple
 };
 
+
+static MY_COLLATION_HANDLER my_collation_ujis_bin_handler =
+{
+    NULL,                    /* init */
+    my_strnncoll_ujis_bin,
+    my_strnncollsp_ujis_bin,
+    my_strnxfrm_mb,
+    my_strnxfrmlen_simple,
+    my_like_range_mb,
+    my_wildcmp_mb_bin,
+    my_strcasecmp_mb_bin,
+    my_instr_mb,
+    my_hash_sort_mb_bin,
+    my_propagate_simple
+};
+
+
+static MY_COLLATION_HANDLER my_collation_ujis_japanese_nopad_ci_handler =
+{
+    NULL,                    /* init */
+    my_strnncoll_ujis_japanese_ci,
+    my_strnncollsp_ujis_japanese_nopad_ci,
+    my_strnxfrm_mb_nopad,
+    my_strnxfrmlen_simple,
+    my_like_range_mb,
+    my_wildcmp_mb,
+    my_strcasecmp_mb,
+    my_instr_mb,
+    my_hash_sort_simple_nopad,
+    my_propagate_simple
+};
+
+
+static MY_COLLATION_HANDLER my_collation_ujis_nopad_bin_handler =
+{
+    NULL,                    /* init */
+    my_strnncoll_ujis_bin,
+    my_strnncollsp_ujis_nopad_bin,
+    my_strnxfrm_mb_nopad,
+    my_strnxfrmlen_simple,
+    my_like_range_mb,
+    my_wildcmp_mb_bin,
+    my_strcasecmp_mb_bin,
+    my_instr_mb,
+    my_hash_sort_mb_nopad_bin,
+    my_propagate_simple
+};
+
+
 static MY_CHARSET_HANDLER my_charset_handler=
 {
     NULL,		/* init */
-    ismbchar_ujis,
-    mbcharlen_ujis,
     my_numchars_mb,
     my_charpos_mb,
-    my_well_formed_len_ujis,
     my_lengthsp_8bit,
     my_numcells_eucjp,
     my_mb_wc_euc_jp,	/* mb_wc       */
@@ -67295,7 +67323,11 @@ static MY_CHARSET_HANDLER my_charset_handler=
     my_strntod_8bit,
     my_strtoll10_8bit,
     my_strntoull10rnd_8bit,
-    my_scan_8bit
+    my_scan_8bit,
+    my_charlen_ujis,
+    my_well_formed_char_length_ujis,
+    my_copy_fix_mb,
+    my_native_to_mb_ujis,
 };
 
 
@@ -67329,7 +67361,7 @@ struct charset_info_st my_charset_ujis_japanese_ci=
     0,                  /* escape_with_backslash_is_dangerous */
     1,                  /* levels_for_order   */
     &my_charset_handler,
-    &my_collation_ci_handler
+    &my_collation_ujis_japanese_ci_handler
 };
 
 
@@ -67362,7 +67394,73 @@ struct charset_info_st my_charset_ujis_bin=
     0,                  /* escape_with_backslash_is_dangerous */
     1,                  /* levels_for_order   */
     &my_charset_handler,
-    &my_collation_mb_bin_handler
+    &my_collation_ujis_bin_handler
+};
+
+
+struct charset_info_st my_charset_ujis_japanese_nopad_ci=
+{
+    MY_NOPAD_ID(12),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_NOPAD, /* state    */
+    "ujis",             /* cs name          */
+    "ujis_japanese_nopad_ci", /* name       */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_ujis,
+    to_lower_ujis,
+    to_upper_ujis,
+    sort_order_ujis,
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_ujis,  /* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    2,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    3,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xFEFE,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    0,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_ujis_japanese_nopad_ci_handler
+};
+
+
+struct charset_info_st my_charset_ujis_nopad_bin=
+{
+    MY_NOPAD_ID(91),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_BINSORT|MY_CS_NOPAD, /* state */
+    "ujis",             /* cs name          */
+    "ujis_nopad_bin",   /* name             */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_ujis,
+    to_lower_ujis,
+    to_upper_ujis,
+    NULL,               /* sort_order       */
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_ujis,  /* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    2,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    3,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xFEFE,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    0,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_ujis_nopad_bin_handler
 };
 
 

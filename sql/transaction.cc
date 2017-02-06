@@ -18,11 +18,50 @@
 #pragma implementation                         // gcc: Class implementation
 #endif
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "transaction.h"
 #include "rpl_handler.h"
 #include "debug_sync.h"         // DEBUG_SYNC
 #include "sql_acl.h"
+
+
+#ifndef EMBEDDED_LIBRARY
+/**
+  Helper: Tell tracker (if any) that transaction ended.
+*/
+static void trans_track_end_trx(THD *thd)
+{
+  if (thd->variables.session_track_transaction_info > TX_TRACK_NONE)
+  {
+    ((Transaction_state_tracker *)
+     thd->session_tracker.get_tracker(TRANSACTION_INFO_TRACKER))->end_trx(thd);
+  }
+}
+#else
+#define trans_track_end_trx(A) do{}while(0)
+#endif //EMBEDDED_LIBRARY
+
+
+/**
+  Helper: transaction ended, SET TRANSACTION one-shot variables
+  revert to session values. Let the transaction state tracker know.
+*/
+void trans_reset_one_shot_chistics(THD *thd)
+{
+#ifndef EMBEDDED_LIBRARY
+  if (thd->variables.session_track_transaction_info > TX_TRACK_NONE)
+  {
+    Transaction_state_tracker *tst= (Transaction_state_tracker *)
+      thd->session_tracker.get_tracker(TRANSACTION_INFO_TRACKER);
+
+    tst->set_read_flags(thd, TX_READ_INHERIT);
+    tst->set_isol_level(thd, TX_ISOL_INHERIT);
+  }
+#endif //EMBEDDED_LIBRARY
+  thd->tx_isolation= (enum_tx_isolation) thd->variables.tx_isolation;
+  thd->tx_read_only= thd->variables.tx_read_only;
+}
 
 /* Conditions under which the transaction state must not change. */
 static bool trans_check(THD *thd)
@@ -124,10 +163,19 @@ static bool xa_trans_force_rollback(THD *thd)
 bool trans_begin(THD *thd, uint flags)
 {
   int res= FALSE;
+#ifndef EMBEDDED_LIBRARY
+  Transaction_state_tracker *tst= NULL;
+#endif //EMBEDDED_LIBRARY
   DBUG_ENTER("trans_begin");
 
   if (trans_check(thd))
     DBUG_RETURN(TRUE);
+
+#ifndef EMBEDDED_LIBRARY
+  if (thd->variables.session_track_transaction_info > TX_TRACK_NONE)
+    tst= (Transaction_state_tracker *)
+      thd->session_tracker.get_tracker(TRANSACTION_INFO_TRACKER);
+#endif //EMBEDDED_LIBRARY
 
   thd->locked_tables_list.unlock_locked_tables(thd);
 
@@ -154,6 +202,9 @@ bool trans_begin(THD *thd, uint flags)
     when we come here.  We should at some point change this to an assert.
   */
   thd->transaction.all.modified_non_trans_table= FALSE;
+  thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
+  thd->has_waiter= false;
+  thd->waiting_on_group_commit= false;
 
   if (res)
     DBUG_RETURN(TRUE);
@@ -168,7 +219,13 @@ bool trans_begin(THD *thd, uint flags)
   DBUG_ASSERT(!((flags & MYSQL_START_TRANS_OPT_READ_ONLY) &&
                 (flags & MYSQL_START_TRANS_OPT_READ_WRITE)));
   if (flags & MYSQL_START_TRANS_OPT_READ_ONLY)
+  {
     thd->tx_read_only= true;
+#ifndef EMBEDDED_LIBRARY
+    if (tst)
+      tst->set_read_flags(thd, TX_READ_ONLY);
+#endif //EMBEDDED_LIBRARY
+  }
   else if (flags & MYSQL_START_TRANS_OPT_READ_WRITE)
   {
     /*
@@ -185,6 +242,14 @@ bool trans_begin(THD *thd, uint flags)
       DBUG_RETURN(true);
     }
     thd->tx_read_only= false;
+    /*
+      This flags that tx_read_only was set explicitly, rather than
+      just from the session's default.
+    */
+#ifndef EMBEDDED_LIBRARY
+    if (tst)
+      tst->set_read_flags(thd, TX_READ_WRITE);
+#endif //EMBEDDED_LIBRARY
   }
 
 #ifdef WITH_WSREP
@@ -199,9 +264,20 @@ bool trans_begin(THD *thd, uint flags)
     thd->server_status|= SERVER_STATUS_IN_TRANS_READONLY;
   DBUG_PRINT("info", ("setting SERVER_STATUS_IN_TRANS"));
 
+#ifndef EMBEDDED_LIBRARY
+  if (tst)
+    tst->add_trx_state(thd, TX_EXPLICIT);
+#endif //EMBEDDED_LIBRARY
+
   /* ha_start_consistent_snapshot() relies on OPTION_BEGIN flag set. */
   if (flags & MYSQL_START_TRANS_OPT_WITH_CONS_SNAPSHOT)
+  {
+#ifndef EMBEDDED_LIBRARY
+    if (tst)
+      tst->add_trx_state(thd, TX_WITH_SNAPSHOT);
+#endif //EMBEDDED_LIBRARY
     res= ha_start_consistent_snapshot(thd);
+  }
 
   DBUG_RETURN(MY_TEST(res));
 }
@@ -230,6 +306,12 @@ bool trans_commit(THD *thd)
     ~(SERVER_STATUS_IN_TRANS | SERVER_STATUS_IN_TRANS_READONLY);
   DBUG_PRINT("info", ("clearing SERVER_STATUS_IN_TRANS"));
   res= ha_commit_trans(thd, TRUE);
+
+  mysql_mutex_assert_not_owner(&LOCK_prepare_ordered);
+  mysql_mutex_assert_not_owner(mysql_bin_log.get_log_lock());
+  mysql_mutex_assert_not_owner(&LOCK_after_binlog_sync);
+  mysql_mutex_assert_not_owner(&LOCK_commit_ordered);
+
   if (WSREP_ON)
     wsrep_post_commit(thd, TRUE);
     /*
@@ -242,7 +324,10 @@ bool trans_commit(THD *thd)
     (void) RUN_HOOK(transaction, after_commit, (thd, FALSE));
   thd->variables.option_bits&= ~(OPTION_BEGIN | OPTION_KEEP_LOG);
   thd->transaction.all.modified_non_trans_table= FALSE;
+  thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
   thd->lex->start_transaction_opt= 0;
+
+  trans_track_end_trx(thd);
 
   DBUG_RETURN(MY_TEST(res));
 }
@@ -289,6 +374,7 @@ bool trans_commit_implicit(THD *thd)
 
   thd->variables.option_bits&= ~(OPTION_BEGIN | OPTION_KEEP_LOG);
   thd->transaction.all.modified_non_trans_table= FALSE;
+  thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
 
   /*
     Upon implicit commit, reset the current transaction
@@ -296,8 +382,9 @@ bool trans_commit_implicit(THD *thd)
     @@session.completion_type since it's documented
     to not have any effect on implicit commit.
   */
-  thd->tx_isolation= (enum_tx_isolation) thd->variables.tx_isolation;
-  thd->tx_read_only= thd->variables.tx_read_only;
+  trans_reset_one_shot_chistics(thd);
+
+  trans_track_end_trx(thd);
 
   DBUG_RETURN(res);
 }
@@ -334,7 +421,10 @@ bool trans_rollback(THD *thd)
   /* Reset the binlog transaction marker */
   thd->variables.option_bits&= ~OPTION_GTID_BEGIN;
   thd->transaction.all.modified_non_trans_table= FALSE;
+  thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
   thd->lex->start_transaction_opt= 0;
+
+  trans_track_end_trx(thd);
 
   DBUG_RETURN(MY_TEST(res));
 }
@@ -378,9 +468,12 @@ bool trans_rollback_implicit(THD *thd)
   */
   thd->variables.option_bits&= ~(OPTION_KEEP_LOG);
   thd->transaction.all.modified_non_trans_table= false;
+  thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
 
   /* Rollback should clear transaction_rollback_request flag. */
   DBUG_ASSERT(! thd->transaction_rollback_request);
+
+  trans_track_end_trx(thd);
 
   DBUG_RETURN(MY_TEST(res));
 }
@@ -420,12 +513,16 @@ bool trans_commit_stmt(THD *thd)
     res= ha_commit_trans(thd, FALSE);
     if (! thd->in_active_multi_stmt_transaction())
     {
-      thd->tx_isolation= (enum_tx_isolation) thd->variables.tx_isolation;
-      thd->tx_read_only= thd->variables.tx_read_only;
+      trans_reset_one_shot_chistics(thd);
       if (WSREP_ON)
         wsrep_post_commit(thd, FALSE);
     }
   }
+
+  mysql_mutex_assert_not_owner(&LOCK_prepare_ordered);
+  mysql_mutex_assert_not_owner(mysql_bin_log.get_log_lock());
+  mysql_mutex_assert_not_owner(&LOCK_after_binlog_sync);
+  mysql_mutex_assert_not_owner(&LOCK_commit_ordered);
 
     /*
       if res is non-zero, then ha_commit_trans has rolled back the
@@ -468,10 +565,7 @@ bool trans_rollback_stmt(THD *thd)
       wsrep_register_hton(thd, FALSE);
     ha_rollback_trans(thd, FALSE);
     if (! thd->in_active_multi_stmt_transaction())
-    {
-      thd->tx_isolation= (enum_tx_isolation) thd->variables.tx_isolation;
-      thd->tx_read_only= thd->variables.tx_read_only;
-    }
+      trans_reset_one_shot_chistics(thd);
   }
 
   (void) RUN_HOOK(transaction, after_rollback, (thd, FALSE));
@@ -638,7 +732,7 @@ bool trans_rollback_to_savepoint(THD *thd, LEX_STRING name)
            !thd->slave_thread)
     push_warning(thd, Sql_condition::WARN_LEVEL_WARN,
                  ER_WARNING_NOT_COMPLETE_ROLLBACK,
-                 ER(ER_WARNING_NOT_COMPLETE_ROLLBACK));
+                 ER_THD(thd, ER_WARNING_NOT_COMPLETE_ROLLBACK));
 
   thd->transaction.savepoints= sv;
 
@@ -721,7 +815,7 @@ bool trans_xa_start(THD *thd)
     thd->transaction.xid_state.xa_state= XA_ACTIVE;
     thd->transaction.xid_state.rm_error= 0;
     thd->transaction.xid_state.xid.set(thd->lex->xid);
-    if (xid_cache_insert(&thd->transaction.xid_state))
+    if (xid_cache_insert(thd, &thd->transaction.xid_state))
     {
       thd->transaction.xid_state.xa_state= XA_NOTR;
       thd->transaction.xid_state.xid.null();
@@ -784,7 +878,7 @@ bool trans_xa_prepare(THD *thd)
     my_error(ER_XAER_NOTA, MYF(0));
   else if (ha_prepare(thd))
   {
-    xid_cache_delete(&thd->transaction.xid_state);
+    xid_cache_delete(thd, &thd->transaction.xid_state);
     thd->transaction.xid_state.xa_state= XA_NOTR;
     my_error(ER_XA_RBROLLBACK, MYF(0));
   }
@@ -813,25 +907,21 @@ bool trans_xa_commit(THD *thd)
 
   if (!thd->transaction.xid_state.xid.eq(thd->lex->xid))
   {
-    /*
-      xid_state.in_thd is always true beside of xa recovery procedure.
-      Note, that there is no race condition here between xid_cache_search
-      and xid_cache_delete, since we always delete our own XID
-      (thd->lex->xid == thd->transaction.xid_state.xid).
-      The only case when thd->lex->xid != thd->transaction.xid_state.xid
-      and xid_state->in_thd == 0 is in the function
-      xa_cache_insert(XID, xa_states), which is called before starting
-      client connections, and thus is always single-threaded.
-    */
-    XID_STATE *xs= xid_cache_search(thd->lex->xid);
-    res= !xs || xs->in_thd;
+    if (thd->fix_xid_hash_pins())
+    {
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
+      DBUG_RETURN(TRUE);
+    }
+
+    XID_STATE *xs= xid_cache_search(thd, thd->lex->xid);
+    res= !xs;
     if (res)
       my_error(ER_XAER_NOTA, MYF(0));
     else
     {
       res= xa_trans_rolled_back(xs);
       ha_commit_or_rollback_by_xid(thd->lex->xid, !res);
-      xid_cache_delete(xs);
+      xid_cache_delete(thd, xs);
     }
     DBUG_RETURN(res);
   }
@@ -890,11 +980,14 @@ bool trans_xa_commit(THD *thd)
 
   thd->variables.option_bits&= ~(OPTION_BEGIN | OPTION_KEEP_LOG);
   thd->transaction.all.modified_non_trans_table= FALSE;
+  thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
   thd->server_status&=
     ~(SERVER_STATUS_IN_TRANS | SERVER_STATUS_IN_TRANS_READONLY);
   DBUG_PRINT("info", ("clearing SERVER_STATUS_IN_TRANS"));
-  xid_cache_delete(&thd->transaction.xid_state);
+  xid_cache_delete(thd, &thd->transaction.xid_state);
   thd->transaction.xid_state.xa_state= XA_NOTR;
+
+  trans_track_end_trx(thd);
 
   DBUG_RETURN(res);
 }
@@ -917,14 +1010,20 @@ bool trans_xa_rollback(THD *thd)
 
   if (!thd->transaction.xid_state.xid.eq(thd->lex->xid))
   {
-    XID_STATE *xs= xid_cache_search(thd->lex->xid);
-    if (!xs || xs->in_thd)
+    if (thd->fix_xid_hash_pins())
+    {
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
+      DBUG_RETURN(TRUE);
+    }
+
+    XID_STATE *xs= xid_cache_search(thd, thd->lex->xid);
+    if (!xs)
       my_error(ER_XAER_NOTA, MYF(0));
     else
     {
       xa_trans_rolled_back(xs);
       ha_commit_or_rollback_by_xid(thd->lex->xid, 0);
-      xid_cache_delete(xs);
+      xid_cache_delete(thd, xs);
     }
     DBUG_RETURN(thd->get_stmt_da()->is_error());
   }
@@ -939,11 +1038,14 @@ bool trans_xa_rollback(THD *thd)
 
   thd->variables.option_bits&= ~(OPTION_BEGIN | OPTION_KEEP_LOG);
   thd->transaction.all.modified_non_trans_table= FALSE;
+  thd->transaction.all.m_unsafe_rollback_flags&= ~THD_TRANS::DID_WAIT;
   thd->server_status&=
     ~(SERVER_STATUS_IN_TRANS | SERVER_STATUS_IN_TRANS_READONLY);
   DBUG_PRINT("info", ("clearing SERVER_STATUS_IN_TRANS"));
-  xid_cache_delete(&thd->transaction.xid_state);
+  xid_cache_delete(thd, &thd->transaction.xid_state);
   thd->transaction.xid_state.xa_state= XA_NOTR;
+
+  trans_track_end_trx(thd);
 
   DBUG_RETURN(res);
 }

@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -419,11 +419,11 @@ trx_undo_page_init(
 Creates a new undo log segment in file.
 @return DB_SUCCESS if page creation OK possible error codes are:
 DB_TOO_MANY_CONCURRENT_TRXS DB_OUT_OF_FILE_SPACE */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 trx_undo_seg_create(
 /*================*/
-	trx_rseg_t*	rseg __attribute__((unused)),/*!< in: rollback segment */
+	trx_rseg_t*	rseg MY_ATTRIBUTE((unused)),/*!< in: rollback segment */
 	trx_rsegf_t*	rseg_hdr,/*!< in: rollback segment header, page
 				x-latched */
 	ulint		type,	/*!< in: type of the segment: TRX_UNDO_INSERT or
@@ -443,7 +443,9 @@ trx_undo_seg_create(
 	ibool		success;
 	dberr_t		err = DB_SUCCESS;
 
-	ut_ad(mtr && id && rseg_hdr);
+	ut_ad(mtr != NULL);
+	ut_ad(id != NULL);
+	ut_ad(rseg_hdr != NULL);
 	ut_ad(mutex_own(&(rseg->mutex)));
 
 	/*	fputs(type == TRX_UNDO_INSERT
@@ -827,7 +829,7 @@ byte*
 trx_undo_parse_discard_latest(
 /*==========================*/
 	byte*	ptr,	/*!< in: buffer */
-	byte*	end_ptr __attribute__((unused)), /*!< in: buffer end */
+	byte*	end_ptr MY_ATTRIBUTE((unused)), /*!< in: buffer end */
 	page_t*	page,	/*!< in: page or NULL */
 	mtr_t*	mtr)	/*!< in: mtr or NULL */
 {
@@ -1067,11 +1069,9 @@ Truncates an undo log from the end. This function is used during a rollback
 to free space from an undo log. */
 UNIV_INTERN
 void
-trx_undo_truncate_end_func(
+trx_undo_truncate_end(
 /*=======================*/
-#ifdef UNIV_DEBUG
-	const trx_t*	trx,	/*!< in: transaction whose undo log it is */
-#endif /* UNIV_DEBUG */
+	trx_t*		trx,	/*!< in: transaction whose undo log it is */
 	trx_undo_t*	undo,	/*!< in: undo log */
 	undo_no_t	limit)	/*!< in: all undo records with undo number
 				>= this value should be truncated */
@@ -1086,7 +1086,7 @@ trx_undo_truncate_end_func(
 	ut_ad(mutex_own(&(trx->rseg->mutex)));
 
 	for (;;) {
-		mtr_start(&mtr);
+		mtr_start_trx(&mtr, trx);
 
 		trunc_here = NULL;
 
@@ -1557,7 +1557,7 @@ Creates a new undo log.
 @return DB_SUCCESS if successful in creating the new undo lob object,
 possible error codes are: DB_TOO_MANY_CONCURRENT_TRXS
 DB_OUT_OF_FILE_SPACE DB_OUT_OF_MEMORY */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 trx_undo_create(
 /*============*/
@@ -1773,7 +1773,7 @@ trx_undo_assign_undo(
 
 	ut_ad(mutex_own(&(trx->undo_mutex)));
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, trx);
 
 	mutex_enter(&rseg->mutex);
 

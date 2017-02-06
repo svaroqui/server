@@ -36,9 +36,235 @@ Handler_read_key	7
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	31
+analyze format=json
+select a, (select d from t2 where b=c) from t1;
+ANALYZE
+{
+  "query_block": {
+    "select_id": 1,
+    "r_loops": 1,
+    "r_total_time_ms": "REPLACED",
+    "table": {
+      "table_name": "t1",
+      "access_type": "ALL",
+      "r_loops": 1,
+      "rows": 10,
+      "r_rows": 10,
+      "r_total_time_ms": "REPLACED",
+      "filtered": 100,
+      "r_filtered": 100
+    },
+    "subqueries": [
+      {
+        "expression_cache": {
+          "r_loops": 10,
+          "r_hit_ratio": 60,
+          "query_block": {
+            "select_id": 2,
+            "r_loops": 4,
+            "r_total_time_ms": "REPLACED",
+            "table": {
+              "table_name": "t2",
+              "access_type": "ALL",
+              "r_loops": 4,
+              "rows": 4,
+              "r_rows": 4,
+              "r_total_time_ms": "REPLACED",
+              "filtered": 100,
+              "r_filtered": 18.75,
+              "attached_condition": "t1.b = t2.c"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+analyze format=json
+select a, (select d from t2 where b=c), (select d from t2 where b=c union select 1 order by 1 limit 1) from t1;
+ANALYZE
+{
+  "query_block": {
+    "select_id": 1,
+    "r_loops": 1,
+    "r_total_time_ms": "REPLACED",
+    "table": {
+      "table_name": "t1",
+      "access_type": "ALL",
+      "r_loops": 1,
+      "rows": 10,
+      "r_rows": 10,
+      "r_total_time_ms": "REPLACED",
+      "filtered": 100,
+      "r_filtered": 100
+    },
+    "subqueries": [
+      {
+        "expression_cache": {
+          "r_loops": 10,
+          "r_hit_ratio": 60,
+          "query_block": {
+            "union_result": {
+              "table_name": "<union3,4>",
+              "access_type": "ALL",
+              "r_loops": 4,
+              "r_rows": 1,
+              "query_specifications": [
+                {
+                  "query_block": {
+                    "select_id": 3,
+                    "r_loops": 4,
+                    "r_total_time_ms": "REPLACED",
+                    "table": {
+                      "table_name": "t2",
+                      "access_type": "ALL",
+                      "r_loops": 4,
+                      "rows": 4,
+                      "r_rows": 4,
+                      "r_total_time_ms": "REPLACED",
+                      "filtered": 100,
+                      "r_filtered": 18.75,
+                      "attached_condition": "t1.b = t2.c"
+                    }
+                  }
+                },
+                {
+                  "query_block": {
+                    "select_id": 4,
+                    "table": {
+                      "message": "No tables used"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "expression_cache": {
+          "r_loops": 10,
+          "r_hit_ratio": 60,
+          "query_block": {
+            "select_id": 2,
+            "r_loops": 4,
+            "r_total_time_ms": "REPLACED",
+            "table": {
+              "table_name": "t2",
+              "access_type": "ALL",
+              "r_loops": 4,
+              "rows": 4,
+              "r_rows": 4,
+              "r_total_time_ms": "REPLACED",
+              "filtered": 100,
+              "r_filtered": 18.75,
+              "attached_condition": "t1.b = t2.c"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+explain format=json
+select a, (select d from t2 where b=c) from t1;
+EXPLAIN
+{
+  "query_block": {
+    "select_id": 1,
+    "table": {
+      "table_name": "t1",
+      "access_type": "ALL",
+      "rows": 10,
+      "filtered": 100
+    },
+    "subqueries": [
+      {
+        "expression_cache": {
+          "state": "uninitialized",
+          "query_block": {
+            "select_id": 2,
+            "table": {
+              "table_name": "t2",
+              "access_type": "ALL",
+              "rows": 4,
+              "filtered": 100,
+              "attached_condition": "t1.b = t2.c"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+explain format=json
+select a, (select d from t2 where b=c), (select d from t2 where b=c union select 1 order by 1 limit 1) from t1;
+EXPLAIN
+{
+  "query_block": {
+    "select_id": 1,
+    "table": {
+      "table_name": "t1",
+      "access_type": "ALL",
+      "rows": 10,
+      "filtered": 100
+    },
+    "subqueries": [
+      {
+        "expression_cache": {
+          "state": "uninitialized",
+          "query_block": {
+            "union_result": {
+              "table_name": "<union3,4>",
+              "access_type": "ALL",
+              "query_specifications": [
+                {
+                  "query_block": {
+                    "select_id": 3,
+                    "table": {
+                      "table_name": "t2",
+                      "access_type": "ALL",
+                      "rows": 4,
+                      "filtered": 100,
+                      "attached_condition": "t1.b = t2.c"
+                    }
+                  }
+                },
+                {
+                  "query_block": {
+                    "select_id": 4,
+                    "table": {
+                      "message": "No tables used"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "expression_cache": {
+          "state": "uninitialized",
+          "query_block": {
+            "select_id": 2,
+            "table": {
+              "table_name": "t2",
+              "access_type": "ALL",
+              "rows": 4,
+              "filtered": 100,
+              "attached_condition": "t1.b = t2.c"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
 set optimizer_switch='subquery_cache=off';
 flush status;
 select a, (select d from t2 where b=c) from t1;
@@ -64,6 +290,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	61
@@ -91,6 +318,7 @@ Handler_read_key	7
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	31
@@ -117,6 +345,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	61
@@ -144,6 +373,7 @@ Handler_read_key	7
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	31
@@ -170,6 +400,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	61
@@ -269,6 +500,7 @@ Handler_read_key	7
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	442
@@ -367,6 +599,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	472
@@ -390,6 +623,7 @@ Handler_read_key	17
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	4
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	36
@@ -412,6 +646,7 @@ Handler_read_key	10
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	4
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	86
@@ -435,6 +670,7 @@ Handler_read_key	17
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	4
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	41
@@ -457,6 +693,7 @@ Handler_read_key	10
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	4
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	91
@@ -486,6 +723,7 @@ Handler_read_key	7
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	31
@@ -514,6 +752,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	61
@@ -537,6 +776,7 @@ Handler_read_key	7
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	4
 Handler_read_rnd_deleted	1
 Handler_read_rnd_next	36
@@ -559,6 +799,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	4
 Handler_read_rnd_deleted	1
 Handler_read_rnd_next	66
@@ -658,6 +899,7 @@ Handler_read_key	70
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	141
@@ -756,6 +998,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	671
@@ -1381,6 +1624,7 @@ Handler_read_key	11
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	145
@@ -1411,6 +1655,7 @@ Handler_read_key	32
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	84
@@ -1444,6 +1689,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	127
@@ -1474,6 +1720,7 @@ Handler_read_key	13
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	69
@@ -1665,6 +1912,7 @@ Handler_read_key	15
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	8
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	57
@@ -1691,6 +1939,7 @@ Handler_read_key	21
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	8
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	37
@@ -1718,6 +1967,7 @@ Handler_read_key	15
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	8
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	57
@@ -1744,6 +1994,7 @@ Handler_read_key	22
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	8
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	41
@@ -1786,6 +2037,7 @@ Handler_read_key	15
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	16
@@ -1824,6 +2076,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	151
@@ -1861,6 +2114,7 @@ Handler_read_key	15
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	43
@@ -1898,6 +2152,7 @@ Handler_read_key	18
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	27
@@ -3358,7 +3613,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	filtered	Extra
 1	PRIMARY	t1	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 2	DEPENDENT SUBQUERY	t2	ALL	NULL	NULL	NULL	NULL	2	100.00	Using where
 Warnings:
-Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where <expr_cache><`test`.`t1`.`a`>(<in_optimizer>(`test`.`t1`.`a`,<exists>(select `test`.`t2`.`b` from `test`.`t2` where (<cache>(`test`.`t1`.`a`) = `test`.`t2`.`b`))))
+Note	1003	select `test`.`t1`.`a` AS `a` from `test`.`t1` where <expr_cache><`test`.`t1`.`a`>(<in_optimizer>(`test`.`t1`.`a`,<exists>(select `test`.`t2`.`b` from `test`.`t2` where <cache>(`test`.`t1`.`a`) = `test`.`t2`.`b`)))
 drop table t1,t2;
 set @@optimizer_switch= default;
 # LP BUG#615760 (part 2: incorrect heap table index flags)

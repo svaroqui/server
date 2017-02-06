@@ -306,7 +306,7 @@ sub mtr_report_stats ($) {
 		/Slave: Query caused different errors on master and slave/ or
 		/Slave: Table .* doesn't exist/ or
 		/Slave: Table width mismatch/ or
-		/Slave: The incident LOST_EVENTS occured on the master/ or
+		/Slave: The incident LOST_EVENTS occurred on the master/ or
 		/Slave: Unknown error.* 1105/ or
 		/Slave: Can't drop database.* database doesn't exist/ or
                 /Slave SQL:.*(?:error.* \d+|Query:.*)/ or
@@ -360,9 +360,6 @@ sub mtr_report_stats ($) {
 		/Slave: Unknown column 'c7' in 't15' error.* 1054/ or
 		/Slave: Can't DROP 'c7'.* 1091/ or
 		/Slave: Key column 'c6'.* 1072/ or
-
-    # Warnings generated until bug#42147 is properly resolved
-    /Found lock of type 6 that is write and read locked/ or
 
 		# rpl_idempotency.test produces warnings for the slave.
 		($testname eq 'rpl.rpl_idempotency' and

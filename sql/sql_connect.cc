@@ -20,7 +20,7 @@
   Functions to autenticate and handle reqests for a connection
 */
 
-#include "my_global.h"
+#include <my_global.h>
 #include "sql_priv.h"
 #ifndef __WIN__
 #include <netdb.h>        // getservbyname, servent
@@ -28,7 +28,6 @@
 #include "sql_audit.h"
 #include "sql_connect.h"
 #include "probes_mysql.h"
-#include "unireg.h"                    // REQUIRED: for other includes
 #include "sql_parse.h"                          // sql_command_flags,
                                                 // execute_init_command,
                                                 // do_command
@@ -795,21 +794,14 @@ bool thd_init_client_charset(THD *thd, uint cs_number)
    Use server character set and collation if
    - opt_character_set_client_handshake is not set
    - client has not specified a character set
-   - client character set is the same as the servers
    - client character set doesn't exists in server
   */
   if (!opt_character_set_client_handshake ||
-      !(cs= get_charset(cs_number, MYF(0))) ||
-      !my_strcasecmp(&my_charset_latin1,
-                     global_system_variables.character_set_client->name,
-                     cs->name))
+      !(cs= get_charset(cs_number, MYF(0))))
   {
-    thd->variables.character_set_client=
-      global_system_variables.character_set_client;
-    thd->variables.collation_connection=
-      global_system_variables.collation_connection;
-    thd->variables.character_set_results=
-      global_system_variables.character_set_results;
+    thd->update_charset(global_system_variables.character_set_client,
+                        global_system_variables.collation_connection,
+                        global_system_variables.character_set_results);
   }
   else
   {
@@ -819,10 +811,8 @@ bool thd_init_client_charset(THD *thd, uint cs_number)
       my_error(ER_WRONG_VALUE_FOR_VAR, MYF(0), "character_set_client",
                cs->csname);
       return true;
-    }    
-    thd->variables.character_set_results=
-      thd->variables.collation_connection= 
-      thd->variables.character_set_client= cs;
+    }
+    thd->update_charset(cs,cs,cs);
   }
   return false;
 }
@@ -832,14 +822,17 @@ bool thd_init_client_charset(THD *thd, uint cs_number)
   Initialize connection threads
 */
 
+#ifndef EMBEDDED_LIBRARY
 bool init_new_connection_handler_thread()
 {
   pthread_detach_this_thread();
   if (my_thread_init())
   {
+    statistic_increment(aborted_connects,&LOCK_status);
     statistic_increment(connection_errors_internal, &LOCK_status);
     return 1;
   }
+  DBUG_EXECUTE_IF("simulate_failed_connection_1", return(1); );
   return 0;
 }
 
@@ -855,7 +848,6 @@ bool init_new_connection_handler_thread()
      1  error
 */
 
-#ifndef EMBEDDED_LIBRARY
 static int check_connection(THD *thd)
 {
   uint connect_errors= 0;
@@ -956,6 +948,7 @@ static int check_connection(THD *thd)
         this is treated as a global server OOM error.
         TODO: remove the need for my_strdup.
       */
+      statistic_increment(aborted_connects,&LOCK_status);
       statistic_increment(connection_errors_internal, &LOCK_status);
       return 1; /* The error is set by my_strdup(). */
     }
@@ -973,7 +966,7 @@ static int check_connection(THD *thd)
       if (thd->main_security_ctx.host)
       {
         if (thd->main_security_ctx.host != my_localhost)
-          thd->main_security_ctx.host[MY_MIN(strlen(thd->main_security_ctx.host),
+          ((char*) thd->main_security_ctx.host)[MY_MIN(strlen(thd->main_security_ctx.host),
                                           HOSTNAME_LENGTH)]= 0;
         thd->main_security_ctx.host_or_ip= thd->main_security_ctx.host;
       }
@@ -1021,6 +1014,7 @@ static int check_connection(THD *thd)
       Hence, there is no reason to account on OOM conditions per client IP,
       we count failures in the global server status instead.
     */
+    statistic_increment(aborted_connects,&LOCK_status);
     statistic_increment(connection_errors_internal, &LOCK_status);
     return 1; /* The error is set by alloc(). */
   }
@@ -1059,7 +1053,8 @@ bool setup_connection_thread_globals(THD *thd)
   {
     close_connection(thd, ER_OUT_OF_RESOURCES);
     statistic_increment(aborted_connects,&LOCK_status);
-    MYSQL_CALLBACK(thd->scheduler, end_thread, (thd, 0));
+    statistic_increment(connection_errors_internal, &LOCK_status);
+    thd->scheduler->end_thread(thd, 0);
     return 1;                                   // Error
   }
   return 0;
@@ -1084,10 +1079,10 @@ bool setup_connection_thread_globals(THD *thd)
 bool login_connection(THD *thd)
 {
   NET *net= &thd->net;
-  int error;
+  int error= 0;
   DBUG_ENTER("login_connection");
   DBUG_PRINT("info", ("login_connection called by thread %lu",
-                      thd->thread_id));
+                      (ulong) thd->thread_id));
 
   /* Use "connect_timeout" value during connection phase */
   my_net_set_read_timeout(net, connect_timeout);
@@ -1103,7 +1098,8 @@ bool login_connection(THD *thd)
       my_sleep(1000);				/* must wait after eof() */
 #endif
     statistic_increment(aborted_connects,&LOCK_status);
-    DBUG_RETURN(1);
+    error=1;
+    goto exit;
   }
   /* Connect completed, set read/write timeouts back to default */
   my_net_set_read_timeout(net, thd->variables.net_read_timeout);
@@ -1113,10 +1109,13 @@ bool login_connection(THD *thd)
   if (increment_connection_count(thd, TRUE))
   {
     my_error(ER_OUTOFMEMORY, MYF(0), 2*sizeof(USER_STATS));
-    DBUG_RETURN(1);
+    error= 1;
+    goto exit;
   }
 
-  DBUG_RETURN(0);
+exit:
+  mysql_audit_notify_connection_connect(thd);
+  DBUG_RETURN(error);
 }
 
 
@@ -1135,8 +1134,8 @@ void end_connection(THD *thd)
   {
     wsrep_status_t rcode= wsrep->free_connection(wsrep, thd->thread_id);
     if (rcode) {
-      WSREP_WARN("wsrep failed to free connection context: %lu, code: %d",
-                 thd->thread_id, rcode);
+      WSREP_WARN("wsrep failed to free connection context: %lld  code: %d",
+                 (longlong) thd->thread_id, rcode);
     }
   }
   thd->wsrep_client_thread= 0;
@@ -1166,7 +1165,8 @@ void end_connection(THD *thd)
   }
 
   if (!thd->killed && (net->error && net->vio != 0))
-    thd->print_aborted_warning(1, ER(ER_UNKNOWN_ERROR));
+    thd->print_aborted_warning(1, thd->get_stmt_da()->is_error()
+             ? thd->get_stmt_da()->message() : ER_THD(thd, ER_UNKNOWN_ERROR));
 }
 
 
@@ -1188,7 +1188,6 @@ void prepare_new_connection_state(THD* thd)
   */
   thd->proc_info= 0;
   thd->set_command(COM_SLEEP);
-  thd->set_time();
   thd->init_for_queries();
 
   if (opt_init_connect.length && !(sctx->master_access & SUPER_ACL))
@@ -1230,7 +1229,6 @@ void prepare_new_connection_state(THD* thd)
     }
 
     thd->proc_info=0;
-    thd->set_time();
     thd->init_for_queries();
   }
 }
@@ -1255,11 +1253,11 @@ void prepare_new_connection_state(THD* thd)
 
 pthread_handler_t handle_one_connection(void *arg)
 {
-  THD *thd= (THD*) arg;
+  CONNECT *connect= (CONNECT*) arg;
 
-  mysql_thread_set_psi_id(thd->thread_id);
+  mysql_thread_set_psi_id(connect->thread_id);
 
-  do_handle_one_connection(thd);
+  do_handle_one_connection(connect);
   return 0;
 }
 
@@ -1268,7 +1266,6 @@ bool thd_prepare_connection(THD *thd)
   bool rc;
   lex_start(thd);
   rc= login_connection(thd);
-  mysql_audit_notify_connection_connect(thd);
   if (rc)
     return rc;
 
@@ -1292,19 +1289,17 @@ bool thd_is_connection_alive(THD *thd)
   return FALSE;
 }
 
-void do_handle_one_connection(THD *thd_arg)
+
+void do_handle_one_connection(CONNECT *connect)
 {
-  THD *thd= thd_arg;
-
-  thd->thr_create_utime= microsecond_interval_timer();
-  /* We need to set this because of time_out_user_resource_limits */
-  thd->start_utime= thd->thr_create_utime;
-
-  if (MYSQL_CALLBACK_ELSE(thd->scheduler, init_new_connection_thread, (), 0))
+  ulonglong thr_create_utime= microsecond_interval_timer();
+  THD *thd;
+  if (connect->scheduler->init_new_connection_thread() ||
+      !(thd= connect->create_thd(NULL)))
   {
-    close_connection(thd, ER_OUT_OF_RESOURCES);
-    statistic_increment(aborted_connects,&LOCK_status);
-    MYSQL_CALLBACK(thd->scheduler, end_thread, (thd, 0));
+    scheduler_functions *scheduler= connect->scheduler;
+    connect->close_with_error(0, 0, ER_OUT_OF_RESOURCES);
+    scheduler->end_thread(0, 0);
     return;
   }
 
@@ -1313,14 +1308,22 @@ void do_handle_one_connection(THD *thd_arg)
     increment slow_launch_threads counter if it took more than
     slow_launch_time seconds to create the thread.
   */
-  if (thd->prior_thr_create_utime)
+
+  if (connect->prior_thr_create_utime)
   {
-    ulong launch_time= (ulong) (thd->thr_create_utime -
-                                thd->prior_thr_create_utime);
+    ulong launch_time= (ulong) (thr_create_utime -
+                                connect->prior_thr_create_utime);
     if (launch_time >= slow_launch_time*1000000L)
       statistic_increment(slow_launch_threads, &LOCK_status);
-    thd->prior_thr_create_utime= 0;
   }
+  delete connect;
+
+  /* Make THD visible in show processlist */
+  add_to_active_threads(thd);
+  
+  thd->thr_create_utime= thr_create_utime;
+  /* We need to set this because of time_out_user_resource_limits */
+  thd->start_utime= thr_create_utime;
 
   /*
     handle_one_connection() is normally the only way a thread would
@@ -1367,7 +1370,7 @@ end_thread:
     if (thd->userstat_running)
       update_global_user_stats(thd, create_user, time(NULL));
 
-    if (MYSQL_CALLBACK_ELSE(thd->scheduler, end_thread, (thd, 1), 0))
+    if (thd->scheduler->end_thread(thd, 1))
       return;                                 // Probably no-threads
 
     /*
@@ -1379,3 +1382,99 @@ end_thread:
   }
 }
 #endif /* EMBEDDED_LIBRARY */
+
+
+/* Handling of CONNECT objects */
+
+/*
+  Close connection without error and delete the connect object
+  This and close_with_error are only called if we didn't manage to
+  create a new thd object.
+*/
+
+void CONNECT::close_and_delete()
+{
+  DBUG_ENTER("close_and_delete");
+
+  if (vio)
+    vio_close(vio);
+  if (thread_count_incremented)
+    dec_connection_count(scheduler);
+  statistic_increment(connection_errors_internal, &LOCK_status);
+  statistic_increment(aborted_connects,&LOCK_status);
+
+  delete this;
+  DBUG_VOID_RETURN;
+}
+
+/*
+  Close a connection with a possible error to the end user
+  Alse deletes the connection object, like close_and_delete()
+*/
+
+void CONNECT::close_with_error(uint sql_errno,
+                               const char *message, uint close_error)
+{
+  THD *thd= create_thd(NULL);
+  if (thd)
+  {
+    if (sql_errno)
+      net_send_error(thd, sql_errno, message, NULL);
+    close_connection(thd, close_error);
+    delete thd;
+    set_current_thd(0);
+  }
+  close_and_delete();
+}
+
+
+CONNECT::~CONNECT()
+{
+  if (vio)
+    vio_delete(vio);
+}
+
+
+/* Reuse or create a THD based on a CONNECT object */
+
+THD *CONNECT::create_thd(THD *thd)
+{
+  bool res, thd_reused= thd != 0;
+  DBUG_ENTER("create_thd");
+
+  DBUG_EXECUTE_IF("simulate_failed_connection_2", DBUG_RETURN(0); );
+
+  if (thd)
+  {
+    /* reuse old thd */
+    thd->reset_for_reuse();
+    /*
+      reset tread_id's, but not thread_dbug_id's as the later isn't allowed
+      to change as there is already structures in thd marked with the old
+      value.
+    */
+    thd->thread_id= thd->variables.pseudo_thread_id= thread_id;
+  }
+  else if (!(thd= new THD(thread_id)))
+    DBUG_RETURN(0);
+
+  set_current_thd(thd);
+  res= my_net_init(&thd->net, vio, thd, MYF(MY_THREAD_SPECIFIC));
+  vio= 0;                              // Vio now handled by thd
+
+  if (res)
+  {
+    if (!thd_reused)
+      delete thd;
+    set_current_thd(0);
+    DBUG_RETURN(0);
+  }
+
+  init_net_server_extension(thd);
+
+  thd->security_ctx->host= host;
+  thd->extra_port=         extra_port;
+  thd->scheduler=          scheduler;
+  thd->real_id=            real_id;
+  DBUG_RETURN(thd);
+}

@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2009, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2015, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
 
 Portions of this file contain modifications contributed and copyrighted by
@@ -77,21 +77,17 @@ Performs an atomic test-and-set instruction to the lock_word field of a
 mutex.
 @return	the previous value of lock_word: 0 or 1 */
 UNIV_INLINE
-byte
+lock_word_t
 ib_mutex_test_and_set(
-/*===============*/
+/*==================*/
 	ib_mutex_t*	mutex)	/*!< in: mutex */
 {
 #if defined(HAVE_ATOMIC_BUILTINS)
-# if defined(HAVE_ATOMIC_BUILTINS_BYTE)
-	return(os_atomic_test_and_set_byte(&mutex->lock_word, 1));
-# else
-	return(os_atomic_test_and_set_ulint(&mutex->lock_word, 1));
-# endif
+	return(os_atomic_test_and_set(&mutex->lock_word));
 #else
 	ibool	ret;
 
-	ret = os_fast_mutex_trylock(&(mutex->os_fast_mutex));
+	ret = os_fast_mutex_trylock_full_barrier(&(mutex->os_fast_mutex));
 
 	if (ret == 0) {
 		/* We check that os_fast_mutex_trylock does not leak
@@ -99,11 +95,10 @@ ib_mutex_test_and_set(
 		ut_a(mutex->lock_word == 0);
 
 		mutex->lock_word = 1;
-		os_wmb;
 	}
 
 	return((byte) ret);
-#endif
+#endif /* HAVE_ATOMIC_BUILTINS */
 }
 
 /******************************************************************//**
@@ -116,12 +111,12 @@ mutex_reset_lock_word(
 	ib_mutex_t*	mutex)	/*!< in: mutex */
 {
 #if defined(HAVE_ATOMIC_BUILTINS)
-	os_atomic_lock_release_byte(&mutex->lock_word);
+	os_atomic_clear(&mutex->lock_word);
 #else
 	mutex->lock_word = 0;
 
 	os_fast_mutex_unlock(&(mutex->os_fast_mutex));
-#endif
+#endif /* HAVE_ATOMIC_BUILTINS */
 }
 
 /******************************************************************//**
@@ -152,7 +147,6 @@ mutex_get_waiters(
 
 	ptr = &(mutex->waiters);
 
-        os_rmb;
 	return(*ptr);		/* Here we assume that the read of a single
 				word from memory is atomic */
 }
@@ -168,7 +162,7 @@ mutex_exit_func(
 {
 	ut_ad(mutex_own(mutex));
 
-	ut_d(mutex->thread_id = (os_thread_id_t) ULINT_UNDEFINED);
+	mutex->thread_id = (os_thread_id_t) ULINT_UNDEFINED;
 
 #ifdef UNIV_SYNC_DEBUG
 	sync_thread_reset_level(mutex);
@@ -187,7 +181,11 @@ mutex_exit_func(
 	to wake up possible hanging threads if
 	they are missed in mutex_signal_object. */
 
-        os_isync;
+	/* We add a memory barrier to prevent reading of the
+	number of waiters before releasing the lock. */
+
+	os_mb;
+
 	if (mutex_get_waiters(mutex) != 0) {
 
 		mutex_signal_object(mutex);
@@ -209,7 +207,7 @@ mutex_exit_func(
 {
 	ut_ad(mutex_own(mutex));
 
-	ut_d(mutex->base_mutex.thread_id = (os_thread_id_t) ULINT_UNDEFINED);
+	mutex->base_mutex.thread_id = (os_thread_id_t) ULINT_UNDEFINED;
 
 #ifdef UNIV_SYNC_DEBUG
 	sync_thread_reset_level(&mutex->base_mutex);
@@ -231,7 +229,7 @@ mutex_exit_func(
 	/* Wake up any high priority waiters first.  */
 	if (mutex->high_priority_waiters != 0) {
 
-		os_event_set(mutex->high_priority_event);
+		os_event_set(&mutex->high_priority_event);
 		sync_array_object_signalled();
 
 	} else if (mutex_get_waiters(&mutex->base_mutex) != 0) {
@@ -268,10 +266,15 @@ mutex_enter_func(
 	the atomic test_and_set; we could peek, and possibly save time. */
 
 	if (!ib_mutex_test_and_set(mutex)) {
-		ut_d(mutex->thread_id = os_thread_get_curr_id());
+		mutex->thread_id = os_thread_get_curr_id();
 #ifdef UNIV_SYNC_DEBUG
 		mutex_set_debug_info(mutex, file_name, line);
 #endif
+		if (srv_instrument_semaphores) {
+			mutex->file_name = file_name;
+			mutex->line = line;
+		}
+
 		return;	/* Succeeded! */
 	}
 
@@ -308,10 +311,15 @@ mutex_enter_func(
 	the atomic test_and_set; we could peek, and possibly save time. */
 
 	if (!ib_mutex_test_and_set(&mutex->base_mutex)) {
-		ut_d(mutex->base_mutex.thread_id = os_thread_get_curr_id());
+		mutex->base_mutex.thread_id = os_thread_get_curr_id();
 #ifdef UNIV_SYNC_DEBUG
 		mutex_set_debug_info(&mutex->base_mutex, file_name, line);
 #endif
+		if(srv_instrument_semaphores) {
+			mutex->base_mutex.file_name = file_name;
+			mutex->base_mutex.line = line;
+		}
+
 		return;	/* Succeeded! */
 	}
 
@@ -519,9 +527,9 @@ pfs_mutex_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 	ulint		level,		/*!< in: level */
 #  endif /* UNIV_SYNC_DEBUG */
+# endif /* UNIV_DEBUG */
 	const char*	cfile_name,	/*!< in: file name where created */
 	ulint		cline,		/*!< in: file line where created */
-# endif /* UNIV_DEBUG */
 	const char*	cmutex_name)	/*!< in: mutex name */
 {
 	mutex->pfs_psi = PSI_MUTEX_CALL(init_mutex)(key, mutex);
@@ -531,9 +539,9 @@ pfs_mutex_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 			  level,
 #  endif /* UNIV_SYNC_DEBUG */
+# endif /* UNIV_DEBUG */
 			  cfile_name,
 			  cline,
-# endif /* UNIV_DEBUG */
 			  cmutex_name);
 }
 
@@ -554,11 +562,11 @@ pfs_mutex_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 	ulint			level,		/*!< in: level */
 #  endif /* UNIV_SYNC_DEBUG */
+# endif /* UNIV_DEBUG */
 	const char*		cfile_name,	/*!< in: file name where
 						created */
 	ulint			cline,		/*!< in: file line where
 						  created */
-# endif /* UNIV_DEBUG */
 	const char*		cmutex_name)
 {
 	mutex->base_mutex.pfs_psi = PSI_MUTEX_CALL(init_mutex)(key, mutex);
@@ -568,9 +576,9 @@ pfs_mutex_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 			  level,
 #  endif /* UNIV_SYNC_DEBUG */
+# endif /* UNIV_DEBUG */
 			  cfile_name,
 			  cline,
-# endif /* UNIV_DEBUG */
 			  cmutex_name);
 }
 

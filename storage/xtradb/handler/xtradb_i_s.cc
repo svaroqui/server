@@ -2,6 +2,7 @@
 
 Copyright (c) 2007, 2012, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2010-2012, Percona Inc. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -17,6 +18,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 *****************************************************************************/
 
+#include "univ.i"
 #include <mysqld_error.h>
 #include <sql_acl.h>				// PROCESS_ACL
 
@@ -32,6 +34,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <read0i_s.h>
 #include <trx0i_s.h>
 #include "srv0start.h"	/* for srv_was_started */
+#include <btr0pcur.h> /* btr_pcur_t */
 #include <btr0sea.h> /* btr_search_sys */
 #include <log0recv.h> /* recv_sys */
 #include <fil0fil.h>
@@ -43,87 +46,23 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #define PLUGIN_AUTHOR "Percona Inc."
 
-#define OK(expr)		\
-	if ((expr) != 0) {	\
-		DBUG_RETURN(1);	\
-	}
-
-#define RETURN_IF_INNODB_NOT_STARTED(plugin_name)			\
-do {									\
-	if (!srv_was_started) {						\
-		push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,	\
-				    ER_CANT_FIND_SYSTEM_REC,		\
-				    "InnoDB: SELECTing from "		\
-				    "INFORMATION_SCHEMA.%s but "	\
-				    "the InnoDB storage engine "	\
-				    "is not installed", plugin_name);	\
-		DBUG_RETURN(0);						\
-	}								\
-} while (0)
-
-#if !defined __STRICT_ANSI__ && defined __GNUC__ && (__GNUC__) > 2 &&	\
-	!defined __INTEL_COMPILER && !defined __clang__
-#define STRUCT_FLD(name, value)	name: value
-#else
-#define STRUCT_FLD(name, value)	value
-#endif
-
-#define END_OF_ST_FIELD_INFO \
-	{STRUCT_FLD(field_name,		NULL), \
-	 STRUCT_FLD(field_length,	0), \
-	 STRUCT_FLD(field_type,		MYSQL_TYPE_NULL), \
-	 STRUCT_FLD(value,		0), \
-	 STRUCT_FLD(field_flags,	0), \
-	 STRUCT_FLD(old_name,		""), \
-	 STRUCT_FLD(open_method,	SKIP_OPEN_TABLE)}
-
-
-/*******************************************************************//**
-Auxiliary function to store ulint value in MYSQL_TYPE_LONGLONG field.
-If the value is ULINT_UNDEFINED then the field it set to NULL.
+static int field_store_blob(Field*, const char*, uint) __attribute__((unused));
+/** Auxiliary function to store (char*, len) value in MYSQL_TYPE_BLOB
+field.
 @return	0 on success */
 static
 int
-field_store_ulint(
-/*==============*/
-	Field*	field,	/*!< in/out: target field for storage */
-	ulint	n)	/*!< in: value to store */
+field_store_blob(
+	Field*		field,		/*!< in/out: target field for storage */
+	const char*	data,		/*!< in: pointer to data, or NULL */
+	uint		data_len)	/*!< in: data length */
 {
 	int	ret;
 
-	if (n != ULINT_UNDEFINED) {
-
-		ret = field->store(n);
+	if (data != NULL) {
+		ret = field->store(data, data_len, system_charset_info);
 		field->set_notnull();
 	} else {
-
-		ret = 0; /* success */
-		field->set_null();
-	}
-
-	return(ret);
-}
-
-/*******************************************************************//**
-Auxiliary function to store char* value in MYSQL_TYPE_STRING field.
-@return	0 on success */
-static
-int
-field_store_string(
-/*===============*/
-	Field*		field,	/*!< in/out: target field for storage */
-	const char*	str)	/*!< in: NUL-terminated utf-8 string,
-				or NULL */
-{
-	int	ret;
-
-	if (str != NULL) {
-
-		ret = field->store(str, strlen(str),
-				   system_charset_info);
-		field->set_notnull();
-	} else {
-
 		ret = 0; /* success */
 		field->set_null();
 	}

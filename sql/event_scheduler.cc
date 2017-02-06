@@ -13,6 +13,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "event_scheduler.h"
@@ -133,10 +134,7 @@ post_init_event_thread(THD *thd)
     return TRUE;
   }
 
-  thread_safe_increment32(&thread_count, &thread_count_lock);
-  mysql_mutex_lock(&LOCK_thread_count);
-  threads.append(thd);
-  mysql_mutex_unlock(&LOCK_thread_count);
+  add_to_active_threads(thd);
   inc_thread_running();
   return FALSE;
 }
@@ -185,14 +183,11 @@ pre_init_event_thread(THD* thd)
   thd->security_ctx->master_access= 0;
   thd->security_ctx->db_access= 0;
   thd->security_ctx->host_or_ip= (char*)my_localhost;
-  my_net_init(&thd->net, NULL, MYF(MY_THREAD_SPECIFIC));
+  my_net_init(&thd->net, NULL, thd, MYF(MY_THREAD_SPECIFIC));
   thd->security_ctx->set_user((char*)"event_scheduler");
   thd->net.read_timeout= slave_net_timeout;
   thd->variables.option_bits|= OPTION_AUTO_IS_NULL;
   thd->client_capabilities|= CLIENT_MULTI_RESULTS;
-  mysql_mutex_lock(&LOCK_thread_count);
-  thd->thread_id= thd->variables.pseudo_thread_id= thread_id++;
-  mysql_mutex_unlock(&LOCK_thread_count);
 
   /*
     Guarantees that we will see the thread in SHOW PROCESSLIST though its
@@ -300,6 +295,9 @@ Event_worker_thread::run(THD *thd, Event_queue_element_for_exec *event)
   Event_job_data job_data;
   bool res;
 
+  DBUG_ASSERT(thd->m_digest == NULL);
+  DBUG_ASSERT(thd->m_statement_psi == NULL);
+
   thd->thread_stack= &my_stack;                // remember where our stack is
   res= post_init_event_thread(thd);
 
@@ -328,6 +326,8 @@ Event_worker_thread::run(THD *thd, Event_queue_element_for_exec *event)
                           job_data.definer.str,
                           job_data.dbname.str, job_data.name.str);
 end:
+  DBUG_ASSERT(thd->m_statement_psi == NULL);
+  DBUG_ASSERT(thd->m_digest == NULL);
   DBUG_PRINT("info", ("Done with Event %s.%s", event->dbname.str,
              event->name.str));
 
@@ -353,14 +353,7 @@ Event_scheduler::Event_scheduler(Event_queue *queue_arg)
   mysql_mutex_init(key_event_scheduler_LOCK_scheduler_state,
                    &LOCK_scheduler_state, MY_MUTEX_INIT_FAST);
   mysql_cond_init(key_event_scheduler_COND_state, &COND_state, NULL);
-
-#ifdef SAFE_MUTEX
-  /* Ensure right mutex order */
-  mysql_mutex_lock(&LOCK_scheduler_state);
-  mysql_mutex_lock(&LOCK_global_system_variables);
-  mysql_mutex_unlock(&LOCK_global_system_variables);
-  mysql_mutex_unlock(&LOCK_scheduler_state);
-#endif
+  mysql_mutex_record_order(&LOCK_scheduler_state, &LOCK_global_system_variables);
 }
 
 
@@ -401,7 +394,7 @@ Event_scheduler::start(int *err_no)
   if (state > INITIALIZED)
     goto end;
 
-  if (!(new_thd= new THD))
+  if (!(new_thd= new THD(next_thread_id())))
   {
     sql_print_error("Event Scheduler: Cannot initialize the scheduler thread");
     ret= true;
@@ -480,7 +473,7 @@ Event_scheduler::run(THD *thd)
   DBUG_ENTER("Event_scheduler::run");
 
   sql_print_information("Event Scheduler: scheduler thread started with id %lu",
-                        thd->thread_id);
+                        (ulong) thd->thread_id);
   /*
     Recalculate the values in the queue because there could have been stops
     in executions of the scheduler and some times could have passed by.
@@ -547,7 +540,7 @@ Event_scheduler::execute_top(Event_queue_element_for_exec *event_name)
   int res= 0;
   DBUG_ENTER("Event_scheduler::execute_top");
 
-  if (!(new_thd= new THD()))
+  if (!(new_thd= new THD(next_thread_id())))
     goto error;
 
   pre_init_event_thread(new_thd);
@@ -670,13 +663,13 @@ Event_scheduler::stop()
 
     state= STOPPING;
     DBUG_PRINT("info", ("Scheduler thread has id %lu",
-                        scheduler_thd->thread_id));
+                        (ulong) scheduler_thd->thread_id));
     /* Lock from delete */
     mysql_mutex_lock(&scheduler_thd->LOCK_thd_data);
     /* This will wake up the thread if it waits on Queue's conditional */
     sql_print_information("Event Scheduler: Killing the scheduler thread, "
                           "thread id %lu",
-                          scheduler_thd->thread_id);
+                          (ulong) scheduler_thd->thread_id);
     scheduler_thd->awake(KILL_CONNECTION);
     mysql_mutex_unlock(&scheduler_thd->LOCK_thd_data);
 
@@ -833,7 +826,8 @@ Event_scheduler::dump_internal_status()
   puts("");
   puts("Event scheduler status:");
   printf("State      : %s\n", scheduler_states_names[state].str);
-  printf("Thread id  : %lu\n", scheduler_thd? scheduler_thd->thread_id : 0);
+  printf("Thread id  : %lu\n", scheduler_thd ?
+         (ulong) scheduler_thd->thread_id : (ulong) 0);
   printf("LLA        : %s:%u\n", mutex_last_locked_in_func,
                                  mutex_last_locked_at_line);
   printf("LUA        : %s:%u\n", mutex_last_unlocked_in_func,

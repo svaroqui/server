@@ -61,7 +61,6 @@ pcmd="pv $pvopts"
 declare -a RC
 
 INNOBACKUPEX_BIN=innobackupex
-readonly AUTH=(${WSREP_SST_OPT_AUTH//:/ })
 DATA="${WSREP_SST_OPT_DATA}"
 INFO_FILE="xtrabackup_galera_info"
 IST_FILE="xtrabackup_ist"
@@ -100,7 +99,7 @@ get_keys()
     fi
 
     if [[ $encrypt -eq 0 ]];then 
-        if $my_print_defaults xtrabackup | grep -q encrypt;then
+        if $MY_PRINT_DEFAULTS xtrabackup | grep -q encrypt;then
             wsrep_log_error "Unexpected option combination. SST may fail. Refer to http://www.percona.com/doc/percona-xtradb-cluster/manual/xtrabackup_sst.html "
         fi
         return
@@ -150,7 +149,11 @@ get_transfer()
         fi
         wsrep_log_info "Using netcat as streamer"
         if [[ "$WSREP_SST_OPT_ROLE"  == "joiner" ]];then
-            tcmd="nc -dl ${TSST_PORT}"
+            if nc -h 2>&1 | grep -q ncat;then 
+                tcmd="nc -l ${TSST_PORT}"
+            else 
+                tcmd="nc -dl ${TSST_PORT}"
+            fi
         else
             tcmd="nc ${REMOTEIP} ${TSST_PORT}"
         fi
@@ -195,7 +198,7 @@ parse_cnf()
 {
     local group=$1
     local var=$2
-    reval=$($my_print_defaults $group | awk -F= '{if ($1 ~ /_/) { gsub(/_/,"-",$1); print $1"="$2 } else { print $0 }}' | grep -- "--$var=" | cut -d= -f2-)
+    reval=$($MY_PRINT_DEFAULTS $group | awk -F= '{if ($1 ~ /_/) { gsub(/_/,"-",$1); print $1"="$2 } else { print $0 }}' | grep -- "--$var=" | cut -d= -f2-)
     if [[ -z $reval ]];then 
         [[ -n $3 ]] && reval=$3
     fi
@@ -205,8 +208,8 @@ parse_cnf()
 get_footprint()
 {
     pushd $WSREP_SST_OPT_DATA 1>/dev/null
-    payload=$(find . -regex '.*\.ibd$\|.*\.MYI$\|.*\.MYD$\|.*ibdata1$' -type f -print0 | xargs -0 du --block-size=1 -c | awk 'END { print $1 }')
-    if $my_print_defaults xtrabackup | grep -q -- "--compress";then 
+    payload=$(find . -regex '.*\.ibd$\|.*\.MYI$\|.*\.MYD$\|.*ibdata1$' -type f -print0 | du --files0-from=- --block-size=1 -c | awk 'END { print $1 }')
+    if $MY_PRINT_DEFAULTS xtrabackup | grep -q -- "--compress";then 
         # QuickLZ has around 50% compression ratio
         # When compression/compaction used, the progress is only an approximate.
         payload=$(( payload*1/2 ))
@@ -385,8 +388,8 @@ check_extra()
 {
     local use_socket=1
     if [[ $uextra -eq 1 ]];then 
-        if $my_print_defaults --mysqld | tr '_' '-' | grep -- "--thread-handling=" | grep -q 'pool-of-threads';then 
-            local eport=$($my_print_defaults --mysqld | tr '_' '-' | grep -- "--extra-port=" | cut -d= -f2)
+        if $MY_PRINT_DEFAULTS --mysqld | tr '_' '-' | grep -- "--thread-handling=" | grep -q 'pool-of-threads';then 
+            local eport=$($MY_PRINT_DEFAULTS --mysqld | tr '_' '-' | grep -- "--extra-port=" | cut -d= -f2)
             if [[ -n $eport ]];then 
                 # Xtrabackup works only locally.
                 # Hence, setting host to 127.0.0.1 unconditionally. 
@@ -433,15 +436,17 @@ then
 
     if [ $WSREP_SST_OPT_BYPASS -eq 0 ]
     then
+        usrst=0
         TMPDIR="${TMPDIR:-/tmp}"
 
-        if [ "${AUTH[0]}" != "(null)" ]; then
-           INNOEXTRA+=" --user=${AUTH[0]}"
-       fi
+        if [[ -n "${WSREP_SST_OPT_USER:-}" && "$WSREP_SST_OPT_USER" != "(null)" ]]; then
+           INNOEXTRA+=" --user=$WSREP_SST_OPT_USER"
+           usrst=1
+        fi
 
-        if [ ${#AUTH[*]} -eq 2 ]; then
-           INNOEXTRA+=" --password=${AUTH[1]}"
-        elif [ "${AUTH[0]}" != "(null)" ]; then
+        if [ -n "${WSREP_SST_OPT_PSWD:-}" ]; then
+           INNOEXTRA+=" --password=$WSREP_SST_OPT_PSWD"
+        elif [[ $usrst -eq 1 ]];then
            # Empty password, used for testing, debugging etc.
            INNOEXTRA+=" --password="
         fi
@@ -487,13 +492,14 @@ then
         # innobackupex implicitly writes PID to fixed location in ${TMPDIR}
         XTRABACKUP_PID="${TMPDIR}/xtrabackup_pid"
 
-
     else # BYPASS FOR IST
 
         wsrep_log_info "Bypassing the SST for IST"
-        STATE="${WSREP_SST_OPT_GTID}"
         echo "continue" # now server can resume updating data
-        echo "${STATE}" > "${MAGIC_FILE}"
+
+        # Store donor's wsrep GTID (state ID) and wsrep_gtid_domain_id
+        # (separated by a space)
+        echo "${WSREP_SST_OPT_GTID} ${WSREP_SST_OPT_GTID_DOMAIN_ID}" > "${MAGIC_FILE}"
         echo "1" > "${DATA}/${IST_FILE}"
         get_keys
         pushd ${DATA} 1>/dev/null
@@ -708,7 +714,7 @@ then
         exit 2
     fi
 
-    cat "${MAGIC_FILE}" # output UUID:seqno
+    cat "${MAGIC_FILE}" # Output : UUID:seqno wsrep_gtid_domain_id
     wsrep_log_info "Total time on joiner: $totime seconds"
 fi
 

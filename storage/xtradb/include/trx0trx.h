@@ -1,6 +1,8 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2015, 2016, MariaDB Corporation. All Rights Reserved.
+
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -51,7 +53,7 @@ UNIV_INLINE
 void
 trx_search_latch_release_if_reserved(
 /*=================================*/
-	trx_t*	   trx __attribute__((unused))); /*!< in: transaction */
+	trx_t*	   trx MY_ATTRIBUTE((unused))); /*!< in: transaction */
 /******************************************************************//**
 Set detailed error message for the transaction. */
 UNIV_INTERN
@@ -105,7 +107,7 @@ void
 trx_free_prepared(
 /*==============*/
 	trx_t*	trx)	/*!< in, own: trx object */
-	UNIV_COLD __attribute__((nonnull));
+	UNIV_COLD MY_ATTRIBUTE((nonnull));
 /********************************************************************//**
 Frees a transaction object for MySQL. */
 UNIV_INTERN
@@ -171,7 +173,7 @@ trx_start_for_ddl_low(
 /*==================*/
 	trx_t*		trx,	/*!< in/out: transaction */
 	trx_dict_op_t	op)	/*!< in: dictionary operation type */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 
 #ifdef UNIV_DEBUG
 #define trx_start_for_ddl(t, o)					\
@@ -193,7 +195,7 @@ void
 trx_commit(
 /*=======*/
 	trx_t*	trx)	/*!< in/out: transaction */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 /****************************************************************//**
 Commits a transaction and a mini-transaction. */
 UNIV_INTERN
@@ -203,7 +205,7 @@ trx_commit_low(
 	trx_t*	trx,	/*!< in/out: transaction */
 	mtr_t*	mtr)	/*!< in/out: mini-transaction (will be committed),
 			or NULL if trx made no modifications */
-	__attribute__((nonnull(1)));
+	MY_ATTRIBUTE((nonnull(1)));
 /****************************************************************//**
 Cleans up a transaction at database startup. The cleanup is needed if
 the transaction already got to the middle of a commit when the database
@@ -257,7 +259,7 @@ void
 trx_commit_complete_for_mysql(
 /*==========================*/
 	trx_t*	trx)	/*!< in/out: transaction */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 /**********************************************************************//**
 Marks the latest SQL statement ended. */
 UNIV_INTERN
@@ -285,7 +287,7 @@ trx_clone_read_view(
 /*================*/
 	trx_t*	trx,		/*!< in: receiver transaction */
 	trx_t*	from_trx)	/*!< in: donor transaction */
-	__attribute__((nonnull, warn_unused_result));
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 /****************************************************************//**
 Prepares a transaction for commit/rollback. */
 UNIV_INTERN
@@ -330,7 +332,7 @@ trx_print_low(
 			/*!< in: length of trx->lock.trx_locks */
 	ulint		heap_size)
 			/*!< in: mem_heap_get_size(trx->lock.lock_heap) */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 
 /**********************************************************************//**
 Prints info about a transaction.
@@ -344,7 +346,7 @@ trx_print_latched(
 	const trx_t*	trx,		/*!< in: transaction */
 	ulint		max_query_len)	/*!< in: max query length to print,
 					or 0 to use the default max length */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 
 /**********************************************************************//**
 Prints info about a transaction.
@@ -357,7 +359,7 @@ trx_print(
 	const trx_t*	trx,		/*!< in: transaction */
 	ulint		max_query_len)	/*!< in: max query length to print,
 					or 0 to use the default max length */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 
 /**********************************************************************//**
 Determine if a transaction is a dictionary operation.
@@ -367,7 +369,7 @@ enum trx_dict_op_t
 trx_get_dict_operation(
 /*===================*/
 	const trx_t*	trx)	/*!< in: transaction */
-	__attribute__((pure));
+	MY_ATTRIBUTE((pure));
 /**********************************************************************//**
 Flag a transaction a dictionary operation. */
 UNIV_INLINE
@@ -392,11 +394,15 @@ ibool
 trx_state_eq(
 /*=========*/
 	const trx_t*	trx,	/*!< in: transaction */
-	trx_state_t	state)	/*!< in: state;
+	trx_state_t	state,	/*!< in: state;
 				if state != TRX_STATE_NOT_STARTED
 				asserts that
 				trx->state != TRX_STATE_NOT_STARTED */
-	__attribute__((nonnull, warn_unused_result));
+	bool		relaxed = false)
+				/*!< in: whether to allow
+				trx->state == TRX_STATE_NOT_STARTED
+				after an error has been reported */
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 # ifdef UNIV_DEBUG
 /**********************************************************************//**
 Asserts that a transaction has been started.
@@ -407,7 +413,7 @@ ibool
 trx_assert_started(
 /*===============*/
 	const trx_t*	trx)	/*!< in: transaction */
-	__attribute__((nonnull, warn_unused_result));
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 # endif /* UNIV_DEBUG */
 
 /**********************************************************************//**
@@ -704,6 +710,11 @@ lock_rec_convert_impl_to_expl()) will access transactions associated
 to other connections. The locks of transactions are protected by
 lock_sys->mutex and sometimes by trx->mutex. */
 
+typedef enum {
+	TRX_SERVER_ABORT = 0,
+	TRX_WSREP_ABORT  = 1
+} trx_abort_t;
+
 struct trx_t{
 	ulint		magic_n;
 
@@ -870,6 +881,8 @@ struct trx_t{
 
 	time_t		start_time;	/*!< time the trx state last time became
 					TRX_STATE_ACTIVE */
+	clock_t		start_time_micro;	/*!< start time of transaction in
+					microseconds */
 	trx_id_t	id;		/*!< transaction id */
 	XID		xid;		/*!< X/Open XA transaction
 					identification to identify a
@@ -880,6 +893,8 @@ struct trx_t{
 	/*------------------------------*/
 	THD*		mysql_thd;	/*!< MySQL thread handle corresponding
 					to this trx, or NULL */
+	trx_abort_t	abort_type;	/*!< Transaction abort type */
+
 	const char*	mysql_log_file_name;
 					/*!< if MySQL binlog is used, this field
 					contains a pointer to the latest file
@@ -1030,11 +1045,6 @@ struct trx_t{
 					count of tables being flushed. */
 
 	/*------------------------------*/
-	THD*		current_lock_mutex_owner;
-					/*!< If this is equal to current_thd,
-					then in innobase_kill_query() we know we
-					already hold the lock_sys->mutex. */
-	/*------------------------------*/
 #ifdef UNIV_DEBUG
 	ulint		start_line;	/*!< Track where it was started from */
 	const char*	start_file;	/*!< Filename where it was started */
@@ -1061,6 +1071,20 @@ struct trx_t{
 #define	DPAH_SIZE	8192
 	byte*		distinct_page_access_hash;
 	ibool		take_stats;
+
+	/* Lock wait statistics */
+	ulint		n_rec_lock_waits;
+					/*!< Number of record lock waits,
+					might not be exactly correct. */
+	ulint		n_table_lock_waits;
+					/*!< Number of table lock waits,
+					might not be exactly correct. */
+	ulint		total_rec_lock_wait_time;
+					/*!< Total rec lock wait time up
+					to this moment. */
+	ulint		total_table_lock_wait_time;
+					/*!< Total table lock wait time
+					up to this moment. */
 };
 
 /* Transaction isolation levels (trx->isolation_level) */

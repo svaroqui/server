@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -59,7 +59,7 @@ mtr_block_dirtied(
 
 /*****************************************************************//**
 Releases the item in the slot given. */
-static __attribute__((nonnull))
+static MY_ATTRIBUTE((nonnull))
 void
 mtr_memo_slot_release_func(
 /*=======================*/
@@ -106,7 +106,7 @@ mtr_memo_slot_release_func(
 Releases the mlocks and other objects stored in an mtr memo.
 They are released in the order opposite to which they were pushed
 to the memo. */
-static __attribute__((nonnull))
+static MY_ATTRIBUTE((nonnull))
 void
 mtr_memo_pop_all(
 /*=============*/
@@ -398,7 +398,7 @@ mtr_read_ulint(
 /*===========*/
 	const byte*	ptr,	/*!< in: pointer from where to read */
 	ulint		type,	/*!< in: MLOG_1BYTE, MLOG_2BYTES, MLOG_4BYTES */
-	mtr_t*		mtr __attribute__((unused)))
+	mtr_t*		mtr MY_ATTRIBUTE((unused)))
 				/*!< in: mini-transaction handle */
 {
 	ut_ad(mtr->state == MTR_ACTIVE);
@@ -440,3 +440,36 @@ mtr_print(
 }
 # endif /* !UNIV_HOTBACKUP */
 #endif /* UNIV_DEBUG */
+
+/**********************************************************//**
+Releases a buf_page stored in an mtr memo after a
+savepoint. */
+UNIV_INTERN
+void
+mtr_release_buf_page_at_savepoint(
+/*=============================*/
+	mtr_t*		mtr,		/*!< in: mtr */
+	ulint		savepoint,	/*!< in: savepoint */
+	buf_block_t*	block)		/*!< in: block to release */
+{
+	mtr_memo_slot_t* slot;
+	dyn_array_t*	memo;
+
+	ut_ad(mtr);
+	ut_ad(mtr->magic_n == MTR_MAGIC_N);
+	ut_ad(mtr->state == MTR_ACTIVE);
+
+	memo = &(mtr->memo);
+
+	ut_ad(dyn_array_get_data_size(memo) > savepoint);
+
+	slot = (mtr_memo_slot_t*) dyn_array_get_element(memo, savepoint);
+
+	ut_ad(slot->object == block);
+	ut_ad(slot->type == MTR_MEMO_PAGE_S_FIX ||
+	      slot->type == MTR_MEMO_PAGE_X_FIX ||
+	      slot->type == MTR_MEMO_BUF_FIX);
+
+	buf_page_release((buf_block_t*) slot->object, slot->type);
+	slot->object = NULL;
+}

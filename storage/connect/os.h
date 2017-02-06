@@ -15,16 +15,16 @@ typedef off_t off64_t;
 #endif
 #endif
 
-#if defined(WIN32)
+#if defined(__WIN__)
 typedef __int64 BIGINT;
-#else   // !WIN32
+#else   // !__WIN__
 typedef longlong  BIGINT;
 #define FILE_BEGIN    SEEK_SET  
 #define FILE_CURRENT  SEEK_CUR  
 #define FILE_END      SEEK_END  
-#endif  // !WIN32
+#endif  // !__WIN__
 
-#if !defined(WIN32)
+#if !defined(__WIN__)
 typedef const void *LPCVOID;
 typedef const char *LPCTSTR;
 typedef const char *LPCSTR;
@@ -53,14 +53,14 @@ typedef int   HANDLE;
 #ifdef PATH_MAX
 #define _MAX_PATH   PATH_MAX
 #else
-#define _MAX_PATH   260
+#define _MAX_PATH   FN_REFLEN
 #endif
 #define _MAX_DRIVE    3
-#define _MAX_DIR    256
-#define _MAX_FNAME  256
-#define _MAX_EXT    256
+#define _MAX_DIR    FN_REFLEN
+#define _MAX_FNAME  FN_HEADLEN
+#define _MAX_EXT    FN_EXTLEN
 #define INVALID_HANDLE_VALUE  (-1)
 #define __stdcall
-#endif /* !WIN32 */
+#endif /* !__WIN__ */
 
 #endif /* _OS_H_INCLUDED */

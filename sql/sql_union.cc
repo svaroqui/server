@@ -20,7 +20,7 @@
   UNION's  were introduced by Monty and Sinisa <sinisa@mysql.com>
 */
 
-
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_union.h"
@@ -28,6 +28,8 @@
 #include "sql_cursor.h"
 #include "sql_base.h"                           // fill_record
 #include "filesort.h"                           // filesort_free_buffers
+#include "sql_view.h"
+#include "sql_cte.h"
 
 bool mysql_union(THD *thd, LEX *lex, select_result *result,
                  SELECT_LEX_UNIT *unit, ulong setup_tables_done_option)
@@ -96,6 +98,27 @@ int select_union::send_data(List<Item> &values)
       return -1;
   }
   return 0;
+}
+
+
+int select_union_recursive::send_data(List<Item> &values)
+{
+  int rc= select_union::send_data(values);
+
+  if (write_err != HA_ERR_FOUND_DUPP_KEY)
+  { 
+    int err;
+    if ((err= incr_table->file->ha_write_tmp_row(table->record[0])))
+    {
+      bool is_duplicate;
+      rc= create_internal_tmp_table_from_heap(thd, incr_table,
+                                              tmp_table_param.start_recinfo, 
+                                              &tmp_table_param.recinfo,
+					      err, 1, &is_duplicate);
+    }
+  }
+  
+  return rc;
 }
 
 
@@ -171,9 +194,59 @@ select_union::create_result_table(THD *thd_arg, List<Item> *column_types,
   return FALSE;
 }
 
+bool
+select_union_recursive::create_result_table(THD *thd_arg,
+                                            List<Item> *column_types,
+                                            bool is_union_distinct,
+                                            ulonglong options,
+                                            const char *alias,
+                                            bool bit_fields_as_long,
+                                            bool create_table,
+                                            bool keep_row_order)
+{
+  if (select_union::create_result_table(thd_arg, column_types,
+                                        is_union_distinct, options,
+                                        "", bit_fields_as_long,
+                                        create_table, keep_row_order))
+    return true;
+  
+  if (! (incr_table= create_tmp_table(thd_arg, &tmp_table_param, *column_types,
+                                      (ORDER*) 0, false, 1,
+                                      options, HA_POS_ERROR, "",
+                                      !create_table, keep_row_order)))
+    return true;
+
+  incr_table->keys_in_use_for_query.clear_all();
+  for (uint i=0; i < table->s->fields; i++)
+    incr_table->field[i]->flags &= ~PART_KEY_FLAG;
+
+  if (create_table)
+  {
+    incr_table->file->extra(HA_EXTRA_WRITE_CACHE);
+    incr_table->file->extra(HA_EXTRA_IGNORE_DUP_KEY);
+  }
+
+  TABLE *rec_table= 0;
+  if (! (rec_table= create_tmp_table(thd_arg, &tmp_table_param, *column_types,
+                                     (ORDER*) 0, false, 1,
+                                     options, HA_POS_ERROR, alias,
+                                     true, keep_row_order)))
+    return true;
+
+  rec_table->keys_in_use_for_query.clear_all();
+  for (uint i=0; i < table->s->fields; i++)
+    rec_table->field[i]->flags &= ~PART_KEY_FLAG;
+
+  if (rec_tables.push_back(rec_table))
+    return true;
+
+  return false;
+}
+
 
 /**
-  Reset and empty the temporary table that stores the materialized query result.
+  Reset and empty the temporary table that stores the materialized query
+  result.
 
   @note The cleanup performed here is exactly the same as for the two temp
   tables of JOIN - exec_tmp_table_[1 | 2].
@@ -183,10 +256,36 @@ void select_union::cleanup()
 {
   table->file->extra(HA_EXTRA_RESET_STATE);
   table->file->ha_delete_all_rows();
-  free_io_cache(table);
-  filesort_free_buffers(table,0);
 }
 
+
+void select_union_recursive::cleanup()
+{
+  if (table)
+  {
+    select_union::cleanup();
+    free_tmp_table(thd, table);
+  }
+
+  if (incr_table)
+  {
+    incr_table->file->extra(HA_EXTRA_RESET_STATE);
+    incr_table->file->ha_delete_all_rows();
+    free_tmp_table(thd, incr_table);
+  }
+
+  List_iterator<TABLE> it(rec_tables);
+  TABLE *tab;
+  while ((tab= it++))
+  {
+    if (tab->is_created())
+    {
+      tab->file->extra(HA_EXTRA_RESET_STATE);
+      tab->file->ha_delete_all_rows();
+    }
+    free_tmp_table(thd, tab);
+  }
+}
 
 
 /**
@@ -247,6 +346,7 @@ int select_union_direct::send_data(List<Item> &items)
     return false;
   }
 
+  send_records++;
   fill_record(thd, table, table->field, items, true, false);
   if (thd->is_error())
     return true; /* purecov: inspected */
@@ -325,11 +425,13 @@ st_select_lex_unit::init_prepare_fake_select_lex(THD *thd_arg,
        order=order->next)
   {
     (*order->item)->walk(&Item::change_context_processor, 0,
-                         (uchar*) &fake_select_lex->context);
+                         &fake_select_lex->context);
     (*order->item)->walk(&Item::set_fake_select_as_master_processor, 0,
-                         (uchar*) fake_select_lex);
+                         fake_select_lex);
   }
 }
+
+
 
 
 bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
@@ -337,12 +439,16 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
 {
   SELECT_LEX *lex_select_save= thd_arg->lex->current_select;
   SELECT_LEX *sl, *first_sl= first_select();
+  bool is_recursive= with_element && with_element->is_recursive;
+  bool is_rec_result_table_created= false;
   select_result *tmp_result;
   bool is_union_select;
   bool instantiate_tmp_table= false;
   DBUG_ENTER("st_select_lex_unit::prepare");
+  DBUG_ASSERT(thd == thd_arg);
+  DBUG_ASSERT(thd == current_thd);
 
-  describe= MY_TEST(additional_options & SELECT_DESCRIBE);
+  describe= additional_options & SELECT_DESCRIBE;
 
   /*
     Save fake_select_lex in case we don't need it for anything but
@@ -387,21 +493,32 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
 
   /* Global option */
 
-  if (is_union_select)
+  if (is_union_select || is_recursive)
   {
     if (is_union() && !union_needs_tmp_table())
     {
       SELECT_LEX *last= first_select();
       while (last->next_select())
         last= last->next_select();
-      if (!(tmp_result= union_result= new select_union_direct(sel_result, last)))
+      if (!(tmp_result= union_result=
+              new (thd_arg->mem_root) select_union_direct(thd_arg, sel_result,
+                                                          last)))
         goto err; /* purecov: inspected */
       fake_select_lex= NULL;
       instantiate_tmp_table= false;
     }
     else
     {
-      if (!(tmp_result= union_result= new select_union()))
+      if (!is_recursive)
+	union_result= new (thd_arg->mem_root) select_union(thd_arg);
+      else
+      {
+        with_element->rec_result=
+          new (thd_arg->mem_root) select_union_recursive(thd_arg);
+        union_result=  with_element->rec_result;
+        fake_select_lex= NULL;
+      }
+      if (!(tmp_result= union_result))
         goto err; /* purecov: inspected */
       instantiate_tmp_table= true;
     }
@@ -410,9 +527,9 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
     tmp_result= sel_result;
 
   sl->context.resolve_in_select_list= TRUE;
-
+ 
   for (;sl; sl= sl->next_select())
-  {
+  {  
     bool can_skip_order_by;
     sl->options|=  SELECT_NO_UNLOCK;
     JOIN *join= new JOIN(thd_arg, sl->item_list, 
@@ -432,20 +549,7 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
 
     can_skip_order_by= is_union_select && !(sl->braces && sl->explicit_limit);
 
-    /*
-      Remove all references from the select_lex_units to the subqueries that
-      are inside the ORDER BY clause.
-    */
-    if (can_skip_order_by)
-    {
-      for (ORDER *ord= (ORDER *)sl->order_list.first; ord; ord= ord->next)
-      {
-        (*ord->item)->walk(&Item::eliminate_subselect_processor, FALSE, NULL);
-      }
-    }
-
-    saved_error= join->prepare(&sl->ref_pointer_array,
-                               sl->table_list.first,
+    saved_error= join->prepare(sl->table_list.first,
                                sl->with_wild,
                                sl->where,
                                (can_skip_order_by ? 0 :
@@ -467,20 +571,40 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
     if (saved_error || (saved_error= thd_arg->is_fatal_error))
       goto err;
     /*
+      Remove all references from the select_lex_units to the subqueries that
+      are inside the ORDER BY clause.
+    */
+    if (can_skip_order_by)
+    {
+      for (ORDER *ord= (ORDER *)sl->order_list.first; ord; ord= ord->next)
+      {
+        (*ord->item)->walk(&Item::eliminate_subselect_processor, FALSE, NULL);
+      }
+    }
+
+    /*
       Use items list of underlaid select for derived tables to preserve
       information about fields lengths and exact types
     */
-    if (!is_union_select)
+    if (!is_union_select && !is_recursive)
       types= first_sl->item_list;
     else if (sl == first_sl)
     {
+      if (is_recursive)
+      {
+        if (derived->with->rename_columns_of_derived_unit(thd, this))
+	  goto err; 
+        if (check_duplicate_names(thd, sl->item_list, 0))
+          goto err;
+      }
       types.empty();
       List_iterator_fast<Item> it(sl->item_list);
       Item *item_tmp;
       while ((item_tmp= it++))
       {
 	/* Error's in 'new' will be detected after loop */
-	types.push_back(new Item_type_holder(thd_arg, item_tmp));
+	types.push_back(new (thd_arg->mem_root)
+                        Item_type_holder(thd_arg, item_tmp));
       }
 
       if (thd_arg->is_fatal_error)
@@ -491,18 +615,45 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
       if (types.elements != sl->item_list.elements)
       {
 	my_message(ER_WRONG_NUMBER_OF_COLUMNS_IN_SELECT,
-		   ER(ER_WRONG_NUMBER_OF_COLUMNS_IN_SELECT),MYF(0));
+		   ER_THD(thd, ER_WRONG_NUMBER_OF_COLUMNS_IN_SELECT),MYF(0));
 	goto err;
       }
-      List_iterator_fast<Item> it(sl->item_list);
-      List_iterator_fast<Item> tp(types);	
-      Item *type, *item_tmp;
-      while ((type= tp++, item_tmp= it++))
+      if (!is_rec_result_table_created)
       {
-        if (((Item_type_holder*)type)->join_types(thd_arg, item_tmp))
-	  DBUG_RETURN(TRUE);
+        List_iterator_fast<Item> it(sl->item_list);
+        List_iterator_fast<Item> tp(types);	
+        Item *type, *item_tmp;
+        while ((type= tp++, item_tmp= it++))
+        {
+          if (((Item_type_holder*)type)->join_types(thd_arg, item_tmp))
+	    DBUG_RETURN(TRUE);
+        }
       }
     }
+    if (is_recursive)
+    {
+      if (!with_element->is_anchor(sl))
+        sl->uncacheable|= UNCACHEABLE_UNITED;
+      if(!is_rec_result_table_created &&
+         (!sl->next_select() ||
+          sl->next_select() == with_element->first_recursive))
+      {
+        ulonglong create_options;
+        create_options= (first_sl->options | thd_arg->variables.option_bits |
+                         TMP_TABLE_ALL_COLUMNS);
+        if (union_result->create_result_table(thd, &types,
+                                              MY_TEST(union_distinct),
+                                              create_options, derived->alias,
+                                              false,
+                                              instantiate_tmp_table, false))
+          goto err;
+        if (!derived->table)
+          derived->table= derived->derived_result->table= 
+            with_element->rec_result->rec_tables.head();
+        with_element->mark_as_with_prepared_anchor();
+        is_rec_result_table_created= true;
+      }
+    }      
   }
 
   /*
@@ -528,7 +679,7 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
 
     while ((type= tp++))
     {
-      if (type->result_type() == STRING_RESULT &&
+      if (type->cmp_type() == STRING_RESULT &&
           type->collation.derivation == DERIVATION_NONE)
       {
         my_error(ER_CANT_AGGREGATE_NCOLLATIONS, MYF(0), "UNION");
@@ -556,8 +707,7 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
       ORDER *ord;
       Item_func::Functype ft=  Item_func::FT_FUNC;
       for (ord= global_parameters()->order_list.first; ord; ord= ord->next)
-        if ((*ord->item)->walk (&Item::find_function_processor, FALSE, 
-                                (uchar *) &ft))
+        if ((*ord->item)->walk (&Item::find_function_processor, FALSE, &ft))
         {
           my_error (ER_CANT_USE_OPTION_HERE, MYF(0), "MATCH()");
           goto err;
@@ -576,9 +726,11 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
     if (global_parameters()->ftfunc_list->elements)
       create_options= create_options | TMP_TABLE_FORCE_MYISAM;
 
-    if (union_result->create_result_table(thd, &types, MY_TEST(union_distinct),
-                                          create_options, "", false,
-                                          instantiate_tmp_table))
+    
+    if (!is_recursive &&
+         union_result->create_result_table(thd, &types, MY_TEST(union_distinct),
+                                           create_options, "", false,
+                                           instantiate_tmp_table, false))
       goto err;
     if (fake_select_lex && !fake_select_lex->first_cond_optimization)
     {
@@ -641,8 +793,7 @@ bool st_select_lex_unit::prepare(THD *thd_arg, select_result *sel_result,
         fake_select_lex->n_child_sum_items+= global_parameters()->n_sum_items;
 
 	saved_error= fake_select_lex->join->
-	  prepare(&fake_select_lex->ref_pointer_array,
-		  fake_select_lex->table_list.first,
+	  prepare(fake_select_lex->table_list.first,
 		  0, 0,
                   global_parameters()->order_list.elements, // og_num
                   global_parameters()->order_list.first,    // order
@@ -687,6 +838,10 @@ bool st_select_lex_unit::optimize()
   if (optimized && !uncacheable && !describe)
     DBUG_RETURN(FALSE);
 
+  if (with_element && with_element->is_recursive && optimize_started)
+    DBUG_RETURN(FALSE);
+  optimize_started= true;
+
   if (uncacheable || !item || !item->assigned() || describe)
   {
     if (item)
@@ -697,7 +852,7 @@ bool st_select_lex_unit::optimize()
       {
         item->assigned(0); // We will reinit & rexecute unit
         item->reset();
-        if (table->created)
+        if (table->is_created())
         {
           table->file->ha_delete_all_rows();
           table->file->info(HA_STATUS_VARIABLE);
@@ -783,6 +938,8 @@ bool st_select_lex_unit::exec()
 
   if (uncacheable || !item || !item->assigned() || describe)
   {
+    if (!fake_select_lex && !(with_element && with_element->is_recursive))
+      union_result->cleanup();
     for (SELECT_LEX *sl= select_cursor; sl; sl= sl->next_select())
     {
       ha_rows records_at_start= 0;
@@ -822,7 +979,7 @@ bool st_select_lex_unit::exec()
       {
 	records_at_start= table->file->stats.records;
 	sl->join->exec();
-        if (sl == union_distinct)
+        if (sl == union_distinct && !(with_element && with_element->is_recursive))
 	{
           // This is UNION DISTINCT, so there should be a fake_select_lex
           DBUG_ASSERT(fake_select_lex != NULL);
@@ -880,7 +1037,7 @@ bool st_select_lex_unit::exec()
         */
         push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
                             ER_QUERY_EXCEEDED_ROWS_EXAMINED_LIMIT,
-                            ER(ER_QUERY_EXCEEDED_ROWS_EXAMINED_LIMIT),
+                            ER_THD(thd, ER_QUERY_EXCEEDED_ROWS_EXAMINED_LIMIT),
                             thd->accessed_rows_and_keys,
                             thd->lex->limit_rows_examined->val_uint());
         thd->reset_killed();
@@ -939,13 +1096,13 @@ bool st_select_lex_unit::exec()
           Don't add more sum_items if we have already done JOIN::prepare
           for this (with a different join object)
         */
-        if (!fake_select_lex->ref_pointer_array)
+        if (fake_select_lex->ref_pointer_array.is_null())
           fake_select_lex->n_child_sum_items+= global_parameters()->n_sum_items;
         
         if (!was_executed)
           save_union_explain_part2(thd->lex->explain);
 
-        saved_error= mysql_select(thd, &fake_select_lex->ref_pointer_array,
+        saved_error= mysql_select(thd,
                               &result_table_list,
                               0, item_list, NULL,
 				  global_parameters()->order_list.elements,
@@ -966,9 +1123,9 @@ bool st_select_lex_unit::exec()
             1st execution sets certain members (e.g. select_result) to perform
             subquery execution rather than EXPLAIN line production. In order 
             to reset them back, we re-do all of the actions (yes it is ugly):
-          */
+          */ // psergey-todo: is the above really necessary anymore?? 
 	  join->init(thd, item_list, fake_select_lex->options, result);
-          saved_error= mysql_select(thd, &fake_select_lex->ref_pointer_array,
+          saved_error= mysql_select(thd,
                                 &result_table_list,
                                 0, item_list, NULL,
 				    global_parameters()->order_list.elements,
@@ -979,7 +1136,7 @@ bool st_select_lex_unit::exec()
         }
         else
         {
-          join->examined_rows= 0;
+          join->join_examined_rows= 0;
           saved_error= join->reinit();
           join->exec();
         }
@@ -1004,6 +1161,109 @@ err:
 }
 
 
+/**
+  @brief
+    Execute the union of the specification of a recursive with table 
+
+  @details
+    The method is performed only for the units that are specifications
+    if recursive with table T. If the specification contains an anchor
+    part then the first call of this method executes only this part
+    while the following calls execute the recursive part. If there are
+    no anchors each call executes the whole unit.
+    Before the excution the method cleans up the temporary table 
+    to where the new rows of the recursive table are sent.
+    After the execution the unit these rows are copied to the 
+    temporary tables created for recursive references of T. 
+    If the specification if T is restricted (standards compliant)
+    then these temporary tables are cleaned up before new rows
+    are copied into them.  
+
+  @retval
+    false   on success
+    true    on failure
+*/
+
+bool st_select_lex_unit::exec_recursive()
+{
+  st_select_lex *lex_select_save= thd->lex->current_select;
+  st_select_lex *start= with_element->first_recursive;
+  TABLE *incr_table= with_element->rec_result->incr_table;
+  st_select_lex *end= NULL;
+  bool is_unrestricted= with_element->is_unrestricted();
+  List_iterator_fast<TABLE> li(with_element->rec_result->rec_tables);
+  TMP_TABLE_PARAM *tmp_table_param= &with_element->rec_result->tmp_table_param;
+  ha_rows examined_rows= 0;
+  bool was_executed= executed;
+  TABLE *rec_table;
+
+  DBUG_ENTER("st_select_lex_unit::exec_recursive");
+
+  executed= 1;
+  create_explain_query_if_not_exists(thd->lex, thd->mem_root);
+  if (!was_executed)
+    save_union_explain(thd->lex->explain);
+
+  if ((saved_error= incr_table->file->ha_delete_all_rows()))
+    goto err;
+
+  if (with_element->level == 0)
+  {
+    start= first_select();
+    if (with_element->with_anchor)
+      end= with_element->first_recursive;
+  }
+   
+  for (st_select_lex *sl= start ; sl != end; sl= sl->next_select())
+  {
+    thd->lex->current_select= sl;
+    sl->join->exec();
+    saved_error= sl->join->error;
+    if (!saved_error)
+    {
+       examined_rows+= thd->get_examined_row_count();
+       thd->set_examined_row_count(0);
+       if (union_result->flush())
+       {
+	 thd->lex->current_select= lex_select_save;
+	 DBUG_RETURN(1);
+       }
+    }
+    if (saved_error)
+    {
+      thd->lex->current_select= lex_select_save;
+      goto err;
+      
+    }
+  }
+
+  thd->inc_examined_row_count(examined_rows);
+
+  incr_table->file->info(HA_STATUS_VARIABLE);
+  if (incr_table->file->stats.records == 0)
+    with_element->set_as_stabilized();
+  else
+    with_element->level++;
+
+  while ((rec_table= li++))
+  {
+    saved_error=
+      incr_table->insert_all_rows_into_tmp_table(thd, rec_table,
+                                                 tmp_table_param,
+                                                 !is_unrestricted);
+    if (!with_element->rec_result->first_rec_table_to_update)
+      with_element->rec_result->first_rec_table_to_update= rec_table;
+    if (with_element->level == 1)
+      rec_table->reginfo.join_tab->preread_init_done= true;  
+  }
+
+  thd->lex->current_select= lex_select_save;
+err:
+  thd->lex->set_limit_rows_examined();
+  DBUG_RETURN(saved_error);    
+}
+
+
 bool st_select_lex_unit::cleanup()
 {
   int error= 0;
@@ -1015,27 +1275,11 @@ bool st_select_lex_unit::cleanup()
   }
   cleaned= 1;
 
-  if (union_result)
-  {
-    delete union_result;
-    union_result=0; // Safety
-    if (table)
-      free_tmp_table(thd, table);
-    table= 0; // Safety
-  }
-
   for (SELECT_LEX *sl= first_select(); sl; sl= sl->next_select())
     error|= sl->cleanup();
-
+     
   if (fake_select_lex)
   {
-    JOIN *join;
-    if ((join= fake_select_lex->join))
-    {
-      join->tables_list= 0;
-      join->table_count= 0;
-      join->top_join_tab_count= 0;
-    }
     error|= fake_select_lex->cleanup();
     /*
       There are two cases when we should clean order items:
@@ -1057,6 +1301,28 @@ bool st_select_lex_unit::cleanup()
     }
   }
 
+  if (with_element && with_element->is_recursive)
+  {
+    if (union_result )
+    {
+      ((select_union_recursive *) union_result)->cleanup();
+      delete union_result;
+      union_result= 0;
+    }
+    with_element->mark_as_cleaned();
+  }
+  else
+  {
+    if (union_result)
+    {
+      delete union_result;
+      union_result=0; // Safety
+      if (table)
+        free_tmp_table(thd, table);
+      table= 0; // Safety
+    }
+  }
+
   DBUG_RETURN(error);
 }
 
@@ -1064,6 +1330,7 @@ bool st_select_lex_unit::cleanup()
 void st_select_lex_unit::reinit_exec_mechanism()
 {
   prepared= optimized= executed= 0;
+  optimize_started= 0;
 #ifndef DBUG_OFF
   if (is_union())
   {
@@ -1080,6 +1347,8 @@ void st_select_lex_unit::reinit_exec_mechanism()
     }
   }
 #endif
+  if (with_element && with_element->is_recursive)
+    with_element->reset_recursive_for_exec();
 }
 
 
@@ -1116,7 +1385,9 @@ bool st_select_lex_unit::change_result(select_result_interceptor *new_result,
   Get column type information for this unit.
 
   SYNOPSIS
-    st_select_lex_unit::get_unit_column_types()
+    st_select_lex_unit::get_column_types()
+      @param for_cursor if true return the list the fields
+                        retrieved by the cursor
 
   DESCRIPTION
     For a single-select the column types are taken
@@ -1130,7 +1401,7 @@ bool st_select_lex_unit::change_result(select_result_interceptor *new_result,
     st_select_lex_unit::prepare()
 */
 
-List<Item> *st_select_lex_unit::get_unit_column_types()
+List<Item> *st_select_lex_unit::get_column_types(bool for_cursor)
 {
   SELECT_LEX *sl= first_select();
   bool is_procedure= MY_TEST(sl->join->procedure);
@@ -1150,13 +1421,24 @@ List<Item> *st_select_lex_unit::get_unit_column_types()
     return &types;
   }
 
-  return &sl->item_list;
+  return for_cursor ? sl->join->fields :  &sl->item_list;
 }
+
+
+static void cleanup_order(ORDER *order)
+{
+  for (; order; order= order->next)
+    order->counter_used= 0;
+}
+
 
 bool st_select_lex::cleanup()
 {
   bool error= FALSE;
   DBUG_ENTER("st_select_lex::cleanup()");
+
+  cleanup_order(order_list.first);
+  cleanup_order(group_list.first);
 
   if (join)
   {
@@ -1170,7 +1452,6 @@ bool st_select_lex::cleanup()
   {
     error= (bool) ((uint) error | (uint) lex_unit->cleanup());
   }
-  non_agg_fields.empty();
   inner_refs_list.empty();
   exclude_from_table_unique_test= FALSE;
   DBUG_RETURN(error);
@@ -1181,6 +1462,7 @@ void st_select_lex::cleanup_all_joins(bool full)
 {
   SELECT_LEX_UNIT *unit;
   SELECT_LEX *sl;
+  DBUG_ENTER("st_select_lex::cleanup_all_joins");
 
   if (join)
     join->cleanup(full);
@@ -1188,6 +1470,7 @@ void st_select_lex::cleanup_all_joins(bool full)
   for (unit= first_inner_unit(); unit; unit= unit->next_unit())
     for (sl= unit->first_select(); sl; sl= sl->next_select())
       sl->cleanup_all_joins(full);
+  DBUG_VOID_RETURN;
 }
 
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 2008-2014 Kentoku Shiba
+/* Copyright (C) 2008-2015 Kentoku Shiba
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -176,6 +176,29 @@ my_bool spider_param_connect_mutex()
 {
   DBUG_ENTER("spider_param_connect_mutex");
   DBUG_RETURN(spider_connect_mutex);
+}
+
+static uint spider_connect_error_interval;
+/*
+  0-: interval
+ */
+static MYSQL_SYSVAR_UINT(
+  connect_error_interval,
+  spider_connect_error_interval,
+  PLUGIN_VAR_RQCMDARG,
+  "Return same error code until interval passes if connection is failed",
+  NULL,
+  NULL,
+  1,
+  0,
+  4294967295U,
+  0
+);
+
+uint spider_param_connect_error_interval()
+{
+  DBUG_ENTER("spider_param_connect_error_interval");
+  DBUG_RETURN(spider_connect_error_interval);
 }
 
 static uint spider_table_init_error_interval;
@@ -1859,7 +1882,7 @@ int spider_param_auto_increment_mode(
 static MYSQL_THDVAR_BOOL(
   same_server_link, /* name */
   PLUGIN_VAR_OPCMDARG, /* opt */
-  "Permit to link same server's table", /* comment */
+  "Permit one to link same server's table", /* comment */
   NULL, /* check */
   NULL, /* update */
   FALSE /* def */
@@ -2960,6 +2983,32 @@ int spider_param_delete_all_rows_type(
     delete_all_rows_type : THDVAR(thd, delete_all_rows_type));
 }
 
+/*
+ -1 :use table parameter
+  0 :compact
+  1 :add original table name
+ */
+static MYSQL_THDVAR_INT(
+  bka_table_name_type, /* name */
+  PLUGIN_VAR_RQCMDARG, /* opt */
+  "The type of temporary table name for bka", /* comment */
+  NULL, /* check */
+  NULL, /* update */
+  -1, /* def */
+  -1, /* min */
+  1, /* max */
+  0 /* blk */
+);
+
+int spider_param_bka_table_name_type(
+  THD *thd,
+  int bka_table_name_type
+) {
+  DBUG_ENTER("spider_param_bka_table_name_type");
+  DBUG_RETURN(THDVAR(thd, bka_table_name_type) == -1 ?
+    bka_table_name_type : THDVAR(thd, bka_table_name_type));
+}
+
 static struct st_mysql_storage_engine spider_storage_engine =
 { MYSQL_HANDLERTON_INTERFACE_VERSION };
 
@@ -3093,6 +3142,8 @@ static struct st_mysql_sys_var* spider_system_variables[] = {
   MYSQL_SYSVAR(casual_read),
   MYSQL_SYSVAR(dry_access),
   MYSQL_SYSVAR(delete_all_rows_type),
+  MYSQL_SYSVAR(bka_table_name_type),
+  MYSQL_SYSVAR(connect_error_interval),
   NULL
 };
 

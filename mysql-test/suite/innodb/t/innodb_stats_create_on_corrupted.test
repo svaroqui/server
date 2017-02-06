@@ -8,9 +8,10 @@
 # functionality tested here is not related to the page size, so we only
 # test with 16k page size.
 -- source include/have_innodb_16k.inc
+-- source include/not_embedded.inc
 
-call mtr.add_suppression("InnoDB: Error: Table \"mysql\".\"innodb_index_stats\" not found");
-call mtr.add_suppression("InnoDB: Error: Fetch of persistent statistics requested for table");
+call mtr.add_suppression("InnoDB: Table .*innodb_index_stats.* not found");
+call mtr.add_suppression("InnoDB: Fetch of persistent statistics requested for table .*");
 
 -- vertical_results
 
@@ -32,5 +33,17 @@ FROM information_schema.tables WHERE table_name = 'test_ps_create_on_corrupted';
 
 # restore the persistent storage
 ALTER TABLE mysql.innodb_index_stats_ RENAME TO mysql.innodb_index_stats;
+
+--source include/restart_mysqld.inc
+
+-- vertical_results
+
+# check again
+SELECT seq_in_index, column_name, cardinality
+FROM information_schema.statistics WHERE table_name = 'test_ps_create_on_corrupted'
+ORDER BY index_name, seq_in_index;
+
+SELECT table_rows, avg_row_length, max_data_length, index_length
+FROM information_schema.tables WHERE table_name = 'test_ps_create_on_corrupted';
 
 DROP TABLE test_ps_create_on_corrupted;

@@ -1,8 +1,9 @@
 /*****************************************************************************
 
-Copyright (c) 1994, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
 Copyright (c) 2012, Facebook Inc.
+Copyright (c) 2015, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -284,8 +285,13 @@ btr_cur_latch_leaves(
 #ifdef UNIV_BTR_DEBUG
 			ut_a(page_is_comp(get_block->frame)
 			     == page_is_comp(page));
-			ut_a(btr_page_get_next(get_block->frame, mtr)
-			     == page_get_page_no(page));
+
+			/* For fake_change mode we avoid a detailed validation
+			as it operate in tweaked format where-in validation
+			may fail. */
+			ut_a(sibling_mode == RW_NO_LATCH
+			     || btr_page_get_next(get_block->frame, mtr)
+				== page_get_page_no(page));
 #endif /* UNIV_BTR_DEBUG */
 			if (sibling_mode == RW_NO_LATCH) {
 				/* btr_block_get() called with RW_NO_LATCH will
@@ -386,7 +392,7 @@ search tuple should be performed in the B-tree. InnoDB does an insert
 immediately after the cursor. Thus, the cursor may end up on a user record,
 or on a page infimum record. */
 UNIV_INTERN
-void
+dberr_t
 btr_cur_search_to_nth_level(
 /*========================*/
 	dict_index_t*	index,	/*!< in: index */
@@ -436,6 +442,7 @@ btr_cur_search_to_nth_level(
 	page_cur_t*	page_cursor;
 	btr_op_t	btr_op;
 	ulint		root_height = 0; /* remove warning */
+	dberr_t		err = DB_SUCCESS;
 
 #ifdef BTR_CUR_ADAPT
 	btr_search_t*	info;
@@ -553,7 +560,7 @@ btr_cur_search_to_nth_level(
 		      || mode != PAGE_CUR_LE);
 		btr_cur_n_sea++;
 
-		return;
+		return err;
 	}
 # endif /* BTR_CUR_HASH_ADAPT */
 #endif /* BTR_CUR_ADAPT */
@@ -649,7 +656,21 @@ search_loop:
 retry_page_get:
 	block = buf_page_get_gen(
 		space, zip_size, page_no, rw_latch, guess, buf_mode,
-		file, line, mtr);
+		file, line, mtr, &err);
+
+	if (err != DB_SUCCESS) {
+		if (err == DB_DECRYPTION_FAILED) {
+			ib_push_warning((void *)NULL,
+				DB_DECRYPTION_FAILED,
+				"Table %s is encrypted but encryption service or"
+				" used key_id is not available. "
+				" Can't continue reading table.",
+				index->table->name);
+			index->table->is_encrypted = true;
+		}
+
+		goto func_exit;
+	}
 
 	if (block == NULL) {
 		SRV_CORRUPT_TABLE_CHECK(buf_mode == BUF_GET_IF_IN_POOL ||
@@ -889,12 +910,14 @@ func_exit:
 
 		rw_lock_s_lock(btr_search_get_latch(cursor->index));
 	}
+
+	return err;
 }
 
 /*****************************************************************//**
 Opens a cursor at either end of an index. */
 UNIV_INTERN
-void
+dberr_t
 btr_cur_open_at_index_side_func(
 /*============================*/
 	bool		from_left,	/*!< in: true if open to the low end,
@@ -920,6 +943,8 @@ btr_cur_open_at_index_side_func(
 	mem_heap_t*	heap		= NULL;
 	ulint		offsets_[REC_OFFS_NORMAL_SIZE];
 	ulint*		offsets		= offsets_;
+	dberr_t		err = DB_SUCCESS;
+	
 	rec_offs_init(offsets_);
 
 	estimate = latch_mode & BTR_ESTIMATE;
@@ -957,11 +982,26 @@ btr_cur_open_at_index_side_func(
 	height = ULINT_UNDEFINED;
 
 	for (;;) {
-		buf_block_t*	block;
-		page_t*		page;
+		buf_block_t*	block=NULL;
+		page_t*		page=NULL;
+
 		block = buf_page_get_gen(space, zip_size, page_no,
 					 RW_NO_LATCH, NULL, BUF_GET,
-					 file, line, mtr);
+					 file, line, mtr, &err);
+		if (err != DB_SUCCESS) {
+			if (err == DB_DECRYPTION_FAILED) {
+				ib_push_warning((void *)NULL,
+					DB_DECRYPTION_FAILED,
+					"Table %s is encrypted but encryption service or"
+					" used key_id is not available. "
+					" Can't continue reading table.",
+					index->table->name);
+				index->table->is_encrypted = true;
+			}
+
+			goto exit_loop;
+		}
+
 		page = buf_block_get_frame(block);
 
 		SRV_CORRUPT_TABLE_CHECK(page,
@@ -1066,6 +1106,8 @@ exit_loop:
 	if (UNIV_LIKELY_NULL(heap)) {
 		mem_heap_free(heap);
 	}
+
+	return err;
 }
 
 /**********************************************************************//**
@@ -1113,10 +1155,25 @@ btr_cur_open_at_rnd_pos_func(
 	for (;;) {
 		buf_block_t*	block;
 		page_t*		page;
+		dberr_t		err=DB_SUCCESS;
 
 		block = buf_page_get_gen(space, zip_size, page_no,
 					 RW_NO_LATCH, NULL, BUF_GET,
-					 file, line, mtr);
+					 file, line, mtr, &err);
+
+		if (err != DB_SUCCESS) {
+			if (err == DB_DECRYPTION_FAILED) {
+				ib_push_warning((void *)NULL,
+					DB_DECRYPTION_FAILED,
+					"Table %s is encrypted but encryption service or"
+					" used key_id is not available. "
+					" Can't continue reading table.",
+					index->table->name);
+				index->table->is_encrypted = true;
+			}
+			goto exit_loop;
+		}
+
 		page = buf_block_get_frame(block);
 
 		SRV_CORRUPT_TABLE_CHECK(page,
@@ -1180,7 +1237,7 @@ This has to be done either within the same mini-transaction,
 or by invoking ibuf_reset_free_bits() before mtr_commit().
 
 @return	pointer to inserted record if succeed, else NULL */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 rec_t*
 btr_cur_insert_if_possible(
 /*=======================*/
@@ -1223,7 +1280,7 @@ btr_cur_insert_if_possible(
 /*************************************************************//**
 For an insert, checks the locks and does the undo logging if desired.
 @return	DB_SUCCESS, DB_WAIT_LOCK, DB_FAIL, or error number */
-UNIV_INLINE __attribute__((warn_unused_result, nonnull(2,3,5,6)))
+UNIV_INLINE MY_ATTRIBUTE((warn_unused_result, nonnull(2,3,5,6)))
 dberr_t
 btr_cur_ins_lock_and_undo(
 /*======================*/
@@ -1347,7 +1404,7 @@ btr_cur_optimistic_insert(
 	rec_t*		dummy;
 	ibool		leaf;
 	ibool		reorg;
-	ibool		inherit;
+	ibool		inherit = TRUE;
 	ulint		zip_size;
 	ulint		rec_size;
 	dberr_t		err;
@@ -1382,9 +1439,6 @@ btr_cur_optimistic_insert(
 		dtuple_print(stderr, entry);
 	}
 #endif /* UNIV_DEBUG */
-
-	ut_ad((thr && thr_get_trx(thr)->fake_changes)
-	      || mtr_memo_contains(mtr, block, MTR_MEMO_PAGE_X_FIX));
 
 	leaf = page_is_leaf(page);
 
@@ -1638,7 +1692,7 @@ btr_cur_pessimistic_insert(
 	ulint		zip_size	= dict_table_zip_size(index->table);
 	big_rec_t*	big_rec_vec	= NULL;
 	dberr_t		err;
-	ibool		dummy_inh;
+	ibool		inherit = FALSE;
 	ibool		success;
 	ulint		n_reserved	= 0;
 
@@ -1660,7 +1714,7 @@ btr_cur_pessimistic_insert(
 	/* Check locks and write to undo log, if specified */
 
 	err = btr_cur_ins_lock_and_undo(flags, cursor, entry,
-					thr, mtr, &dummy_inh);
+					thr, mtr, &inherit);
 
 	if (err != DB_SUCCESS) {
 
@@ -1731,12 +1785,46 @@ btr_cur_pessimistic_insert(
 			flags, cursor, offsets, heap, entry, n_ext, mtr);
 	}
 
+	if (*rec == NULL && os_has_said_disk_full) {
+		return(DB_OUT_OF_FILE_SPACE);
+	}
+
 	ut_ad(page_rec_get_next(btr_cur_get_rec(cursor)) == *rec);
+
+	if (!(flags & BTR_NO_LOCKING_FLAG)) {
+		/* The cursor might be moved to the other page,
+		and the max trx id field should be updated after
+		the cursor was fixed. */
+		if (!dict_index_is_clust(index)) {
+			page_update_max_trx_id(
+				btr_cur_get_block(cursor),
+				btr_cur_get_page_zip(cursor),
+				thr_get_trx(thr)->id, mtr);
+		}
+
+		if (!page_rec_is_infimum(btr_cur_get_rec(cursor))) {
+			/* split and inserted need to call
+			lock_update_insert() always. */
+			inherit = TRUE;
+		}
+
+		buf_block_t* block = btr_cur_get_block(cursor);
+		buf_frame_t* frame = NULL;
+
+		if (block) {
+			frame = buf_block_get_frame(block);
+		}
+		/* split and inserted need to call
+		lock_update_insert() always. */
+		if (frame &&  btr_page_get_prev(frame, mtr) == FIL_NULL) {
+			inherit = TRUE;
+		}
+	}
 
 #ifdef BTR_CUR_ADAPT
 	btr_search_update_hash_on_insert(cursor);
 #endif
-	if (!(flags & BTR_NO_LOCKING_FLAG)) {
+	if (inherit && !(flags & BTR_NO_LOCKING_FLAG)) {
 
 		lock_update_insert(btr_cur_get_block(cursor), *rec);
 	}
@@ -1755,7 +1843,7 @@ btr_cur_pessimistic_insert(
 /*************************************************************//**
 For an update, checks the locks and does the undo logging.
 @return	DB_SUCCESS, DB_WAIT_LOCK, or error number */
-UNIV_INLINE __attribute__((warn_unused_result, nonnull(2,3,6,7)))
+UNIV_INLINE MY_ATTRIBUTE((warn_unused_result, nonnull(2,3,6,7)))
 dberr_t
 btr_cur_upd_lock_and_undo(
 /*======================*/
@@ -1774,9 +1862,7 @@ btr_cur_upd_lock_and_undo(
 	const rec_t*	rec;
 	dberr_t		err;
 
-	ut_ad(thr || (flags & BTR_NO_LOCKING_FLAG));
-
-	if (UNIV_UNLIKELY(thr && thr_get_trx(thr)->fake_changes)) {
+	if (UNIV_UNLIKELY(thr_get_trx(thr)->fake_changes)) {
 		/* skip LOCK, UNDO */
 		return(DB_SUCCESS);
 	}
@@ -2193,9 +2279,12 @@ func_exit:
 	if (page_zip
 	    && !(flags & BTR_KEEP_IBUF_BITMAP)
 	    && !dict_index_is_clust(index)
-	    && page_is_leaf(buf_block_get_frame(block))) {
-		/* Update the free bits in the insert buffer. */
-		ibuf_update_free_bits_zip(block, mtr);
+	    && block) {
+		buf_frame_t* frame = buf_block_get_frame(block);
+		if (frame && page_is_leaf(frame)) {
+			/* Update the free bits in the insert buffer. */
+			ibuf_update_free_bits_zip(block, mtr);
+		}
 	}
 
 	return(err);
@@ -2244,6 +2333,7 @@ btr_cur_optimistic_update(
 	ulint		max_size;
 	ulint		new_rec_size;
 	ulint		old_rec_size;
+	ulint		max_ins_size = 0;
 	dtuple_t*	new_entry;
 	roll_ptr_t	roll_ptr;
 	ulint		i;
@@ -2335,6 +2425,12 @@ any_extern:
 #endif /* UNIV_ZIP_DEBUG */
 
 	if (page_zip) {
+		if (page_zip_rec_needs_ext(new_rec_size, page_is_comp(page),
+					   dict_index_get_n_fields(index),
+					   page_zip_get_size(page_zip))) {
+			goto any_extern;
+		}
+
 		if (!btr_cur_update_alloc_zip(
 			    page_zip, page_cursor, index, *offsets,
 			    new_rec_size, true, mtr, thr_get_trx(thr))) {
@@ -2372,6 +2468,10 @@ any_extern:
 		? page_get_max_insert_size(page, 1)
 		: (old_rec_size
 		   + page_get_max_insert_size_after_reorganize(page, 1));
+
+	if (!page_zip) {
+		max_ins_size = page_get_max_insert_size_after_reorganize(page, 1);
+	}
 
 	if (!(((max_size >= BTR_CUR_PAGE_REORGANIZE_LIMIT)
 	       && (max_size >= new_rec_size))
@@ -2438,12 +2538,15 @@ any_extern:
 	ut_ad(err == DB_SUCCESS);
 
 func_exit:
-	if (page_zip
-	    && !(flags & BTR_KEEP_IBUF_BITMAP)
+	if (!(flags & BTR_KEEP_IBUF_BITMAP)
 	    && !dict_index_is_clust(index)
 	    && page_is_leaf(page)) {
-		/* Update the free bits in the insert buffer. */
-		ibuf_update_free_bits_zip(block, mtr);
+
+		if (page_zip) {
+			ibuf_update_free_bits_zip(block, mtr);
+		} else {
+			ibuf_update_free_bits_low(block, max_ins_size, mtr);
+		}
 	}
 
 	return(err);
@@ -2498,6 +2601,38 @@ btr_cur_pess_upd_restore_supremum(
 }
 
 /*************************************************************//**
+Check if the total length of the modified blob for the row is within 10%
+of the total redo log size.  This constraint on the blob length is to
+avoid overwriting the redo logs beyond the last checkpoint lsn.
+@return	DB_SUCCESS or DB_TOO_BIG_FOR_REDO. */
+static
+dberr_t
+btr_check_blob_limit(const big_rec_t*	big_rec_vec)
+{
+	const	ib_uint64_t redo_size = srv_n_log_files * srv_log_file_size
+		* UNIV_PAGE_SIZE;
+	const	ib_uint64_t redo_10p = redo_size / 10;
+	ib_uint64_t	total_blob_len = 0;
+	dberr_t	err = DB_SUCCESS;
+
+	/* Calculate the total number of bytes for blob data */
+	for (ulint i = 0; i < big_rec_vec->n_fields; i++) {
+		total_blob_len += big_rec_vec->fields[i].len;
+	}
+
+	if (total_blob_len > redo_10p) {
+		ib_logf(IB_LOG_LEVEL_ERROR, "The total blob data"
+			" length (" UINT64PF ") is greater than"
+			" 10%% of the total redo log size (" UINT64PF
+			"). Please increase total redo log size.",
+			total_blob_len, redo_size);
+		err = DB_TOO_BIG_FOR_REDO;
+	}
+
+	return(err);
+}
+
+/*************************************************************//**
 Performs an update of a record on a page of a tree. It is assumed
 that mtr holds an x-latch on the tree and on the cursor page. If the
 update is made on the leaf level, to avoid deadlocks, mtr must also
@@ -2547,6 +2682,7 @@ btr_cur_pessimistic_update(
 	ulint		n_reserved	= 0;
 	ulint		n_ext;
 	trx_t*		trx;
+	ulint		max_ins_size	= 0;
 
 	*offsets = NULL;
 	*big_rec = NULL;
@@ -2735,28 +2871,20 @@ make_external:
 	}
 
 	if (big_rec_vec) {
-		const ulint redo_10p = srv_log_file_size * UNIV_PAGE_SIZE / 10;
-		ulint total_blob_len = 0;
 
-		/* Calculate the total number of bytes for blob data */
-		for (ulint i = 0; i < big_rec_vec->n_fields; i++) {
-			total_blob_len += big_rec_vec->fields[i].len;
-		}
+		err = btr_check_blob_limit(big_rec_vec);
 
-		if (total_blob_len > redo_10p) {
-			ib_logf(IB_LOG_LEVEL_ERROR, "The total blob data"
-				" length (" ULINTPF ") is greater than"
-				" 10%% of the redo log file size (" UINT64PF
-				"). Please increase innodb_log_file_size.",
-				total_blob_len, srv_log_file_size);
+		if (err != DB_SUCCESS) {
 			if (n_reserved > 0) {
 				fil_space_release_free_extents(
 					index->space, n_reserved);
 			}
-
-			err = DB_TOO_BIG_RECORD;
 			goto err_exit;
 		}
+	}
+
+	if (!page_zip) {
+		max_ins_size = page_get_max_insert_size_after_reorganize(page, 1);
 	}
 
 	/* Store state of explicit locks on rec on the page infimum record,
@@ -2804,13 +2932,18 @@ make_external:
 				rec_offs_make_valid(
 					page_cursor->rec, index, *offsets);
 			}
-		} else if (page_zip &&
-			   !dict_index_is_clust(index)
+		} else if (!dict_index_is_clust(index)
 			   && page_is_leaf(page)) {
+
 			/* Update the free bits in the insert buffer.
 			This is the same block which was skipped by
 			BTR_KEEP_IBUF_BITMAP. */
-			ibuf_update_free_bits_zip(block, mtr);
+			if (page_zip) {
+				ibuf_update_free_bits_zip(block, mtr);
+			} else {
+				ibuf_update_free_bits_low(block, max_ins_size,
+							  mtr);
+			}
 		}
 
 		err = DB_SUCCESS;
@@ -3076,7 +3209,7 @@ btr_cur_del_mark_set_clust_rec(
 	ut_ad(page_is_leaf(page_align(rec)));
 
 #ifdef UNIV_DEBUG
-	if (btr_cur_print_record_ops && thr) {
+	if (btr_cur_print_record_ops) {
 		btr_cur_trx_report(thr_get_trx(thr)->id, index, "del mark ");
 		rec_print_new(stderr, rec, offsets);
 	}
@@ -3234,7 +3367,7 @@ btr_cur_del_mark_set_sec_rec(
 	rec = btr_cur_get_rec(cursor);
 
 #ifdef UNIV_DEBUG
-	if (btr_cur_print_record_ops && thr) {
+	if (btr_cur_print_record_ops) {
 		btr_cur_trx_report(thr_get_trx(thr)->id, cursor->index,
 				   "del mark ");
 		rec_print(stderr, rec, cursor->index);
@@ -3708,6 +3841,7 @@ btr_estimate_n_rows_in_range_on_level(
 		mtr_t		mtr;
 		page_t*		page;
 		buf_block_t*	block;
+		dberr_t		err=DB_SUCCESS;
 
 		mtr_start(&mtr);
 
@@ -3718,7 +3852,23 @@ btr_estimate_n_rows_in_range_on_level(
 		silence a debug assertion about this. */
 		block = buf_page_get_gen(space, zip_size, page_no, RW_S_LATCH,
 					 NULL, BUF_GET_POSSIBLY_FREED,
-					 __FILE__, __LINE__, &mtr);
+					 __FILE__, __LINE__, &mtr, &err);
+
+		if (err != DB_SUCCESS) {
+			if (err == DB_DECRYPTION_FAILED) {
+				ib_push_warning((void *)NULL,
+					DB_DECRYPTION_FAILED,
+					"Table %s is encrypted but encryption service or"
+					" used key_id is not available. "
+					" Can't continue reading table.",
+					index->table->name);
+				index->table->is_encrypted = true;
+			}
+
+			mtr_commit(&mtr);
+			goto inexact;
+		}
+
 
 		page = buf_block_get_frame(block);
 
@@ -3801,7 +3951,8 @@ btr_estimate_n_rows_in_range(
 	const dtuple_t*	tuple1,	/*!< in: range start, may also be empty tuple */
 	ulint		mode1,	/*!< in: search mode for range start */
 	const dtuple_t*	tuple2,	/*!< in: range end, may also be empty tuple */
-	ulint		mode2)	/*!< in: search mode for range end */
+	ulint		mode2,	/*!< in: search mode for range end */
+	trx_t*		trx)	/*!< in: trx */
 {
 	btr_path_t	path1[BTR_PATH_ARRAY_N_SLOTS];
 	btr_path_t	path2[BTR_PATH_ARRAY_N_SLOTS];
@@ -3819,7 +3970,7 @@ btr_estimate_n_rows_in_range(
 
 	table_n_rows = dict_table_get_n_rows(index->table);
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, trx);
 
 	cursor.path_arr = path1;
 
@@ -3837,7 +3988,7 @@ btr_estimate_n_rows_in_range(
 
 	mtr_commit(&mtr);
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, trx);
 
 	cursor.path_arr = path2;
 
@@ -4013,7 +4164,7 @@ btr_estimate_number_of_different_key_vals(
 	ib_uint64_t*	n_diff;
 	ib_uint64_t*	n_not_null;
 	ibool		stats_null_not_equal;
-	ullint		n_sample_pages; /* number of pages to sample */
+	ullint		n_sample_pages=1; /* number of pages to sample */
 	ulint		not_empty_flag	= 0;
 	ulint		total_external_size = 0;
 	ulint		i;
@@ -4060,17 +4211,62 @@ btr_estimate_number_of_different_key_vals(
 		ut_error;
         }
 
-	/* It makes no sense to test more pages than are contained
-	in the index, thus we lower the number if it is too high */
-	if (srv_stats_transient_sample_pages > index->stat_index_size) {
-		if (index->stat_index_size > 0) {
-			n_sample_pages = index->stat_index_size;
+	if (srv_stats_sample_traditional) {
+		/* It makes no sense to test more pages than are contained
+		in the index, thus we lower the number if it is too high */
+		if (srv_stats_transient_sample_pages > index->stat_index_size) {
+			if (index->stat_index_size > 0) {
+				n_sample_pages = index->stat_index_size;
+			}
 		} else {
-			n_sample_pages = 1;
+			n_sample_pages = srv_stats_transient_sample_pages;
 		}
 	} else {
-		n_sample_pages = srv_stats_transient_sample_pages;
+		/* New logaritmic number of pages that are estimated.
+		Number of pages estimated should be between 1 and
+		index->stat_index_size.
+
+		If we have only 0 or 1 index pages then we can only take 1
+		sample. We have already initialized n_sample_pages to 1.
+
+		So taking index size as I and sample as S and log(I)*S as L
+
+		requirement 1) we want the out limit of the expression to not exceed I;
+		requirement 2) we want the ideal pages to be at least S;
+		so the current expression is min(I, max( min(S,I), L)
+
+		looking for simplifications:
+
+		case 1: assume S < I
+		min(I, max( min(S,I), L) -> min(I , max( S, L))
+
+		but since L=LOG2(I)*S and log2(I) >=1   L>S always so max(S,L) = L.
+
+		so we have: min(I , L)
+
+		case 2: assume I < S
+		    min(I, max( min(S,I), L) -> min(I, max( I, L))
+
+		case 2a: L > I
+		    min(I, max( I, L)) -> min(I, L) -> I
+
+		case 2b: when L < I
+		    min(I, max( I, L))  ->  min(I, I ) -> I
+
+		so taking all case2 paths is I, our expression is:
+		n_pages = S < I? min(I,L) : I
+                */
+		if (index->stat_index_size > 1) {
+			n_sample_pages = (srv_stats_transient_sample_pages < index->stat_index_size) ?
+                               (ulint) ut_min((double) index->stat_index_size,
+				       log2(index->stat_index_size)*srv_stats_transient_sample_pages)
+				: index->stat_index_size;
+
+		}
 	}
+
+	/* Sanity check */
+	ut_ad(n_sample_pages > 0 && n_sample_pages <= (index->stat_index_size < 1 ? 1 : index->stat_index_size));
 
 	/* We sample some pages in the index to get an estimate */
 
@@ -4088,6 +4284,14 @@ btr_estimate_number_of_different_key_vals(
 		page = btr_cur_get_page(&cursor);
 
 		SRV_CORRUPT_TABLE_CHECK(page, goto exit_loop;);
+		DBUG_EXECUTE_IF("ib_corrupt_page_while_stats_calc",
+				page = NULL;);
+
+		SRV_CORRUPT_TABLE_CHECK(page,
+		{
+			mtr_commit(&mtr);
+			goto exit_loop;
+		});
 
 		rec = page_rec_get_next(page_get_infimum_rec(page));
 
@@ -4572,7 +4776,7 @@ Stores the fields in big_rec_vec to the tablespace and puts pointers to
 them in rec.  The extern flags in rec will have to be set beforehand.
 The fields are stored on pages allocated from leaf node
 file segment of the index tree.
-@return	DB_SUCCESS or DB_OUT_OF_FILE_SPACE */
+@return	DB_SUCCESS or DB_OUT_OF_FILE_SPACE or DB_TOO_BIG_FOR_REDO */
 UNIV_INTERN
 dberr_t
 btr_store_big_rec_extern_fields(
@@ -4609,7 +4813,6 @@ btr_store_big_rec_extern_fields(
 	buf_block_t**	freed_pages	= NULL;
 	ulint		n_freed_pages	= 0;
 	dberr_t		error		= DB_SUCCESS;
-	ulint		total_blob_len	= 0;
 
 	ut_ad(rec_offs_validate(rec, index, offsets));
 	ut_ad(rec_offs_any_extern(offsets));
@@ -4629,21 +4832,11 @@ btr_store_big_rec_extern_fields(
 	rec_page_no = buf_block_get_page_no(rec_block);
 	ut_a(fil_page_get_type(page_align(rec)) == FIL_PAGE_INDEX);
 
-	const ulint redo_10p = (srv_log_file_size * UNIV_PAGE_SIZE / 10);
+	error = btr_check_blob_limit(big_rec_vec);
 
-	/* Calculate the total number of bytes for blob data */
-	for (ulint i = 0; i < big_rec_vec->n_fields; i++) {
-		total_blob_len += big_rec_vec->fields[i].len;
-	}
-
-	if (total_blob_len > redo_10p) {
+	if (error != DB_SUCCESS) {
 		ut_ad(op == BTR_STORE_INSERT);
-		ib_logf(IB_LOG_LEVEL_ERROR, "The total blob data length"
-			" (" ULINTPF ") is greater than 10%% of the"
-			" redo log file size (" UINT64PF "). Please"
-			" increase innodb_log_file_size.",
-			total_blob_len, srv_log_file_size);
-		return(DB_TOO_BIG_RECORD);
+		return(error);
 	}
 
 	if (page_zip) {
@@ -4864,11 +5057,11 @@ alloc_another:
 				change when B-tree nodes are split or
 				merged. */
 				mlog_write_ulint(page
-						 + FIL_PAGE_FILE_FLUSH_LSN,
+						 + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION,
 						 space_id,
 						 MLOG_4BYTES, &mtr);
 				mlog_write_ulint(page
-						 + FIL_PAGE_FILE_FLUSH_LSN + 4,
+						 + FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION + 4,
 						 rec_page_no,
 						 MLOG_4BYTES, &mtr);
 
@@ -4876,9 +5069,10 @@ alloc_another:
 				memset(page + page_zip_get_size(page_zip)
 				       - c_stream.avail_out,
 				       0, c_stream.avail_out);
-				mlog_log_string(page + FIL_PAGE_FILE_FLUSH_LSN,
+				mlog_log_string(page
+						+ FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION,
 						page_zip_get_size(page_zip)
-						- FIL_PAGE_FILE_FLUSH_LSN,
+						- FIL_PAGE_FILE_FLUSH_LSN_OR_KEY_VERSION,
 						&mtr);
 				/* Copy the page to compressed storage,
 				because it will be flushed to disk
@@ -5051,7 +5245,7 @@ func_exit:
 		ut_ad(btr_blob_op_is_update(op));
 
 		for (i = 0; i < n_freed_pages; i++) {
-			btr_page_free_low(index, freed_pages[i], 0, alloc_mtr);
+			btr_page_free_low(index, freed_pages[i], 0, true, alloc_mtr);
 		}
 	}
 
@@ -5147,7 +5341,7 @@ btr_free_externally_stored_field(
 	ulint		i,		/*!< in: field number of field_ref;
 					ignored if rec == NULL */
 	enum trx_rb_ctx	rb_ctx,		/*!< in: rollback context */
-	mtr_t*		local_mtr __attribute__((unused))) /*!< in: mtr
+	mtr_t*		local_mtr MY_ATTRIBUTE((unused))) /*!< in: mtr
 					containing the latch to data an an
 					X-latch to the index tree */
 {
@@ -5175,6 +5369,21 @@ btr_free_externally_stored_field(
 		/* In the rollback, we may encounter a clustered index
 		record with some unwritten off-page columns. There is
 		nothing to free then. */
+		if (rb_ctx == RB_NONE) {
+			char		buf[3 * 512];
+			char		*bufend;
+			ulint ispace = dict_index_get_space(index);
+			bufend = innobase_convert_name(buf, sizeof buf,
+				index->name, strlen(index->name),
+				NULL,
+				FALSE);
+			buf[bufend - buf]='\0';
+			ib_logf(IB_LOG_LEVEL_ERROR, "Unwritten off-page columns in "
+				"rollback context %d. Table %s index %s space_id %lu "
+				"index space %lu.",
+				rb_ctx, index->table->name, buf, space_id, ispace);
+		}
+
 		ut_a(rb_ctx != RB_NONE);
 		return;
 	}
@@ -5285,7 +5494,7 @@ btr_free_externally_stored_field(
 			}
 			next_page_no = mach_read_from_4(page + FIL_PAGE_NEXT);
 
-			btr_page_free_low(index, ext_block, 0, &mtr);
+			btr_page_free_low(index, ext_block, 0, true, &mtr);
 
 			if (page_zip != NULL) {
 				mach_write_to_4(field_ref + BTR_EXTERN_PAGE_NO,
@@ -5316,7 +5525,7 @@ btr_free_externally_stored_field(
 			because we did not store it on the page (we save the
 			space overhead from an index page header. */
 
-			btr_page_free_low(index, ext_block, 0, &mtr);
+			btr_page_free_low(index, ext_block, 0, true, &mtr);
 
 			mlog_write_ulint(field_ref + BTR_EXTERN_PAGE_NO,
 					 next_page_no,
@@ -5430,7 +5639,8 @@ btr_copy_blob_prefix(
 	ulint		len,	/*!< in: length of buf, in bytes */
 	ulint		space_id,/*!< in: space id of the BLOB pages */
 	ulint		page_no,/*!< in: page number of the first BLOB page */
-	ulint		offset)	/*!< in: offset on the first BLOB page */
+	ulint		offset,	/*!< in: offset on the first BLOB page */
+	trx_t*		trx)	/*!< in: transaction handle */
 {
 	ulint	copied_len	= 0;
 
@@ -5442,7 +5652,7 @@ btr_copy_blob_prefix(
 		ulint		part_len;
 		ulint		copy_len;
 
-		mtr_start(&mtr);
+		mtr_start_trx(&mtr, trx);
 
 		block = buf_page_get(space_id, 0, page_no, RW_S_LATCH, &mtr);
 		buf_block_dbg_add_level(block, SYNC_EXTERN_STORAGE);
@@ -5645,7 +5855,8 @@ btr_copy_externally_stored_field_prefix_low(
 				zero for uncompressed BLOBs */
 	ulint		space_id,/*!< in: space id of the first BLOB page */
 	ulint		page_no,/*!< in: page number of the first BLOB page */
-	ulint		offset)	/*!< in: offset on the first BLOB page */
+	ulint		offset,	/*!< in: offset on the first BLOB page */
+	trx_t*		trx)	/*!< in: transaction handle */
 {
 	if (UNIV_UNLIKELY(len == 0)) {
 		return(0);
@@ -5656,7 +5867,7 @@ btr_copy_externally_stored_field_prefix_low(
 					     space_id, page_no, offset));
 	} else {
 		return(btr_copy_blob_prefix(buf, len, space_id,
-					    page_no, offset));
+					    page_no, offset, trx));
 	}
 }
 
@@ -5677,7 +5888,8 @@ btr_copy_externally_stored_field_prefix(
 				field containing also the reference to
 				the external part; must be protected by
 				a lock or a page latch */
-	ulint		local_len)/*!< in: length of data, in bytes */
+	ulint		local_len,/*!< in: length of data, in bytes */
+	trx_t*		trx)	/*!< in: transaction handle */
 {
 	ulint	space_id;
 	ulint	page_no;
@@ -5716,7 +5928,7 @@ btr_copy_externally_stored_field_prefix(
 							     len - local_len,
 							     zip_size,
 							     space_id, page_no,
-							     offset));
+							     offset, trx));
 }
 
 /*******************************************************************//**
@@ -5735,7 +5947,8 @@ btr_copy_externally_stored_field(
 	ulint		zip_size,/*!< in: nonzero=compressed BLOB page size,
 				zero for uncompressed BLOBs */
 	ulint		local_len,/*!< in: length of data */
-	mem_heap_t*	heap)	/*!< in: mem heap */
+	mem_heap_t*	heap,	/*!< in: mem heap */
+	trx_t*		trx)	/*!< in: transaction handle */
 {
 	ulint	space_id;
 	ulint	page_no;
@@ -5766,7 +5979,8 @@ btr_copy_externally_stored_field(
 							      extern_len,
 							      zip_size,
 							      space_id,
-							      page_no, offset);
+							      page_no, offset,
+							      trx);
 
 	return(buf);
 }
@@ -5785,7 +5999,8 @@ btr_rec_copy_externally_stored_field(
 				zero for uncompressed BLOBs */
 	ulint		no,	/*!< in: field number */
 	ulint*		len,	/*!< out: length of the field */
-	mem_heap_t*	heap)	/*!< in: mem heap */
+	mem_heap_t*	heap,	/*!< in: mem heap */
+	trx_t*		trx)	/*!< in: transaction handle */
 {
 	ulint		local_len;
 	const byte*	data;
@@ -5816,6 +6031,7 @@ btr_rec_copy_externally_stored_field(
 	}
 
 	return(btr_copy_externally_stored_field(len, data,
-						zip_size, local_len, heap));
+						zip_size, local_len, heap,
+						trx));
 }
 #endif /* !UNIV_HOTBACKUP */

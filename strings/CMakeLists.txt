@@ -23,10 +23,10 @@ SET(STRINGS_SOURCES bchange.c bmove_upp.c ctype-big5.c ctype-bin.c ctype-cp932.c
                 str2int.c str_alloc.c strcend.c strend.c strfill.c strmake.c strmov.c strnmov.c 
                 strxmov.c strxnmov.c xml.c
                 strmov_overlapp.c
-		my_strchr.c strcont.c strappend.c)
+		my_strchr.c strcont.c strappend.c json_lib.c)
 
 IF(NOT HAVE_STRNLEN)
-  # OSX does not have strnlen
+  # OSX below 10.7 did not have strnlen
   SET(STRINGS_SOURCES ${STRINGS_SOURCES} strnlen.c)
 ENDIF()
 # Avoid dependencies on perschema data defined in mysys

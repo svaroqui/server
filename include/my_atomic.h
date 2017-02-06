@@ -100,19 +100,9 @@
                             acquire-release operation, and additionally has
                             sequentially-consistent operation ordering.
 
-  NOTE This operations are not always atomic, so they always must be
-  enclosed in my_atomic_rwlock_rdlock(lock)/my_atomic_rwlock_rdunlock(lock)
-  or my_atomic_rwlock_wrlock(lock)/my_atomic_rwlock_wrunlock(lock).
-  Hint: if a code block makes intensive use of atomic ops, it make sense
-  to take/release rwlock once for the whole block, not for every statement.
-
-  On architectures where these operations are really atomic, rwlocks will
-  be optimized away.
   8- and 16-bit atomics aren't implemented for windows (see generic-msvc.h),
   but can be added, if necessary.
 */
-
-#ifndef my_atomic_rwlock_init
 
 #define intptr         void *
 /**
@@ -121,16 +111,31 @@
 */
 #undef MY_ATOMIC_HAS_8_16
 
-#ifndef MY_ATOMIC_MODE_RWLOCKS
 /*
- * Attempt to do atomic ops without locks
- */
-#include "atomic/nolock.h"
+  We choose implementation as follows:
+  ------------------------------------
+  On Windows using Visual C++ the native implementation should be
+  preferrable. When using gcc we prefer the Solaris implementation
+  before the gcc because of stability preference, we choose gcc
+  builtins if available, otherwise we choose the somewhat broken
+  native x86 implementation. If neither Visual C++ or gcc we still
+  choose the Solaris implementation on Solaris (mainly for SunStudio
+  compilers).
+*/
+#if defined(_MSC_VER)
+#include "atomic/generic-msvc.h"
+#elif defined(HAVE_SOLARIS_ATOMIC)
+#include "atomic/solaris.h"
+#elif defined(HAVE_GCC_ATOMIC_BUILTINS)
+#include "atomic/gcc_builtins.h"
+#elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+#include "atomic/x86-gcc.h"
 #endif
+
 
 #ifndef make_atomic_cas_body
 /* nolock.h was not able to generate even a CAS function, fall back */
-#include "atomic/rwlock.h"
+#error atomic ops for this platform are not implemented
 #endif
 
 /* define missing functions by using the already generated ones */
@@ -292,6 +297,20 @@ make_atomic_store(32)
 make_atomic_store(64)
 make_atomic_store(ptr)
 
+#if SIZEOF_LONG == 4
+#define my_atomic_addlong(A,B) my_atomic_add32((int32*) (A), (B))
+#define my_atomic_loadlong(A) my_atomic_load32((int32*) (A))
+#define my_atomic_storelong(A,B) my_atomic_store32((int32*) (A), (B))
+#define my_atomic_faslong(A,B) my_atomic_fas32((int32*) (A), (B))
+#define my_atomic_caslong(A,B,C) my_atomic_cas32((int32*) (A), (int32*) (B), (C))
+#else
+#define my_atomic_addlong(A,B) my_atomic_add64((int64*) (A), (B))
+#define my_atomic_loadlong(A) my_atomic_load64((int64*) (A))
+#define my_atomic_storelong(A,B) my_atomic_store64((int64*) (A), (B))
+#define my_atomic_faslong(A,B) my_atomic_fas64((int64*) (A), (B))
+#define my_atomic_caslong(A,B,C) my_atomic_cas64((int64*) (A), (int64*) (B), (C))
+#endif
+
 #ifdef _atomic_h_cleanup_
 #include _atomic_h_cleanup_
 #undef _atomic_h_cleanup_
@@ -339,8 +358,6 @@ make_atomic_store(ptr)
 #define MY_ATOMIC_OK       0
 #define MY_ATOMIC_NOT_1CPU 1
 extern int my_atomic_initialize();
-
-#endif
 
 #ifdef __ATOMIC_SEQ_CST
 #define MY_MEMORY_ORDER_RELAXED __ATOMIC_RELAXED

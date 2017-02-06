@@ -19,14 +19,14 @@
   Atomic rename of table;  RENAME TABLE t1 to t2, tmp to t1 [,...]
 */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_rename.h"
 #include "sql_cache.h"                          // query_cache_*
-#include "sql_table.h"                         // build_table_filename
+#include "sql_table.h"                         // write_bin_log
 #include "sql_view.h"             // mysql_frm_type, mysql_rename_view
 #include "sql_trigger.h"
-#include "lock.h"       // MYSQL_OPEN_SKIP_TEMPORARY
 #include "sql_base.h"   // tdc_remove_table, lock_table_names,
 #include "sql_handler.h"                        // mysql_ha_rm_tables
 #include "sql_statistics.h" 
@@ -61,7 +61,7 @@ bool mysql_rename_tables(THD *thd, TABLE_LIST *table_list, bool silent)
   if (thd->locked_tables_mode || thd->in_active_multi_stmt_transaction())
   {
     my_message(ER_LOCK_OR_ACTIVE_TRANSACTION,
-               ER(ER_LOCK_OR_ACTIVE_TRANSACTION), MYF(0));
+               ER_THD(thd, ER_LOCK_OR_ACTIVE_TRANSACTION), MYF(0));
     DBUG_RETURN(1);
   }
 
@@ -211,6 +211,28 @@ static TABLE_LIST *reverse_table_list(TABLE_LIST *table_list)
 }
 
 
+static bool
+do_rename_temporary(THD *thd, TABLE_LIST *ren_table, TABLE_LIST *new_table,
+                    bool skip_error)
+{
+  const char *new_alias;
+  DBUG_ENTER("do_rename_temporary");
+
+  new_alias= (lower_case_table_names == 2) ? new_table->alias :
+                                             new_table->table_name;
+
+  if (is_temporary_table(new_table))
+  {
+    my_error(ER_TABLE_EXISTS_ERROR, MYF(0), new_alias);
+    DBUG_RETURN(1);                     // This can't be skipped
+  }
+
+
+  DBUG_RETURN(thd->rename_temporary_table(ren_table->table,
+              new_table->db, new_alias));
+}
+
+
 /*
   Rename a single table or a view
 
@@ -237,7 +259,6 @@ do_rename(THD *thd, TABLE_LIST *ren_table, char *new_db, char *new_table_name,
 {
   int rc= 1;
   handlerton *hton;
-  bool new_exists, old_exists;
   const char *new_alias, *old_alias;
   DBUG_ENTER("do_rename");
 
@@ -253,17 +274,13 @@ do_rename(THD *thd, TABLE_LIST *ren_table, char *new_db, char *new_table_name,
   }
   DBUG_ASSERT(new_alias);
 
-  new_exists= ha_table_exists(thd, new_db, new_alias);
-
-  if (new_exists)
+  if (ha_table_exists(thd, new_db, new_alias))
   {
     my_error(ER_TABLE_EXISTS_ERROR, MYF(0), new_alias);
     DBUG_RETURN(1);                     // This can't be skipped
   }
 
-  old_exists= ha_table_exists(thd, ren_table->db, old_alias, &hton);
-
-  if (old_exists)
+  if (ha_table_exists(thd, ren_table->db, old_alias, &hton) && hton)
   {
     DBUG_ASSERT(!thd->locked_tables_mode);
     tdc_remove_table(thd, TDC_RT_REMOVE_ALL,
@@ -278,8 +295,9 @@ do_rename(THD *thd, TABLE_LIST *ren_table, char *new_db, char *new_table_name,
         LEX_STRING table_name= { ren_table->table_name,
                                  ren_table->table_name_length };
         LEX_STRING new_table= { (char *) new_alias, strlen(new_alias) };
+        LEX_STRING new_db_name= { (char*)new_db, strlen(new_db)};
         (void) rename_table_in_stat_tables(thd, &db_name, &table_name,
-                                           &db_name, &new_table);
+                                           &new_db_name, &new_table);
         if ((rc= Table_triggers_list::change_table_name(thd, ren_table->db,
                                                         old_alias,
                                                         ren_table->table_name,
@@ -320,6 +338,8 @@ do_rename(THD *thd, TABLE_LIST *ren_table, char *new_db, char *new_table_name,
 
   DBUG_RETURN(0);
 }
+
+
 /*
   Rename all tables in list; Return pointer to wrong entry if something goes
   wrong.  Note that the table_list may be empty!
@@ -354,8 +374,11 @@ rename_tables(THD *thd, TABLE_LIST *table_list, bool skip_error)
   for (ren_table= table_list; ren_table; ren_table= new_table->next_local)
   {
     new_table= ren_table->next_local;
-    if (do_rename(thd, ren_table, new_table->db, new_table->table_name,
-                  new_table->alias, skip_error))
+
+    if (is_temporary_table(ren_table) ?
+          do_rename_temporary(thd, ren_table, new_table, skip_error) :
+          do_rename(thd, ren_table, new_table->db, new_table->table_name,
+                    new_table->alias, skip_error))
       DBUG_RETURN(ren_table);
   }
   DBUG_RETURN(0);

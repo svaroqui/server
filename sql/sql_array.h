@@ -36,16 +36,16 @@ template <typename Element_type> class Bounds_checked_array
 public:
   Bounds_checked_array() : m_array(NULL), m_size(0) {}
 
-  Bounds_checked_array(Element_type *el, size_t size)
-    : m_array(el), m_size(size)
+  Bounds_checked_array(Element_type *el, size_t size_arg)
+    : m_array(el), m_size(size_arg)
   {}
 
   void reset() { m_array= NULL; m_size= 0; }
  
-  void reset(Element_type *array, size_t size)
+  void reset(Element_type *array_arg, size_t size_arg)
   {
-    m_array= array;
-    m_size= size;
+    m_array= array_arg;
+    m_size= size_arg;
   }
 
   /**
@@ -85,6 +85,15 @@ public:
 
   Element_type *array() const { return m_array; }
 
+  bool operator==(const Bounds_checked_array<Element_type>&rhs) const
+  {
+    return m_array == rhs.m_array && m_size == rhs.m_size;
+  }
+  bool operator!=(const Bounds_checked_array<Element_type>&rhs) const
+  {
+    return m_array != rhs.m_array || m_size != rhs.m_size;
+  }
+
 private:
   Element_type *m_array;
   size_t        m_size;
@@ -103,6 +112,13 @@ public:
   Dynamic_array(uint prealloc=16, uint increment=16)
   {
     init(prealloc, increment);
+  }
+
+  Dynamic_array(MEM_ROOT *root, uint prealloc=16, uint increment=16)
+  {
+    void *init_buffer= alloc_root(root, sizeof(Elem) * prealloc);
+    my_init_dynamic_array2(&array, sizeof(Elem), init_buffer, 
+                           prealloc, increment, MYF(0));
   }
 
   void init(uint prealloc=16, uint increment=16)
@@ -219,6 +235,11 @@ public:
   }
 
   ~Dynamic_array()
+  {
+    delete_dynamic(&array);
+  }
+
+  void free_memory()
   {
     delete_dynamic(&array);
   }

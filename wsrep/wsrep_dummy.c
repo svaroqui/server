@@ -19,7 +19,6 @@
 #include "wsrep_api.h"
 
 #include <errno.h>
-#include <stdbool.h>
 #include <string.h>
 
 /*! Dummy backend context. */
@@ -85,8 +84,15 @@ static wsrep_status_t dummy_options_set(
 
 static char* dummy_options_get (wsrep_t* w)
 {
-    WSREP_DBUG_ENTER(w);
-    return WSREP_DUMMY(w)->options;
+  char *options;
+
+  WSREP_DBUG_ENTER(w);
+  options= WSREP_DUMMY(w)->options;
+
+  if (options)
+    options= strdup(WSREP_DUMMY(w)->options);
+
+  return options;
 }
 
 static wsrep_status_t dummy_connect(
@@ -164,7 +170,7 @@ static wsrep_status_t dummy_append_key(
     const wsrep_key_t*     key        __attribute__((unused)),
     const size_t           key_num    __attribute__((unused)),
     const wsrep_key_type_t key_type   __attribute__((unused)),
-    const bool             copy       __attribute__((unused)))
+    const wsrep_bool_t     copy       __attribute__((unused)))
 {
     WSREP_DBUG_ENTER(w);
     return WSREP_OK;
@@ -176,7 +182,7 @@ static wsrep_status_t dummy_append_data(
     const struct wsrep_buf* data       __attribute__((unused)),
     const size_t            count      __attribute__((unused)),
     const wsrep_data_type_t type       __attribute__((unused)),
-    const bool              copy       __attribute__((unused)))
+    const wsrep_bool_t      copy       __attribute__((unused)))
 {
     WSREP_DBUG_ENTER(w);
     return WSREP_OK;
@@ -319,10 +325,10 @@ static wsrep_status_t dummy_resync (wsrep_t* w)
 }
 
 static wsrep_status_t dummy_lock (wsrep_t* w,
-                                  const char* s __attribute__((unused)),
-                                  bool        r __attribute__((unused)),
-                                  uint64_t    o __attribute__((unused)),
-                                  int64_t     t __attribute__((unused)))
+                                  const char*  s __attribute__((unused)),
+                                  wsrep_bool_t r __attribute__((unused)),
+                                  uint64_t     o __attribute__((unused)),
+                                  int64_t      t __attribute__((unused)))
 {
     WSREP_DBUG_ENTER(w);
     return WSREP_NOT_IMPLEMENTED;
@@ -336,13 +342,13 @@ static wsrep_status_t dummy_unlock (wsrep_t* w,
     return WSREP_OK;
 }
 
-static bool dummy_is_locked (wsrep_t* w,
-                             const char*   s __attribute__((unused)),
-                             uint64_t*     o __attribute__((unused)),
-                             wsrep_uuid_t* t __attribute__((unused)))
+static wsrep_bool_t dummy_is_locked (wsrep_t* w,
+                                     const char*   s __attribute__((unused)),
+                                     uint64_t*     o __attribute__((unused)),
+                                     wsrep_uuid_t* t __attribute__((unused)))
 {
     WSREP_DBUG_ENTER(w);
-    return false;
+    return 0;
 }
 
 static wsrep_t dummy_iface = {

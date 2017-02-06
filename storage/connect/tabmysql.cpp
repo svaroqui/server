@@ -5,7 +5,7 @@
 /*                                                                      */
 /* AUTHOR:                                                              */
 /* -------                                                              */
-/*  Olivier BERTRAND                                      2007-2014     */
+/*  Olivier BERTRAND                                      2007-2015     */
 /*                                                                      */
 /* WHAT THIS PROGRAM DOES:                                              */
 /* -----------------------                                              */
@@ -19,7 +19,7 @@
 /*  ---------------                                                     */
 /*    TABMYSQL.CPP   - Source code                                      */
 /*    PLGDBSEM.H     - DB application declaration file                  */
-/*    TABMYSQL.H     - TABODBC classes declaration file                 */
+/*    TABMYSQL.H     - TABMYSQL classes declaration file                */
 /*    GLOBAL.H       - Global declaration file                          */
 /*                                                                      */
 /*  REQUIRED LIBRARIES:                                                 */
@@ -35,9 +35,9 @@
 #include "my_global.h"
 #include "sql_class.h"
 #include "sql_servers.h"
-#if defined(WIN32)
+#if defined(__WIN__)
 //#include <windows.h>
-#else   // !WIN32
+#else   // !__WIN__
 //#include <fnmatch.h>
 //#include <errno.h>
 #include <stdlib.h>
@@ -46,7 +46,7 @@
 #include "osutil.h"
 //#include <io.h>
 //#include <fcntl.h>
-#endif  // !WIN32
+#endif  // !__WIN__
 
 /***********************************************************************/
 /*  Include application header files:                                  */
@@ -56,7 +56,6 @@
 #include "xtable.h"
 #include "tabcol.h"
 #include "colblk.h"
-#include "mycat.h"
 #include "reldef.h"
 #include "tabmysql.h"
 #include "valblk.h"
@@ -67,12 +66,14 @@
 void PrintResult(PGLOBAL, PSEM, PQRYRES);
 #endif   // _CONSOLE
 
-extern "C" int   trace;
-extern     bool  xinfo;
-
 // Used to check whether a MYSQL table is created on itself
 bool CheckSelf(PGLOBAL g, TABLE_SHARE *s, const char *host,
                       const char *db, char *tab, const char *src, int port);
+
+/***********************************************************************/
+/*  External function.                                                 */
+/***********************************************************************/
+bool ExactInfo(void);
 
 /* -------------- Implementation of the MYSQLDEF class --------------- */
 
@@ -306,7 +307,7 @@ bool MYSQLDEF::ParseURL(PGLOBAL g, char *url, bool b)
 /***********************************************************************/
 /*  DefineAM: define specific AM block values from XCV file.           */
 /***********************************************************************/
-bool MYSQLDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
+bool MYSQLDEF::DefineAM(PGLOBAL g, LPCSTR am, int)
   {
   char *url;
 
@@ -333,7 +334,7 @@ bool MYSQLDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
     Delayed = !!GetIntCatInfo("Delayed", 0);
   } else {
     // MYSQL access from a PROXY table 
-    Database = GetStringCatInfo(g, "Database", "*");
+    Database = GetStringCatInfo(g, "Database", Schema ? Schema : PlugDup(g, "*"));
     Isview = GetBoolCatInfo("View", false);
 
     // We must get other connection parms from the calling table
@@ -379,7 +380,7 @@ bool MYSQLDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
 /***********************************************************************/
 /*  GetTable: makes a new TDB of the proper type.                      */
 /***********************************************************************/
-PTDB MYSQLDEF::GetTable(PGLOBAL g, MODE m)
+PTDB MYSQLDEF::GetTable(PGLOBAL g, MODE)
   {
   if (Xsrc)
     return new(g) TDBMYEXC(this);
@@ -430,7 +431,6 @@ TDBMYSQL::TDBMYSQL(PMYDEF tdp) : TDBASE(tdp)
 
   Bind = NULL;
   Query = NULL;
-  Qbuf = NULL;
   Fetched = false;
   m_Rc = RC_FX;
   AftRows = 0;
@@ -438,7 +438,7 @@ TDBMYSQL::TDBMYSQL(PMYDEF tdp) : TDBASE(tdp)
   Nparm = 0;
   } // end of TDBMYSQL constructor
 
-TDBMYSQL::TDBMYSQL(PGLOBAL g, PTDBMY tdbp) : TDBASE(tdbp)
+TDBMYSQL::TDBMYSQL(PTDBMY tdbp) : TDBASE(tdbp)
   {
   Host = tdbp->Host;
   Database = tdbp->Database;
@@ -454,7 +454,6 @@ TDBMYSQL::TDBMYSQL(PGLOBAL g, PTDBMY tdbp) : TDBASE(tdbp)
   Delayed = tdbp->Delayed;
   Bind = NULL;
   Query = tdbp->Query;
-  Qbuf = NULL;
   Fetched = tdbp->Fetched;
   m_Rc = tdbp->m_Rc;
   AftRows = tdbp->AftRows;
@@ -469,7 +468,7 @@ PTDB TDBMYSQL::CopyOne(PTABS t)
   PCOL    cp1, cp2;
   PGLOBAL g = t->G;
 
-  tp = new(g) TDBMYSQL(g, this);
+  tp = new(g) TDBMYSQL(this);
 
   for (cp1 = Columns; cp1; cp1 = cp1->GetNext()) {
     cp2 = new(g) MYSQLCOL((PMYCOL)cp1, tp);
@@ -495,9 +494,10 @@ PCOL TDBMYSQL::MakeCol(PGLOBAL g, PCOLDEF cdp, PCOL cprec, int n)
 /***********************************************************************/
 bool TDBMYSQL::MakeSelect(PGLOBAL g, bool mx)
   {
-  char   *tk = "`";
+//char   *tk = "`";
+  char    tk = '`';
   int     len = 0, rank = 0;
-  bool    b = false;
+  bool    b = false, oom = false;
   PCOL    colp;
 //PDBUSER dup = PlgGetUser(g);
 
@@ -505,27 +505,24 @@ bool TDBMYSQL::MakeSelect(PGLOBAL g, bool mx)
     return false;        // already done
 
   if (Srcdef) {
-    Query = Srcdef;
+    Query = new(g)STRING(g, 0, Srcdef);
     return false;
     } // endif Srcdef
 
-  //Find the address of the suballocated query
-  Query = (char*)PlugSubAlloc(g, NULL, 0);
-  strcpy(Query, "SELECT ");
+  // Allocate the string used to contain Query
+  Query = new(g) STRING(g, 1023, "SELECT ");
 
   if (Columns) {
     for (colp = Columns; colp; colp = colp->GetNext())
       if (!colp->IsSpecial()) {
-//      if (colp->IsSpecial()) {
-//        strcpy(g->Message, MSG(NO_SPEC_COL));
-//        return true;
-//      } else {
         if (b)
-          strcat(Query, ", ");
+          oom |= Query->Append(", ");
         else
           b = true;
 
-        strcat(strcat(strcat(Query, tk), colp->GetName()), tk);
+        oom |= Query->Append(tk);
+        oom |= Query->Append(colp->GetName());
+        oom |= Query->Append(tk);
         ((PMYCOL)colp)->Rank = rank++;
       } // endif colp
 
@@ -534,27 +531,38 @@ bool TDBMYSQL::MakeSelect(PGLOBAL g, bool mx)
     // Query count(*) from... for which we will count the rows from
     // Query '*' from...
     // (the use of a char constant minimize the result storage)
-    strcat(Query, (Isview) ? "*" : "'*'");
+    if (Isview)
+      oom |= Query->Append('*');
+    else
+      oom |= Query->Append("'*'");
+
   } // endif ncol
 
-  strcat(strcat(strcat(strcat(Query, " FROM "), tk), Tabname), tk);
-  len = strlen(Query);
+  oom |= Query->Append(" FROM ");
+  oom |= Query->Append(tk);
+  oom |= Query->Append(Tabname);
+  oom |= Query->Append(tk);
+  len = Query->GetLength();
 
   if (To_CondFil) {
     if (!mx) {
-      strcat(strcat(Query, " WHERE "), To_CondFil->Body);
-      len = strlen(Query) + 1;
+      oom |= Query->Append(" WHERE ");
+      oom |= Query->Append(To_CondFil->Body);
+      len = Query->GetLength() + 1;
     } else
       len += (strlen(To_CondFil->Body) + 256);
 
   } else
     len += (mx ? 256 : 1);
 
-  if (trace)
-    htrc("Query=%s\n", Query);
+  if (oom || Query->Resize(len)) {
+    strcpy(g->Message, "MakeSelect: Out of memory");
+    return true;
+    } // endif oom
 
-  // Now we know how much to suballocate
-  PlugSubAlloc(g, NULL, len);
+  if (trace)
+    htrc("Query=%s\n", Query->GetStr());
+
   return false;
   } // end of MakeSelect
 
@@ -563,81 +571,82 @@ bool TDBMYSQL::MakeSelect(PGLOBAL g, bool mx)
 /***********************************************************************/
 bool TDBMYSQL::MakeInsert(PGLOBAL g)
   {
-  char *colist, *valist = NULL;
   char *tk = "`";
-  int   len = 0, qlen = 0;
-  bool  b = false;
+  uint  len = 0;
+  bool  b = false, oom;
   PCOL  colp;
 
   if (Query)
     return false;        // already done
 
-  for (colp = Columns; colp; colp = colp->GetNext())
-    if (!colp->IsSpecial()) {
-//    if (colp->IsSpecial()) {
-//      strcpy(g->Message, MSG(NO_SPEC_COL));
-//      return true;
-//    } else {
-      len += (strlen(colp->GetName()) + 4);
-      ((PMYCOL)colp)->Rank = Nparm++;
-    } // endif colp
-
-  colist = (char*)PlugSubAlloc(g, NULL, len);
-  *colist = '\0';
-
   if (Prep) {
-#if defined(MYSQL_PREPARED_STATEMENTS)
-    valist = (char*)PlugSubAlloc(g, NULL, 2 * Nparm);
-    *valist = '\0';
-#else   // !MYSQL_PREPARED_STATEMENTS
+#if !defined(MYSQL_PREPARED_STATEMENTS)
     strcpy(g->Message, "Prepared statements not used (not supported)");
     PushWarning(g, this);
     Prep = false;
 #endif  // !MYSQL_PREPARED_STATEMENTS 
     } // endif Prep
 
-  for (colp = Columns; colp; colp = colp->GetNext()) {
-    if (b) {
-      strcat(colist, ", ");
-      if (Prep) strcat(valist, ",");
-    } else
-      b = true;
+  for (colp = Columns; colp; colp = colp->GetNext())
+    if (colp->IsSpecial()) {
+      strcpy(g->Message, MSG(NO_SPEC_COL));
+      return true;
+    } else {
+      len += (strlen(colp->GetName()) + 4);
 
-    strcat(strcat(strcat(colist, tk), colp->GetName()), tk);
+      // Parameter marker
+      if (!Prep) {
+        if (colp->GetResultType() == TYPE_DATE)
+          len += 20;
+        else
+          len += colp->GetLength();
+  
+      } else
+        len += 2;
 
-    // Parameter marker
-    if (!Prep) {
-      if (colp->GetResultType() == TYPE_DATE)
-        qlen += 20;
-      else
-        qlen += colp->GetLength();
-
-    } else    // Prep
-      strcat(valist, "?");
-
-    } // endfor colp
+      ((PMYCOL)colp)->Rank = Nparm++;
+    } // endif colp
 
   // Below 40 is enough to contain the fixed part of the query
-  len = (strlen(Tabname) + strlen(colist)
-                         + ((Prep) ? strlen(valist) : 0) + 40);
-  Query = (char*)PlugSubAlloc(g, NULL, len);
+  len += (strlen(Tabname) + 40);
+  Query = new(g) STRING(g, len);
 
   if (Delayed)
-    strcpy(Query, "INSERT DELAYED INTO ");
+    oom = Query->Set("INSERT DELAYED INTO ");
   else
-    strcpy(Query, "INSERT INTO ");
+    oom = Query->Set("INSERT INTO ");
 
-  strcat(strcat(strcat(Query, tk), Tabname), tk);
-  strcat(strcat(strcat(Query, " ("), colist), ") VALUES (");
+  oom |= Query->Append(tk);
+  oom |= Query->Append(Tabname);
+  oom |= Query->Append("` (");
 
-  if (Prep)
-    strcat(strcat(Query, valist), ")");
-  else {
-    qlen += (strlen(Query) + Nparm);
-    Qbuf = (char *)PlugSubAlloc(g, NULL, qlen);
-    } // endelse Prep
+  for (colp = Columns; colp; colp = colp->GetNext()) {
+    if (b)
+      oom |= Query->Append(", ");
+    else
+      b = true;
+  
+    oom |= Query->Append(tk);
+    oom |= Query->Append(colp->GetName());
+    oom |= Query->Append(tk);
+    } // endfor colp
 
-  return false;
+  oom |= Query->Append(") VALUES (");
+
+#if defined(MYSQL_PREPARED_STATEMENTS)
+  if (Prep) {
+    for (int i = 0; i < Nparm; i++)
+      oom |= Query->Append("?,");
+
+    Query->RepLast(')');
+    Query->Trim();
+    }  // endif Prep
+#endif  // MYSQL_PREPARED_STATEMENTS 
+
+  if (oom)
+    strcpy(g->Message, "MakeInsert: Out of memory");
+
+  return oom;
   } // end of MakeInsert
 
 /***********************************************************************/
@@ -646,7 +655,7 @@ bool TDBMYSQL::MakeInsert(PGLOBAL g)
 /***********************************************************************/
 int TDBMYSQL::MakeCommand(PGLOBAL g)
   {
-  Query = (char*)PlugSubAlloc(g, NULL, strlen(Qrystr) + 64);
+  Query = new(g) STRING(g, strlen(Qrystr) + 64);
 
   if (Quoted > 0 || stricmp(Name, Tabname)) {
     char *p, *qrystr, name[68];
@@ -665,16 +674,23 @@ int TDBMYSQL::MakeCommand(PGLOBAL g)
       strlwr(strcpy(name, Name));     // Not a keyword
 
     if ((p = strstr(qrystr, name))) {
-      memcpy(Query, Qrystr, p - qrystr);
-      Query[p - qrystr] = 0;
+      bool oom = Query->Set(Qrystr, p - qrystr);
 
-      if (qtd && *(p-1) == ' ')
-        strcat(strcat(strcat(Query, "`"), Tabname), "`");
-      else
-        strcat(Query, Tabname);
+      if (qtd && *(p-1) == ' ') {
+        oom |= Query->Append('`');
+        oom |= Query->Append(Tabname);
+        oom |= Query->Append('`');
+      } else
+        oom |= Query->Append(Tabname);
 
-      strcat(Query, Qrystr + (p - qrystr) + strlen(name));
-      strlwr(strcpy(qrystr, Query));
+      oom |= Query->Append(Qrystr + (p - qrystr) + strlen(name));
+
+      if (oom) {
+        strcpy(g->Message, "MakeCommand: Out of memory");
+        return RC_FX;
+      } else
+        strlwr(strcpy(qrystr, Query->GetStr()));
+
     } else {
       sprintf(g->Message, "Cannot use this %s command",
                    (Mode == MODE_UPDATE) ? "UPDATE" : "DELETE");
@@ -682,7 +698,7 @@ int TDBMYSQL::MakeCommand(PGLOBAL g)
     } // endif p
 
   } else
-    strcpy(Query, Qrystr);
+    (void)Query->Set(Qrystr);
 
   return RC_OK;
   } // end of MakeCommand
@@ -755,12 +771,12 @@ int TDBMYSQL::Cardinality(PGLOBAL g)
   if (!g)
     return (Mode == MODE_ANY && !Srcdef) ? 1 : 0;
 
-  if (Cardinal < 0 && Mode == MODE_ANY && !Srcdef && xinfo) {
+  if (Cardinal < 0 && Mode == MODE_ANY && !Srcdef && ExactInfo()) {
     // Info command, we must return the exact table row number
     char   query[96];
     MYSQLC myc;
 
-    if (myc.Open(g, Host, Database, User, Pwd, Port))
+    if (myc.Open(g, Host, Database, User, Pwd, Port, csname))
       return -1;
 
     strcpy(query, "SELECT COUNT(*) FROM ");
@@ -790,7 +806,7 @@ int TDBMYSQL::GetMaxSize(PGLOBAL g)
     else if (!Cardinality(NULL))
       MaxSize = 10;   // To make MySQL happy
     else if ((MaxSize = Cardinality(g)) < 0)
-      MaxSize = 12;   // So we can see an error occured
+      MaxSize = 12;   // So we can see an error occurred
 
     } // endif MaxSize
 
@@ -800,9 +816,9 @@ int TDBMYSQL::GetMaxSize(PGLOBAL g)
 /***********************************************************************/
 /*  This a fake routine as ROWID does not exist in MySQL.              */
 /***********************************************************************/
-int TDBMYSQL::RowNumber(PGLOBAL g, bool b)
+int TDBMYSQL::RowNumber(PGLOBAL, bool)
   {
-  return N;
+  return N + 1;
   } // end of RowNumber
 
 /***********************************************************************/
@@ -816,7 +832,7 @@ int TDBMYSQL::GetProgMax(PGLOBAL g)
 /***********************************************************************/
 /*  MySQL Bind Parameter function.                                     */
 /***********************************************************************/
-int TDBMYSQL::BindColumns(PGLOBAL g)
+int TDBMYSQL::BindColumns(PGLOBAL g __attribute__((unused)))
   {
 #if defined(MYSQL_PREPARED_STATEMENTS)
   if (Prep) {
@@ -841,7 +857,10 @@ bool TDBMYSQL::OpenDB(PGLOBAL g)
     /*******************************************************************/
     /*  Table already open, just replace it at its beginning.          */
     /*******************************************************************/
-    Myc.Rewind();
+		if (Myc.Rewind(g, (Mode == MODE_READX) ? Query->GetStr() : NULL) != RC_OK)
+			return true;
+
+    N = -1;
     return false;
     } // endif use
 
@@ -853,7 +872,7 @@ bool TDBMYSQL::OpenDB(PGLOBAL g)
   /*  servers allowing concurency in getting results ???               */
   /*********************************************************************/
   if (!Myc.Connected()) {
-    if (Myc.Open(g, Host, Database, User, Pwd, Port))
+    if (Myc.Open(g, Host, Database, User, Pwd, Port, csname))
       return true;
 
     } // endif Connected
@@ -871,7 +890,8 @@ bool TDBMYSQL::OpenDB(PGLOBAL g)
   /*********************************************************************/
   if (Mode == MODE_READ || Mode == MODE_READX) {
     MakeSelect(g, Mode == MODE_READX);
-    m_Rc = (Mode == MODE_READ) ? Myc.ExecSQL(g, Query) : RC_OK;
+    m_Rc = (Mode == MODE_READ)
+         ? Myc.ExecSQL(g, Query->GetStr()) : RC_OK;
 
 #if 0
     if (!Myc.m_Res || !Myc.m_Fields) {
@@ -888,12 +908,14 @@ bool TDBMYSQL::OpenDB(PGLOBAL g)
   } else if (Mode == MODE_INSERT) {
     if (Srcdef) {
       strcpy(g->Message, "No insert into anonym views");
+      Myc.Close();
       return true;
       } // endif Srcdef
 
     if (!MakeInsert(g)) {
 #if defined(MYSQL_PREPARED_STATEMENTS)
-      int n = (Prep) ? Myc.PrepareSQL(g, Query) : Nparm;
+      int n = (Prep) 
+            ? Myc.PrepareSQL(g, Query->GetCharValue()) : Nparm;
 
       if (Nparm != n) {
         if (n >= 0)          // Other errors return negative values
@@ -906,12 +928,12 @@ bool TDBMYSQL::OpenDB(PGLOBAL g)
       } // endif MakeInsert
 
     if (m_Rc != RC_FX) {
-      int  rc __attribute__((unused));
       char cmd[64];
       int  w;
 
       sprintf(cmd, "ALTER TABLE `%s` DISABLE KEYS", Tabname);
-      rc = Myc.ExecSQL(g, cmd, &w);   // may fail for some engines
+      
+      m_Rc = Myc.ExecSQL(g, cmd, &w);   // may fail for some engines
       } // endif m_Rc
 
   } else
@@ -1006,7 +1028,7 @@ int TDBMYSQL::SendCommand(PGLOBAL g)
   {
   int w;
 
-  if (Myc.ExecSQLcmd(g, Query, &w) == RC_NF) {
+  if (Myc.ExecSQLcmd(g, Query->GetStr(), &w) == RC_NF) {
     AftRows = Myc.m_Afrw;
     sprintf(g->Message, "%s: %d affected rows", Tabname, AftRows);
     PushWarning(g, this, 0);    // 0 means a Note
@@ -1034,30 +1056,55 @@ int TDBMYSQL::SendCommand(PGLOBAL g)
 /***********************************************************************/
 /*  Data Base indexed read routine for MYSQL access method.            */
 /***********************************************************************/
-bool TDBMYSQL::ReadKey(PGLOBAL g, OPVAL op, const void *key, int len)
+bool TDBMYSQL::ReadKey(PGLOBAL g, OPVAL op, const key_range *kr)
 {
-  int  oldlen = strlen(Query);
+  int  oldlen = Query->GetLength();
+	PHC  hc = To_Def->GetHandler();
 
-  if (!key || op == OP_NEXT ||
-        Mode == MODE_UPDATE || Mode == MODE_DELETE)
+	if (!(kr || hc->end_range) || op == OP_NEXT ||
+         Mode == MODE_UPDATE || Mode == MODE_DELETE) {
+    if (!kr && Mode == MODE_READX) {
+      // This is a false indexed read
+      m_Rc = Myc.ExecSQL(g, Query->GetStr());
+      Mode = MODE_READ;
+      return (m_Rc == RC_FX) ? true : false;
+      } // endif key
+
     return false;
-  else if (op == OP_FIRST) {
-    if (To_CondFil)
-      strcat(strcat(Query, " WHERE "), To_CondFil->Body);
-
   } else {
     if (Myc.m_Res)
       Myc.FreeResult();
 
-    To_Def->GetHandler()->MakeKeyWhere(g, Query, op, "`", key, len);
+		if (hc->MakeKeyWhere(g, Query, op, '`', kr))
+			return true;
 
-    if (To_CondFil)
-      strcat(strcat(strcat(Query, " AND ("), To_CondFil->Body), ")");
+    if (To_CondFil) {
+			if (To_CondFil->Idx != hc->active_index) {
+				To_CondFil->Idx = hc->active_index;
+				To_CondFil->Body= (char*)PlugSubAlloc(g, NULL, 0);
+				*To_CondFil->Body= 0;
 
-  } // endif's op
+				if ((To_CondFil = hc->CheckCond(g, To_CondFil, To_CondFil->Cond)))
+					PlugSubAlloc(g, NULL, strlen(To_CondFil->Body) + 1);
 
-  m_Rc = Myc.ExecSQL(g, Query);
-  Query[oldlen] = 0;
+				} // endif active_index
+
+			if (To_CondFil)
+				if (Query->Append(" AND ") || Query->Append(To_CondFil->Body)) {
+				  strcpy(g->Message, "Readkey: Out of memory");
+					return true;
+					} // endif Append
+
+			} // endif To_Condfil
+
+		Mode = MODE_READ;
+	} // endif's op
+
+	if (trace)
+		htrc("MYSQL ReadKey: Query=%s\n", Query->GetStr());
+
+	m_Rc = Myc.ExecSQL(g, Query->GetStr());
+  Query->Truncate(oldlen);
   return (m_Rc == RC_FX) ? true : false;
 } // end of ReadKey
 
@@ -1101,31 +1148,35 @@ int TDBMYSQL::WriteDB(PGLOBAL g)
   // Statement was not prepared, we must construct and execute
   // an insert query for each line to insert
   int  rc;
+  uint len = Query->GetLength();
   char buf[64];
-
-  strcpy(Qbuf, Query);
+  bool oom = false;
 
   // Make the Insert command value list
   for (PCOL colp = Columns; colp; colp = colp->GetNext()) {
     if (!colp->GetValue()->IsNull()) {
       if (colp->GetResultType() == TYPE_STRING ||
           colp->GetResultType() == TYPE_DATE)
-        strcat(Qbuf, "'");
-
-      strcat(Qbuf, colp->GetValue()->GetCharString(buf));
-
-      if (colp->GetResultType() == TYPE_STRING ||
-          colp->GetResultType() == TYPE_DATE)
-        strcat(Qbuf, "'");
-
+        oom |= Query->Append_quoted(colp->GetValue()->GetCharString(buf));
+      else
+        oom |= Query->Append(colp->GetValue()->GetCharString(buf));
+  
     } else
-      strcat(Qbuf, "NULL");
-
-    strcat(Qbuf, (colp->GetNext()) ? "," : ")");
+      oom |= Query->Append("NULL");
+  
+    oom |= Query->Append(',');
     } // endfor colp
 
-  Myc.m_Rows = -1;      // To execute the query
-  rc = Myc.ExecSQL(g, Qbuf);
+  if (unlikely(oom)) {
+    strcpy(g->Message, "WriteDB: Out of memory");
+    rc = RC_FX;
+  } else {
+    Query->RepLast(')');
+    Myc.m_Rows = -1;          // To execute the query
+    rc = Myc.ExecSQL(g, Query->GetStr());
+    Query->Truncate(len);     // Restore query
+  } // endif oom
+
   return (rc == RC_NF) ? RC_OK : rc;      // RC_NF is Ok
   } // end of WriteDB
 
@@ -1378,7 +1429,7 @@ void MYSQLCOL::ReadColumn(PGLOBAL g)
 /***********************************************************************/
 /*  WriteColumn: make sure the bind buffer is updated.                 */
 /***********************************************************************/
-void MYSQLCOL::WriteColumn(PGLOBAL g)
+void MYSQLCOL::WriteColumn(PGLOBAL)
   {
   /*********************************************************************/
   /*  Do convert the column value if necessary.                        */
@@ -1416,7 +1467,7 @@ TDBMYEXC::TDBMYEXC(PMYDEF tdp) : TDBMYSQL(tdp)
   Nerr = 0;
 } // end of TDBMYEXC constructor
 
-TDBMYEXC::TDBMYEXC(PGLOBAL g, PTDBMYX tdbp) : TDBMYSQL(g, tdbp)
+TDBMYEXC::TDBMYEXC(PTDBMYX tdbp) : TDBMYSQL(tdbp)
 {
   Cmdlist = tdbp->Cmdlist;
   Cmdcol = tdbp->Cmdcol;
@@ -1434,7 +1485,7 @@ PTDB TDBMYEXC::CopyOne(PTABS t)
   PCOL    cp1, cp2;
   PGLOBAL g = t->G;
 
-  tp = new(g) TDBMYEXC(g, this);
+  tp = new(g) TDBMYEXC(this);
 
   for (cp1 = Columns; cp1; cp1 = cp1->GetNext()) {
     cp2 = new(g) MYXCOL((PMYXCOL)cp1, tp);
@@ -1487,7 +1538,7 @@ PCMD TDBMYEXC::MakeCMD(PGLOBAL g)
 /***********************************************************************/
 /*  EXC GetMaxSize: returns the maximum number of rows in the table.   */
 /***********************************************************************/
-int TDBMYEXC::GetMaxSize(PGLOBAL g)
+int TDBMYEXC::GetMaxSize(PGLOBAL)
   {
   if (MaxSize < 0) {
     MaxSize = 10;                 // a guess
@@ -1530,7 +1581,7 @@ bool TDBMYEXC::OpenDB(PGLOBAL g)
   if (!(Cmdlist = MakeCMD(g))) {
     Myc.Close();
     return true;
-    } // endif Query
+    } // endif Cmdlist
 
   return false;
   } // end of OpenDB
@@ -1558,9 +1609,12 @@ int TDBMYEXC::ReadDB(PGLOBAL g)
     int rc;
 
     do {
-      Query = Cmdlist->Cmd;
+      if (Query)
+        Query->Set(Cmdlist->Cmd);
+      else
+        Query = new(g) STRING(g, 0, Cmdlist->Cmd);
 
-      switch (rc = Myc.ExecSQLcmd(g, Query, &Warnings)) {
+      switch (rc = Myc.ExecSQLcmd(g, Query->GetStr(), &Warnings)) {
         case RC_NF:
           AftRows = Myc.m_Afrw;
           strcpy(g->Message, "Affected rows");
@@ -1649,11 +1703,11 @@ void MYXCOL::ReadColumn(PGLOBAL g)
 
   } else
     switch (Flag) {
-      case  0: Value->SetValue_psz(tdbp->Query);    break;
-      case  1: Value->SetValue(tdbp->AftRows);      break;
-      case  2: Value->SetValue_psz(g->Message);     break;
-      case  3: Value->SetValue(tdbp->Warnings);     break;
-      default: Value->SetValue_psz("Invalid Flag"); break;
+      case  0: Value->SetValue_psz(tdbp->Query->GetStr()); break;
+      case  1: Value->SetValue(tdbp->AftRows);             break;
+      case  2: Value->SetValue_psz(g->Message);            break;
+      case  3: Value->SetValue(tdbp->Warnings);            break;
+      default: Value->SetValue_psz("Invalid Flag");        break;
       } // endswitch Flag
 
   } // end of ReadColumn
@@ -1661,7 +1715,7 @@ void MYXCOL::ReadColumn(PGLOBAL g)
 /***********************************************************************/
 /*  WriteColumn: should never be called.                               */
 /***********************************************************************/
-void MYXCOL::WriteColumn(PGLOBAL g)
+void MYXCOL::WriteColumn(PGLOBAL)
   {
   assert(false);
   } // end of WriteColumn

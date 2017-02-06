@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -114,7 +114,7 @@ btr_pcur_open_low(
 Opens an persistent cursor to an index tree without initializing the
 cursor. */
 UNIV_INLINE
-void
+dberr_t
 btr_pcur_open_with_no_init_func(
 /*============================*/
 	dict_index_t*	index,	/*!< in: index */
@@ -143,7 +143,7 @@ btr_pcur_open_with_no_init_func(
 /*****************************************************************//**
 Opens a persistent cursor at either end of an index. */
 UNIV_INLINE
-void
+dberr_t
 btr_pcur_open_at_index_side(
 /*========================*/
 	bool		from_left,	/*!< in: true if open to the low end,
@@ -155,7 +155,7 @@ btr_pcur_open_at_index_side(
 	ulint		level,		/*!< in: level to search for
 					(0=leaf) */
 	mtr_t*		mtr)		/*!< in/out: mini-transaction */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 /**************************************************************//**
 Gets the up_match value for a pcur after a search.
 @return number of matched fields at the cursor or to the right if

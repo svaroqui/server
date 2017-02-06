@@ -20,12 +20,10 @@ DELETE FROM t1 WHERE a = 11;
 SELECT * FROM t1;
 
 --connect (con1, localhost, root,,)
---echo # con1 (send)
 --send
 ALTER TABLE t1 TRUNCATE PARTITION pMax;
 
 --connection default
---echo # con default
 let $wait_condition=
   SELECT COUNT(*) = 1 FROM INFORMATION_SCHEMA.PROCESSLIST
     WHERE STATE = "Waiting for table metadata lock" AND
@@ -36,13 +34,10 @@ SELECT * FROM t1;
 --echo # Commit will allow the TRUNCATE to finish
 COMMIT;
 
---echo # con1 (reap)
 --connection con1
 --reap
---echo # con1 (disconnect)
 --disconnect con1
 --connection default
---echo # default connection
 SELECT * FROM t1;
 DROP TABLE t1;
 
@@ -62,7 +57,10 @@ SHOW CREATE TABLE t1;
 SET DEBUG_SYNC='before_open_in_get_all_tables SIGNAL parked WAIT_FOR open';
 SET DEBUG_SYNC='partition_open_error SIGNAL alter WAIT_FOR finish';
 send
-SELECT * FROM INFORMATION_SCHEMA.PARTITIONS WHERE TABLE_NAME = 't1' AND TABLE_SCHEMA = 'test';
+SELECT TABLE_SCHEMA, TABLE_NAME, PARTITION_NAME, PARTITION_ORDINAL_POSITION,
+              PARTITION_DESCRIPTION, TABLE_ROWS
+FROM INFORMATION_SCHEMA.PARTITIONS
+WHERE TABLE_NAME = 't1' AND TABLE_SCHEMA = 'test';
 
 connect (con1, localhost, root,,);
 SET DEBUG_SYNC = 'now WAIT_FOR parked';

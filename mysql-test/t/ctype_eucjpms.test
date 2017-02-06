@@ -446,6 +446,7 @@ SHOW CREATE TABLE t1;
 UPDATE t1 SET a=unhex(code) ORDER BY code;
 SELECT COUNT(*) FROM t1;
 SELECT COUNT(*) FROM t1 WHERE a<>'';
+SELECT COUNT(*) FROM t1 WHERE a<>'' AND a<>'?';
 SELECT COUNT(*) FROM t1 WHERE a<>'' AND OCTET_LENGTH(a)=2;
 SELECT * FROM t1 WHERE CHAR_LENGTH(a)=2;
 SELECT COUNT(*) FROM t1 WHERE a<>'' AND OCTET_LENGTH(a)=3;
@@ -539,4 +540,57 @@ SELECT _eucjpms 0x8EA0;
 
 --echo #
 --echo # End of 10.0 tests
+--echo #
+
+--echo #
+--echo # Start of 10.1 tests
+--echo #
+
+--echo #
+--echo # MDEV-8215 Asian MB3 charsets: compare broken bytes as "greater than any non-broken character"
+--echo #
+CREATE TABLE t1 (a VARCHAR(10) CHARACTER SET eucjpms, KEY(a));
+# [x00-x7F]               # ASCII/JIS-Roman
+# [x8E][xA1-xDF]          # half-width katakana
+# [x8F][xA1-xFE][xA1-xFE] # JIS X 0212-1990
+# [xA1-xFE][xA1-xFE]      # JIS X 0208:1997
+INSERT INTO t1 VALUES ('a'),(0x7F);
+INSERT INTO t1 VALUES (0x8EA1),(0x8EDF);
+INSERT INTO t1 VALUES (0x8FA1A1),(0x8FFEFE);
+INSERT INTO t1 VALUES (0xA1A1),(0xDEDE),(0xDFDF),(0xE0E0),(0xFEFE);
+SELECT HEX(a) FROM t1 ORDER BY a;
+ALTER TABLE t1 MODIFY a VARCHAR(10) CHARACTER SET eucjpms COLLATE eucjpms_bin;
+SELECT HEX(a) FROM t1 ORDER BY a;
+DROP TABLE t1;
+
+--echo #
+--echo # End of 10.1 tests
+--echo #
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo #
+--echo # MDEV-9842 LOAD DATA INFILE does not work well with a TEXT column when using sjis
+--echo #
+CREATE TABLE t1 (a TEXT CHARACTER SET eucjpms);
+LOAD DATA INFILE '../../std_data/loaddata/mdev9823.ujis.txt' INTO TABLE t1 CHARACTER SET eucjpms IGNORE 4 LINES;
+SELECT HEX(a) FROM t1;
+DROP TABLE t1;
+
+--echo #
+--echo # MDEV-9711 NO PAD Collatons
+--echo #
+SET character_set_connection=eucjpms;
+let $coll='eucjpms_japanese_nopad_ci';
+let $coll_pad='eucjpms_japanese_ci';
+--source include/ctype_pad_all_engines.inc
+
+let $coll='eucjpms_nopad_bin';
+let $coll_pad='eucjpms_bin';
+--source include/ctype_pad_all_engines.inc
+
+--echo #
+--echo # End of 10.2 tests
 --echo #

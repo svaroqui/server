@@ -298,11 +298,7 @@ enum ha_base_keytype {
 #define HA_SWAP_KEY		 64
 #define HA_REVERSE_SORT		 128	/* Sort key in reverse order */
 #define HA_NO_SORT               256 /* do not bother sorting on this keyseg */
-/*
-  End space in unique/varchar are considered equal. (Like 'a' and 'a ')
-  Only needed for internal temporary tables.
-*/
-#define HA_END_SPACE_ARE_EQUAL	 512
+
 #define HA_BIT_PART		1024
 #define HA_CAN_MEMCMP           2048 /* internal, never stored in frm */
 
@@ -354,6 +350,7 @@ enum ha_base_keytype {
 #define HA_CREATE_DELAY_KEY_WRITE 64
 #define HA_CREATE_RELIES_ON_SQL_LAYER 128
 #define HA_CREATE_INTERNAL_TABLE 256
+#define HA_PRESERVE_INSERT_ORDER 512
 
 /* Flags used by start_bulk_insert */
 
@@ -500,10 +497,18 @@ enum ha_base_keytype {
 #define HA_ERR_DISK_FULL          189
 #define HA_ERR_INCOMPATIBLE_DEFINITION 190
 #define HA_ERR_FTS_TOO_MANY_WORDS_IN_PHRASE 191 /* Too many words in a phrase */
-#define HA_ERR_LAST               191    /* Copy of last error nr */
+#define HA_ERR_DECRYPTION_FAILED  192 /* Table encrypted but decypt failed */
+#define HA_ERR_FK_DEPTH_EXCEEDED  193 /* FK cascade depth exceeded */
+#define HA_ERR_TABLESPACE_MISSING 194  /* Missing Tablespace */
+#define HA_ERR_LAST               194  /* Copy of last error nr * */
 
 /* Number of different errors */
 #define HA_ERR_ERRORS            (HA_ERR_LAST - HA_ERR_FIRST + 1)
+
+/* aliases */
+#define HA_ERR_TABLE_CORRUPT HA_ERR_WRONG_IN_RECORD
+#define HA_ERR_QUERY_INTERRUPTED HA_ERR_ABORTED_BY_USER
+#define HA_ERR_NOT_ALLOWED_COMMAND HA_ERR_WRONG_COMMAND
 
 	/* Other constants */
 
@@ -534,13 +539,13 @@ typedef ulong key_part_map;
 #define SEARCH_NULL_ARE_EQUAL 32768	/* NULL in keys are equal */
 #define SEARCH_NULL_ARE_NOT_EQUAL 65536	/* NULL in keys are not equal */
 /* Use this when inserting a key in position order */
-#define SEARCH_INSERT   SEARCH_NULL_ARE_NOT_EQUAL*2
+#define SEARCH_INSERT   (SEARCH_NULL_ARE_NOT_EQUAL*2)
 /* Only part of the key is specified while reading */
-#define SEARCH_PART_KEY SEARCH_INSERT*2
+#define SEARCH_PART_KEY (SEARCH_INSERT*2)
 /* Used when user key (key 2) contains transaction id's */
-#define SEARCH_USER_KEY_HAS_TRANSID SEARCH_PART_KEY*2
+#define SEARCH_USER_KEY_HAS_TRANSID (SEARCH_PART_KEY*2)
 /* Used when page key (key 1) contains transaction id's */
-#define SEARCH_PAGE_KEY_HAS_TRANSID SEARCH_USER_KEY_HAS_TRANSID*2
+#define SEARCH_PAGE_KEY_HAS_TRANSID (SEARCH_USER_KEY_HAS_TRANSID*2)
 
 	/* bits in opt_flag */
 #define QUICK_USED	1
@@ -561,7 +566,7 @@ typedef ulong key_part_map;
 #define HA_STATE_KEY_CHANGED	128
 #define HA_STATE_WRITE_AT_END	256	/* set in _ps_find_writepos */
 #define HA_STATE_BUFF_SAVED	512	/* If current keybuff is info->buff */
-#define HA_STATE_ROW_CHANGED	1024	/* To invalide ROW cache */
+#define HA_STATE_ROW_CHANGED	1024	/* To invalidate ROW cache */
 #define HA_STATE_EXTEND_BLOCK	2048
 #define HA_STATE_RNEXT_SAME	4096	/* rnext_same occupied lastkey2 */
 
@@ -632,18 +637,5 @@ typedef ulong		ha_rows;
 C_MODE_START
 typedef void (* invalidator_by_filename)(const char * filename);
 C_MODE_END
-
-
-enum durability_properties
-{
-  /*
-    Preserves the durability properties defined by the engine */
-  HA_REGULAR_DURABILITY= 0,
-  /* 
-     Ignore the durability properties defined by the engine and
-     write only in-memory entries.
-  */
-  HA_IGNORE_DURABILITY= 1
-};
 
 #endif /* _my_base_h */

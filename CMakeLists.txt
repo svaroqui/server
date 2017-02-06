@@ -14,11 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
-# Avoid warnings in higher versions
-if("${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}" GREATER 2.6)
- CMAKE_POLICY(VERSION 2.8)
-endif()
+CMAKE_MINIMUM_REQUIRED(VERSION 2.8.3)
 
 # explicitly set the policy to OLD
 # (cannot use NEW, not everyone is on cmake-2.8.12 yet)
@@ -28,21 +24,20 @@ ENDIF()
 
 # We use the LOCATION target property (CMP0026)
 # and get_target_property() for non-existent targets (CMP0045)
+# and INSTALL_NAME_DIR (CMP0042)
 IF(CMAKE_VERSION VERSION_EQUAL "3.0.0" OR
    CMAKE_VERSION VERSION_GREATER "3.0.0")
  CMAKE_POLICY(SET CMP0026 OLD)
  CMAKE_POLICY(SET CMP0045 OLD)
+ CMAKE_POLICY(SET CMP0042 OLD)
+ENDIF()
+IF(POLICY CMP0054)
+  CMAKE_POLICY(SET CMP0054 NEW)
 ENDIF()
 
 MESSAGE(STATUS "Running cmake version ${CMAKE_VERSION}")
 
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake)
-
-# Distinguish between community and non-community builds, with the
-# default being a community build. This does not impact the feature
-# set that will be compiled in; it's merely provided as a hint to
-# custom packaging steps.
-OPTION(COMMUNITY_BUILD "Set to true if this is a community build" ON) 
 
 # Use a default manufacturer if no manufacturer was identified.
 IF(NOT DEFINED MANUFACTURER) 
@@ -53,6 +48,15 @@ ENDIF()
 
 SET(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING
    "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel")
+
+# MAX_INDEXES - Set the maximum number of indexes per table, default 64U
+IF (NOT MAX_INDEXES)
+  SET(MAX_INDEXES 64U)
+ENDIF(NOT MAX_INDEXES)
+
+IF (${MAX_INDEXES} GREATER 128)
+  MESSAGE(FATAL_ERROR "MAX_INDEXES values greater than 128 is not supported!")
+ENDIF()
 
 IF(UNIX AND NOT APPLE)
   # Note, that generally one should not change settings depending
@@ -111,7 +115,11 @@ FOREACH(_base
   ENDIF()
 ENDFOREACH()
 
-
+FOREACH(tool gtar tar git)
+ STRING(TOUPPER ${tool}  TOOL)
+ FIND_PROGRAM(${TOOL}_EXECUTABLE ${tool} DOC "path to the executable")
+ MARK_AS_ADVANCED(${TOOL}_EXECUTABLE)
+ENDFOREACH()
 
 # Following autotools tradition, add preprocessor definitions
 # specified in environment variable CPPFLAGS
@@ -119,27 +127,7 @@ IF(DEFINED ENV{CPPFLAGS})
   ADD_DEFINITIONS($ENV{CPPFLAGS})
 ENDIF()
 
-#
-# Control aspects of the development environment which are
-# specific to MySQL maintainers and developers.
-#
-INCLUDE(maintainer)
-
-SET(MYSQL_MAINTAINER_MODE "OFF" CACHE STRING "MySQL maintainer-specific development environment. Options are: ON OFF AUTO.")
-
-# Whether the maintainer mode compiler options should be enabled.
-IF(CMAKE_C_COMPILER_ID MATCHES "GNU")
-  SET_MYSQL_MAINTAINER_GNU_C_OPTIONS()
-ENDIF()
-IF(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-  SET_MYSQL_MAINTAINER_GNU_CXX_OPTIONS()
-ENDIF()
-IF(CMAKE_C_COMPILER_ID MATCHES "Intel")
-  SET_MYSQL_MAINTAINER_INTEL_C_OPTIONS()
-ENDIF()
-IF(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-  SET_MYSQL_MAINTAINER_INTEL_CXX_OPTIONS()
-ENDIF()
+SET(MYSQL_MAINTAINER_MODE "AUTO" CACHE STRING "MySQL maintainer-specific development environment. Options are: ON OFF AUTO.")
 
 # Packaging
 IF (NOT CPACK_GENERATOR)
@@ -150,9 +138,11 @@ IF (NOT CPACK_GENERATOR)
   ENDIF(WIN32) 
 ENDIF(NOT CPACK_GENERATOR)
 
+INCLUDE(misc)
 INCLUDE(mysql_version)
 INCLUDE(cpack_source_ignore_files)
 INCLUDE(install_layout)
+INCLUDE(wsrep)
 INCLUDE(cpack_rpm)
 INCLUDE(cpack_deb)
 
@@ -169,8 +159,9 @@ INCLUDE(pcre)
 INCLUDE(ctest)
 INCLUDE(plugin)
 INCLUDE(install_macros)
+INCLUDE(systemd)
 INCLUDE(mysql_add_executable)
-INCLUDE(wsrep)
+INCLUDE(crc32-vpmsum)
 
 # Handle options
 OPTION(DISABLE_SHARED 
@@ -179,13 +170,11 @@ IF(DISABLE_SHARED)
   SET(WITHOUT_DYNAMIC_PLUGINS 1)
 ENDIF()
 OPTION(ENABLED_PROFILING "Enable profiling" ON)
-OPTION(CYBOZU "" OFF)
 OPTION(WITHOUT_SERVER "Build only the client library and clients" OFF)
 IF(UNIX)
   OPTION(WITH_VALGRIND "Valgrind instrumentation" OFF)
 ENDIF()
 OPTION (WITH_UNIT_TESTS "Compile MySQL with unit tests" ON)
-MARK_AS_ADVANCED(CYBOZU)
 
 OPTION(NOT_FOR_DISTRIBUTION "Allow linking with GPLv2-incompatible system libraries. Only set it you never plan to distribute the resulting binaries" OFF)
 
@@ -196,12 +185,16 @@ IF (WITH_ASAN)
   # gcc 4.8.1 and new versions of clang
   MY_CHECK_AND_SET_COMPILER_FLAG("-fsanitize=address -O1 -Wno-error -fPIC"
     DEBUG RELWITHDEBINFO)
+  SET(HAVE_C_FSANITIZE ${HAVE_C__fsanitize_address__O1__Wno_error__fPIC})
+  SET(HAVE_CXX_FSANITIZE ${HAVE_CXX__fsanitize_address__O1__Wno_error__fPIC})
   IF(HAVE_C_FSANITIZE AND HAVE_CXX_FSANITIZE)
     SET(WITH_ASAN_OK 1)
   ELSE()
     # older versions of clang
     MY_CHECK_AND_SET_COMPILER_FLAG("-faddress-sanitizer -O1 -fPIC"
       DEBUG RELWITHDEBINFO)
+    SET(HAVE_C_FADDRESS ${HAVE_C__faddress_sanitizer__O1__fPIC})
+    SET(HAVE_CXX_FADDRESS ${HAVE_CXX__faddress_sanitizer__O1__fPIC})
     IF(HAVE_C_FADDRESS AND HAVE_CXX_FADDRESS)
       SET(WITH_ASAN_OK 1)
     ENDIF()
@@ -225,13 +218,7 @@ IF(SECURITY_HARDENED)
   MY_CHECK_AND_SET_COMPILER_FLAG("-pie -fPIC")
   MY_CHECK_AND_SET_COMPILER_FLAG("-Wl,-z,relro,-z,now")
   MY_CHECK_AND_SET_COMPILER_FLAG("-fstack-protector --param=ssp-buffer-size=4")
-
-  # sometimes _FORTIFY_SOURCE is predefined
-  INCLUDE(CheckSymbolExists)
-  CHECK_SYMBOL_EXISTS(_FORTIFY_SOURCE "" HAVE_FORTIFY_SOURCE)
-  IF(NOT HAVE_FORTIFY_SOURCE)
-    ADD_DEFINITIONS(-D_FORTIFY_SOURCE=2)
-  ENDIF()
+  MY_CHECK_AND_SET_COMPILER_FLAG("-D_FORTIFY_SOURCE=2" RELEASE RELWITHDEBINFO)
 ENDIF()
 
 OPTION(ENABLE_DEBUG_SYNC "Enable debug sync (debug builds only)" ON) 
@@ -250,9 +237,6 @@ MY_CHECK_AND_SET_COMPILER_FLAG(-ggdb3 DEBUG)
 OPTION(ENABLED_LOCAL_INFILE
  "If we should should enable LOAD DATA LOCAL by default" ${IF_WIN})
 
-OPTION(WITH_FAST_MUTEXES "Compile with fast mutexes" OFF)
-MARK_AS_ADVANCED(WITH_FAST_MUTEXES)
-
 OPTION(WITH_INNODB_DISALLOW_WRITES "InnoDB freeze writes patch from Google" ${WITH_WSREP})
 IF (WITH_INNODB_DISALLOW_WRITES)
   SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_INNODB_DISALLOW_WRITES")
@@ -266,10 +250,6 @@ FOREACH(BUILD_TYPE RELEASE RELWITHDEBINFO MINSIZEREL)
         NOT CMAKE_${LANG}_FLAGS MATCHES "DDBUG_")
       SET(CMAKE_${LANG}_FLAGS_${BUILD_TYPE} 
        "${CMAKE_${LANG}_FLAGS_${BUILD_TYPE}} -DDBUG_OFF")
-    ENDIF()
-    IF(WITH_FAST_MUTEXES)
-      SET(CMAKE_${LANG}_FLAGS_${BUILD_TYPE} 
-        "${CMAKE_${LANG}_FLAGS_${BUILD_TYPE}} -DMY_PTHREAD_FASTMUTEX=1")
     ENDIF()
   ENDFOREACH()
 ENDFOREACH()
@@ -294,11 +274,11 @@ ENDIF()
 
 # Set commonly used variables
 IF(WIN32)
-  SET(DEFAULT_MYSQL_HOME "C:/MariaDB${MYSQL_BASE_VERSION}")
+  SET(DEFAULT_MYSQL_HOME "C:/Program Files/MariaDB ${MYSQL_BASE_VERSION}")
   SET(SHAREDIR share)
 ELSE()
   SET(DEFAULT_MYSQL_HOME ${CMAKE_INSTALL_PREFIX})
-  SET(SHAREDIR ${DEFAULT_MYSQL_HOME}/${INSTALL_MYSQLSHAREDIR})
+  SET(SHAREDIR ${INSTALL_MYSQLSHAREDIRABS})
 ENDIF()
 
 SET(DEFAULT_BASEDIR "${DEFAULT_MYSQL_HOME}")
@@ -353,6 +333,13 @@ CHECK_JEMALLOC()
 
 CHECK_PCRE()
 
+CHECK_SYSTEMD()
+
+IF(CMAKE_CROSSCOMPILING)
+  SET(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to import_executables.cmake from a native build")
+  INCLUDE(${IMPORT_EXECUTABLES})
+ENDIF()
+
 #
 # Setup maintainer mode options. Platform checks are
 # not run with the warning options as to not perturb fragile checks
@@ -360,18 +347,7 @@ CHECK_PCRE()
 # We have to add MAINTAINER_C_WARNINGS first to ensure that the flags
 # given by the invoking user are honored
 #
-IF(MYSQL_MAINTAINER_MODE MATCHES "ON")
-  SET(CMAKE_C_FLAGS "${MY_MAINTAINER_C_WARNINGS} ${CMAKE_C_FLAGS}")
-  SET(CMAKE_CXX_FLAGS "${MY_MAINTAINER_CXX_WARNINGS} ${CMAKE_CXX_FLAGS}")
-ELSEIF(MYSQL_MAINTAINER_MODE MATCHES "AUTO")
-  SET(CMAKE_C_FLAGS_DEBUG "${MY_MAINTAINER_C_WARNINGS} ${CMAKE_C_FLAGS_DEBUG}")
-  SET(CMAKE_CXX_FLAGS_DEBUG "${MY_MAINTAINER_CXX_WARNINGS} ${CMAKE_CXX_FLAGS_DEBUG}")
-ENDIF()
-
-IF(CMAKE_CROSSCOMPILING)
-  SET(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to import_executables.cmake from a native build")
-  INCLUDE(${IMPORT_EXECUTABLES})
-ENDIF()
+INCLUDE(maintainer)
 
 IF(WITH_UNIT_TESTS)
  ENABLE_TESTING()
@@ -380,16 +356,15 @@ IF(WITH_UNIT_TESTS)
  ADD_SUBDIRECTORY(unittest/examples)
  ADD_SUBDIRECTORY(unittest/mysys)
  ADD_SUBDIRECTORY(unittest/my_decimal)
+ ADD_SUBDIRECTORY(unittest/json_lib)
  IF(NOT WITHOUT_SERVER)
    ADD_SUBDIRECTORY(unittest/sql)
  ENDIF()
 ENDIF()
 
-IF(NOT WITHOUT_SERVER)
- SET (MYSQLD_STATIC_PLUGIN_LIBS "" CACHE INTERNAL "")
- # Add storage engines and plugins.
- CONFIGURE_PLUGINS()
-ENDIF()
+SET (MYSQLD_STATIC_PLUGIN_LIBS "" CACHE INTERNAL "")
+# Add storage engines and plugins.
+CONFIGURE_PLUGINS()
 
 ADD_SUBDIRECTORY(include)
 ADD_SUBDIRECTORY(dbug)
@@ -397,7 +372,7 @@ ADD_SUBDIRECTORY(strings)
 ADD_SUBDIRECTORY(vio)
 ADD_SUBDIRECTORY(mysys)
 ADD_SUBDIRECTORY(mysys_ssl)
-ADD_SUBDIRECTORY(libmysql)
+INCLUDE(mariadb_connector_c) # this does ADD_SUBDIRECTORY(libmariadb)
 ADD_SUBDIRECTORY(client)
 ADD_SUBDIRECTORY(extra)
 ADD_SUBDIRECTORY(libservices)
@@ -419,6 +394,10 @@ IF(NOT WITHOUT_SERVER)
   ADD_SUBDIRECTORY(mysql-test)
   ADD_SUBDIRECTORY(mysql-test/lib/My/SafeProcess)
   ADD_SUBDIRECTORY(sql-bench)
+  IF(WIN32)
+    ADD_SUBDIRECTORY(win/upgrade_wizard)
+    ADD_SUBDIRECTORY(win/packaging)
+  ENDIF()
 ENDIF()
 
 IF(UNIX)
@@ -428,11 +407,7 @@ ENDIF()
 INCLUDE(cmake/abi_check.cmake)
 INCLUDE(cmake/tags.cmake)
 
-IF(WIN32)
-  ADD_SUBDIRECTORY(win/upgrade_wizard)
-  ADD_SUBDIRECTORY(win/packaging)
-ENDIF()
-ADD_SUBDIRECTORY(packaging/solaris)
+
 
 
 INCLUDE(for_clients)
@@ -442,7 +417,7 @@ ADD_SUBDIRECTORY(support-files)
 IF(NOT CMAKE_CROSSCOMPILING)
   SET(EXPORTED comp_err comp_sql factorial)
   IF(NOT WITHOUT_SERVER)
-    SET(EXPORTED ${EXPORTED} gen_lex_hash gen_pfs_lex_token)
+    SET(EXPORTED ${EXPORTED} gen_lex_hash gen_lex_token)
   ENDIF()
   # minimal target to build only binaries for export
   ADD_CUSTOM_TARGET(import_executables DEPENDS ${EXPORTED})
@@ -456,19 +431,14 @@ CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/include/mysql_version.h.in
 CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/sql/sql_builtin.cc.in
     ${CMAKE_BINARY_DIR}/sql/sql_builtin.cc)
 CONFIGURE_FILE(
-    ${CMAKE_SOURCE_DIR}/cmake/info_macros.cmake.in ${CMAKE_BINARY_DIR}/info_macros.cmake @ONLY)
-
-IF(DEB)
-  CONFIGURE_FILE(
-    ${CMAKE_SOURCE_DIR}/debian/mariadb-server-10.1.files.in
-    ${CMAKE_SOURCE_DIR}/debian/mariadb-server-10.1.files)
-ENDIF(DEB)
+    ${CMAKE_SOURCE_DIR}/cmake/info_macros.cmake.in
+    ${CMAKE_BINARY_DIR}/info_macros.cmake @ONLY)
 
 # Handle the "INFO_*" files.
 INCLUDE(${CMAKE_BINARY_DIR}/info_macros.cmake)
 # Source: This can be done during the cmake phase, all information is
 # available, but should be repeated on each "make" just in case someone
-# does "cmake ; make ; bzr pull ; make".
+# does "cmake ; make ; git pull ; make".
 CREATE_INFO_SRC(${CMAKE_BINARY_DIR}/Docs)
 ADD_CUSTOM_TARGET(INFO_SRC ALL
   COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/info_src.cmake
@@ -480,7 +450,7 @@ ADD_CUSTOM_TARGET(INFO_BIN ALL
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
-INSTALL_DOCUMENTATION(README CREDITS COPYING COPYING.LESSER COPYING.thirdparty
+INSTALL_DOCUMENTATION(README.md CREDITS COPYING COPYING.LESSER COPYING.thirdparty
                       EXCEPTIONS-CLIENT COMPONENT Readme)
 # MDEV-6526 these files are not installed anymore
 #INSTALL_DOCUMENTATION(${CMAKE_BINARY_DIR}/Docs/INFO_SRC
@@ -497,4 +467,3 @@ IF(NON_DISTRIBUTABLE_WARNING)
   MESSAGE(WARNING "
 You have linked MariaDB with GPLv3 libraries!  You may not distribute the resulting binary. If you do, you will put yourself into a legal problem with Free Software Foundation.")
 ENDIF()
-

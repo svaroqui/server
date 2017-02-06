@@ -13,6 +13,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #ifdef USE_PRAGMA_IMPLEMENTATION
@@ -182,13 +183,10 @@ sp_variable *sp_pcontext::find_variable(uint offset) const
 }
 
 
-sp_variable *sp_pcontext::add_variable(THD *thd,
-                                       LEX_STRING name,
-                                       enum enum_field_types type,
-                                       sp_variable::enum_mode mode)
+sp_variable *sp_pcontext::add_variable(THD *thd, LEX_STRING name)
 {
   sp_variable *p=
-    new (thd->mem_root) sp_variable(name, type,mode, current_var_count());
+    new (thd->mem_root) sp_variable(name, current_var_count());
 
   if (!p)
     return NULL;
@@ -207,7 +205,7 @@ sp_label *sp_pcontext::push_label(THD *thd, LEX_STRING name, uint ip)
   if (!label)
     return NULL;
 
-  m_labels.push_front(label);
+  m_labels.push_front(label, thd->mem_root);
 
   return label;
 }
@@ -452,7 +450,7 @@ bool sp_pcontext::find_cursor(LEX_STRING name,
 
 
 void sp_pcontext::retrieve_field_definitions(
-  List<Create_field> *field_def_lst) const
+  List<Column_definition> *field_def_lst) const
 {
   /* Put local/context fields in the result list. */
 

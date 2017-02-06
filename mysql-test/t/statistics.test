@@ -494,6 +494,17 @@ DELETE FROM mysql.table_stats;
 DELETE FROM mysql.column_stats;
 DELETE FROM mysql.index_stats;
 
+
+ANALYZE TABLE t1 PERSISTENT FOR COLUMNS(b) INDEXES();
+ANALYZE TABLE t1 PERSISTENT FOR columns(a,b) INDEXES();
+ANALYZE TABLE t1 PERSISTENT FOR columns(b) indexes(idx2);
+ANALYZE TABLE t1 PERSISTENT FOR columns() indexes(idx2);
+
+DELETE FROM mysql.table_stats;
+DELETE FROM mysql.column_stats;
+DELETE FROM mysql.index_stats;
+
+
 DROP TABLE t1,t2;
 
 set names utf8;
@@ -701,3 +712,74 @@ drop table t1, t2;
 
 set use_stat_tables=@save_use_stat_tables;
 
+--echo #
+--echo # Bug MDEV-7383: min/max value for a column not utf8 compatible
+--echo #
+
+create table t1 (a varchar(100)) engine=MyISAM;
+insert into t1 values(unhex('D879626AF872675F73E662F8'));
+analyze table t1 persistent for all;
+show warnings;
+
+select db_name, table_name, column_name,
+       HEX(min_value), HEX(max_value),
+       nulls_ratio, avg_frequency,
+       hist_size, hist_type, HEX(histogram)
+  FROM mysql.column_stats;
+
+drop table t1;
+
+--echo #
+--echo # MDEV-9590: Always print "Engine-independent statistic" warnings and
+--echo # might be filtering columns unintentionally from engines
+--echo #
+
+set use_stat_tables='NEVER';
+create table t1 (test blob);
+show variables like 'use_stat_tables';
+analyze table t1;
+drop table t1;
+
+--echo #
+--echo # MDEV-10435 crash with bad stat tables
+--echo #
+
+set use_stat_tables='preferably';
+call mtr.add_suppression("Column count of mysql.table_stats is wrong. Expected 3, found 1. The table is probably corrupted");
+
+rename table mysql.table_stats to test.table_stats;
+flush tables;
+create table t1 (a int);
+--error ER_NO_SUCH_TABLE
+rename table t1 to t2, t3 to t4;
+drop table t1;
+rename table test.table_stats to mysql.table_stats;
+
+rename table mysql.table_stats to test.table_stats;
+create table mysql.table_stats (a int);
+flush tables;
+create table t1 (a int);
+--error ER_NO_SUCH_TABLE
+rename table t1 to t2, t3 to t4;
+drop table t1, mysql.table_stats;
+rename table test.table_stats to mysql.table_stats;
+
+set use_stat_tables=@save_use_stat_tables;
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo #
+--echo # MDEV-10134 Add full support for DEFAULT
+--echo #
+
+CREATE TABLE t1 (a BLOB, b TEXT DEFAULT DECODE_HISTOGRAM('SINGLE_PREC_HB',a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (0x0000000000000000000000000101010101010101010202020303030304040404050505050606070707080809090A0A0B0C0D0D0E0E0F10111213131415161718191B1C1E202224292A2E33373B4850575F6A76818C9AA7B9C4CFDADFE5EBF0F4F8FAFCFF);
+SELECT b FROM t1;
+DROP TABLE t1;
+
+--echo #
+--echo # End of 10.2 tests
+--echo #

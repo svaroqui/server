@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2011, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2015, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -47,26 +47,13 @@ struct os_mutex_t{
 				do not assume that the OS mutex
 				supports recursive locking, though
 				NT seems to do that */
-	UT_LIST_NODE_T(os_mutex_t) os_mutex_list;
-				/* list of all 'slow' OS mutexes created */
 };
 
-/** Mutex protecting counts and the lists of OS mutexes and events */
-UNIV_INTERN os_ib_mutex_t	os_sync_mutex;
-/** TRUE if os_sync_mutex has been initialized */
-static ibool		os_sync_mutex_inited	= FALSE;
-/** TRUE when os_sync_free() is being executed */
-static ibool		os_sync_free_called	= FALSE;
+// All the os_*_count variables are accessed atomically
 
 /** This is incremented by 1 in os_thread_create and decremented by 1 in
-os_thread_exit */
+os_thread_exit. */
 UNIV_INTERN ulint	os_thread_count		= 0;
-
-/** The list of all events created */
-static UT_LIST_BASE_NODE_T(os_event)		os_event_list;
-
-/** The list of all OS 'slow' mutexes */
-static UT_LIST_BASE_NODE_T(os_mutex_t)		os_mutex_list;
 
 UNIV_INTERN ulint	os_event_count		= 0;
 UNIV_INTERN ulint	os_mutex_count		= 0;
@@ -80,37 +67,6 @@ UNIV_INTERN mysql_pfs_key_t	event_os_mutex_key;
 UNIV_INTERN mysql_pfs_key_t	os_mutex_key;
 #endif
 
-/* Because a mutex is embedded inside an event and there is an
-event embedded inside a mutex, on free, this generates a recursive call.
-This version of the free event function doesn't acquire the global lock */
-static void os_event_free_internal(os_event_t	event);
-
-/* On Windows (Vista and later), load function pointers for condition
-variable handling. Those functions are not available in prior versions,
-so we have to use them via runtime loading, as long as we support XP. */
-static void os_cond_module_init(void);
-
-#ifdef __WIN__
-/* Prototypes and function pointers for condition variable functions */
-typedef VOID (WINAPI* InitializeConditionVariableProc)
-	     (PCONDITION_VARIABLE ConditionVariable);
-static InitializeConditionVariableProc initialize_condition_variable;
-
-typedef BOOL (WINAPI* SleepConditionVariableCSProc)
-	     (PCONDITION_VARIABLE ConditionVariable,
-	      PCRITICAL_SECTION CriticalSection,
-	      DWORD dwMilliseconds);
-static SleepConditionVariableCSProc sleep_condition_variable;
-
-typedef VOID (WINAPI* WakeAllConditionVariableProc)
-	     (PCONDITION_VARIABLE ConditionVariable);
-static WakeAllConditionVariableProc wake_all_condition_variable;
-
-typedef VOID (WINAPI* WakeConditionVariableProc)
-	     (PCONDITION_VARIABLE ConditionVariable);
-static WakeConditionVariableProc wake_condition_variable;
-#endif
-
 /*********************************************************//**
 Initialitze condition variable */
 UNIV_INLINE
@@ -122,8 +78,7 @@ os_cond_init(
 	ut_a(cond);
 
 #ifdef __WIN__
-	ut_a(initialize_condition_variable != NULL);
-	initialize_condition_variable(cond);
+	InitializeConditionVariable(cond);
 #else
 	ut_a(pthread_cond_init(cond, NULL) == 0);
 #endif
@@ -151,9 +106,8 @@ os_cond_wait_timed(
 	BOOL	ret;
 	DWORD	err;
 
-	ut_a(sleep_condition_variable != NULL);
 
-	ret = sleep_condition_variable(cond, mutex, time_in_ms);
+	ret = SleepConditionVariableCS(cond, mutex, time_in_ms);
 
 	if (!ret) {
 		err = GetLastError();
@@ -208,8 +162,7 @@ os_cond_wait(
 	ut_a(mutex);
 
 #ifdef __WIN__
-	ut_a(sleep_condition_variable != NULL);
-	ut_a(sleep_condition_variable(cond, mutex, INFINITE));
+	ut_a(SleepConditionVariableCS(cond, mutex, INFINITE));
 #else
 	ut_a(pthread_cond_wait(cond, mutex) == 0);
 #endif
@@ -226,28 +179,9 @@ os_cond_broadcast(
 	ut_a(cond);
 
 #ifdef __WIN__
-	ut_a(wake_all_condition_variable != NULL);
-	wake_all_condition_variable(cond);
+	WakeAllConditionVariable(cond);
 #else
 	ut_a(pthread_cond_broadcast(cond) == 0);
-#endif
-}
-
-/*********************************************************//**
-Wakes one thread waiting for condition variable */
-UNIV_INLINE
-void
-os_cond_signal(
-/*==========*/
-	os_cond_t*	cond)	/*!< in: condition variable. */
-{
-	ut_a(cond);
-
-#ifdef __WIN__
-	ut_a(wake_condition_variable != NULL);
-	wake_condition_variable(cond);
-#else
-	ut_a(pthread_cond_signal(cond) == 0);
 #endif
 }
 
@@ -267,95 +201,33 @@ os_cond_destroy(
 }
 
 /*********************************************************//**
-On Windows (Vista and later), load function pointers for condition variable
-handling. Those functions are not available in prior versions, so we have to
-use them via runtime loading, as long as we support XP. */
-static
-void
-os_cond_module_init(void)
-/*=====================*/
-{
-#ifdef __WIN__
-	HMODULE		h_dll;
-
-	if (!srv_use_native_conditions)
-		return;
-
-	h_dll = GetModuleHandle("kernel32");
-
-	initialize_condition_variable = (InitializeConditionVariableProc)
-			 GetProcAddress(h_dll, "InitializeConditionVariable");
-	sleep_condition_variable = (SleepConditionVariableCSProc)
-			  GetProcAddress(h_dll, "SleepConditionVariableCS");
-	wake_all_condition_variable = (WakeAllConditionVariableProc)
-			     GetProcAddress(h_dll, "WakeAllConditionVariable");
-	wake_condition_variable = (WakeConditionVariableProc)
-			 GetProcAddress(h_dll, "WakeConditionVariable");
-
-	/* When using native condition variables, check function pointers */
-	ut_a(initialize_condition_variable);
-	ut_a(sleep_condition_variable);
-	ut_a(wake_all_condition_variable);
-	ut_a(wake_condition_variable);
-#endif
-}
-
-/*********************************************************//**
 Initializes global event and OS 'slow' mutex lists. */
 UNIV_INTERN
 void
 os_sync_init(void)
 /*==============*/
 {
-	UT_LIST_INIT(os_event_list);
-	UT_LIST_INIT(os_mutex_list);
-
-	os_sync_mutex = NULL;
-	os_sync_mutex_inited = FALSE;
-
-	/* Now for Windows only */
-	os_cond_module_init();
-
-	os_sync_mutex = os_mutex_create();
-
-	os_sync_mutex_inited = TRUE;
 }
 
-/*********************************************************//**
-Frees created events and OS 'slow' mutexes. */
+/** Create an event semaphore, i.e., a semaphore which may just have two
+states: signaled and nonsignaled. The created event is manual reset: it must be
+reset explicitly by calling sync_os_reset_event.
+@param[in,out]	event	memory block where to create the event */
 UNIV_INTERN
 void
-os_sync_free(void)
-/*==============*/
+os_event_create(os_event_t event)
 {
-	os_event_t	event;
-	os_ib_mutex_t	mutex;
+#ifndef PFS_SKIP_EVENT_MUTEX
+	os_fast_mutex_init(event_os_mutex_key, &event->os_mutex);
+#else
+	os_fast_mutex_init(PFS_NOT_INSTRUMENTED, &event->os_mutex);
+#endif
 
-	os_sync_free_called = TRUE;
-	event = UT_LIST_GET_FIRST(os_event_list);
+	os_cond_init(&(event->cond_var));
 
-	while (event) {
+		event->init_count_and_set();
 
-		os_event_free(event);
-
-		event = UT_LIST_GET_FIRST(os_event_list);
-	}
-
-	mutex = UT_LIST_GET_FIRST(os_mutex_list);
-
-	while (mutex) {
-		if (mutex == os_sync_mutex) {
-			/* Set the flag to FALSE so that we do not try to
-			reserve os_sync_mutex any more in remaining freeing
-			operations in shutdown */
-			os_sync_mutex_inited = FALSE;
-		}
-
-		os_mutex_free(mutex);
-
-		mutex = UT_LIST_GET_FIRST(os_mutex_list);
-	}
-	os_sync_free_called = FALSE;
+	os_atomic_increment_ulint(&os_event_count, 1);
 }
 
 /*********************************************************//**
@@ -368,59 +240,9 @@ os_event_t
 os_event_create(void)
 /*==================*/
 {
-	os_event_t	event;
+	os_event_t event = static_cast<os_event_t>(ut_malloc(sizeof(*event)));
 
-#ifdef __WIN__
-	if(!srv_use_native_conditions) {
-
-		event = static_cast<os_event_t>(ut_malloc(sizeof(*event)));
-
-		event->handle = CreateEvent(NULL, TRUE, FALSE, NULL);
-		if (!event->handle) {
-			fprintf(stderr,
-				"InnoDB: Could not create a Windows event"
-				" semaphore; Windows error %lu\n",
-				(ulong) GetLastError());
-		}
-	} else /* Windows with condition variables */
-#endif
-	{
-		event = static_cast<os_event_t>(ut_malloc(sizeof *event));
-
-#ifndef PFS_SKIP_EVENT_MUTEX
-		os_fast_mutex_init(event_os_mutex_key, &event->os_mutex);
-#else
-		os_fast_mutex_init(PFS_NOT_INSTRUMENTED, &event->os_mutex);
-#endif
-
-		os_cond_init(&(event->cond_var));
-
-		event->is_set = FALSE;
-
-		/* We return this value in os_event_reset(), which can then be
-		be used to pass to the os_event_wait_low(). The value of zero
-		is reserved in os_event_wait_low() for the case when the
-		caller does not want to pass any signal_count value. To
-		distinguish between the two cases we initialize signal_count
-		to 1 here. */
-		event->signal_count = 1;
-	}
-
-	/* The os_sync_mutex can be NULL because during startup an event
-	can be created [ because it's embedded in the mutex/rwlock ] before
-	this module has been initialized */
-	if (os_sync_mutex != NULL) {
-		os_mutex_enter(os_sync_mutex);
-	}
-
-	/* Put to the list of events */
-	UT_LIST_ADD_FIRST(os_event_list, os_event_list, event);
-
-	os_event_count++;
-
-	if (os_sync_mutex != NULL) {
-		os_mutex_exit(os_sync_mutex);
-	}
+	os_event_create(event);
 
 	return(event);
 }
@@ -436,20 +258,13 @@ os_event_set(
 {
 	ut_a(event);
 
-#ifdef __WIN__
-	if (!srv_use_native_conditions) {
-		ut_a(SetEvent(event->handle));
-		return;
-	}
-#endif
-
 	os_fast_mutex_lock(&(event->os_mutex));
 
-	if (event->is_set) {
+	if (UNIV_UNLIKELY(event->is_set())) {
 		/* Do nothing */
 	} else {
-		event->is_set = TRUE;
-		event->signal_count += 1;
+		event->set();
+		event->inc_signal_count();
 		os_cond_broadcast(&(event->cond_var));
 	}
 
@@ -474,55 +289,17 @@ os_event_reset(
 
 	ut_a(event);
 
-#ifdef __WIN__
-	if(!srv_use_native_conditions) {
-		ut_a(ResetEvent(event->handle));
-		return(0);
-	}
-#endif
-
 	os_fast_mutex_lock(&(event->os_mutex));
 
-	if (!event->is_set) {
+	if (UNIV_UNLIKELY(!event->is_set())) {
 		/* Do nothing */
 	} else {
-		event->is_set = FALSE;
+		event->reset();
 	}
-	ret = event->signal_count;
+	ret = event->signal_count();
 
 	os_fast_mutex_unlock(&(event->os_mutex));
 	return(ret);
-}
-
-/**********************************************************//**
-Frees an event object, without acquiring the global lock. */
-static
-void
-os_event_free_internal(
-/*===================*/
-	os_event_t	event)	/*!< in: event to free */
-{
-#ifdef __WIN__
-	if(!srv_use_native_conditions) {
-		ut_a(event);
-		ut_a(CloseHandle(event->handle));
-	} else
-#endif
-	{
-		ut_a(event);
-
-		/* This is to avoid freeing the mutex twice */
-		os_fast_mutex_free(&(event->os_mutex));
-
-		os_cond_destroy(&(event->cond_var));
-	}
-
-	/* Remove from the list of events */
-	UT_LIST_REMOVE(os_event_list, os_event_list, event);
-
-	os_event_count--;
-
-	ut_free(event);
 }
 
 /**********************************************************//**
@@ -531,31 +308,21 @@ UNIV_INTERN
 void
 os_event_free(
 /*==========*/
-	os_event_t	event)	/*!< in: event to free */
+	os_event_t	event,	/*!< in: event to free */
+	bool		free_memory)/*!< in: if true, deallocate the event
+				    memory block too */
 
 {
 	ut_a(event);
-#ifdef __WIN__
-	if(!srv_use_native_conditions){
-		ut_a(CloseHandle(event->handle));
-	} else /*Windows with condition variables */
-#endif
-	{
-		os_fast_mutex_free(&(event->os_mutex));
 
-		os_cond_destroy(&(event->cond_var));
-	}
+	os_fast_mutex_free(&(event->os_mutex));
 
-	/* Remove from the list of events */
-	os_mutex_enter(os_sync_mutex);
+	os_cond_destroy(&(event->cond_var));
 
-	UT_LIST_REMOVE(os_event_list, os_event_list, event);
+	os_atomic_decrement_ulint(&os_event_count, 1);
 
-	os_event_count--;
-
-	os_mutex_exit(os_sync_mutex);
-
-	ut_free(event);
+	if (free_memory)
+		ut_free(event);
 }
 
 /**********************************************************//**
@@ -584,29 +351,14 @@ os_event_wait_low(
 					returned by previous call of
 					os_event_reset(). */
 {
-#ifdef __WIN__
-	if(!srv_use_native_conditions) {
-		DWORD	err;
-
-		ut_a(event);
-
-		UT_NOT_USED(reset_sig_count);
-
-		/* Specify an infinite wait */
-		err = WaitForSingleObject(event->handle, INFINITE);
-
-		ut_a(err == WAIT_OBJECT_0);
-		return;
-	}
-#endif
 
 	os_fast_mutex_lock(&event->os_mutex);
 
 	if (!reset_sig_count) {
-		reset_sig_count = event->signal_count;
+		reset_sig_count = event->signal_count();
 	}
 
-	while (!event->is_set && event->signal_count == reset_sig_count) {
+	while (!event->is_set() && event->signal_count() == reset_sig_count) {
 		os_cond_wait(&(event->cond_var), &(event->os_mutex));
 
 		/* Solaris manual said that spurious wakeups may occur: we
@@ -637,36 +389,10 @@ os_event_wait_time_low(
 
 #ifdef __WIN__
 	DWORD		time_in_ms;
-
-	if (!srv_use_native_conditions) {
-		DWORD	err;
-
-		ut_a(event);
-
-		if (time_in_usec != OS_SYNC_INFINITE_TIME) {
-			time_in_ms = static_cast<DWORD>(time_in_usec / 1000);
-			err = WaitForSingleObject(event->handle, time_in_ms);
-		} else {
-			err = WaitForSingleObject(event->handle, INFINITE);
-		}
-
-		if (err == WAIT_OBJECT_0) {
-			return(0);
-		} else if ((err == WAIT_TIMEOUT) || (err == ERROR_TIMEOUT)) {
-			return(OS_SYNC_TIME_EXCEEDED);
-		}
-
-		ut_error;
-		/* Dummy value to eliminate compiler warning. */
-		return(42);
+	if (time_in_usec != OS_SYNC_INFINITE_TIME) {
+		time_in_ms = static_cast<DWORD>(time_in_usec / 1000);
 	} else {
-		ut_a(sleep_condition_variable != NULL);
-
-		if (time_in_usec != OS_SYNC_INFINITE_TIME) {
-			time_in_ms = static_cast<DWORD>(time_in_usec / 1000);
-		} else {
-			time_in_ms = INFINITE;
-		}
+		time_in_ms = INFINITE;
 	}
 #else
 	struct timespec	abstime;
@@ -686,7 +412,7 @@ os_event_wait_time_low(
 		tv.tv_usec += time_in_usec;
 
 		if ((ulint) tv.tv_usec >= MICROSECS_IN_A_SECOND) {
-			tv.tv_sec += time_in_usec / MICROSECS_IN_A_SECOND;
+			tv.tv_sec += tv.tv_usec / MICROSECS_IN_A_SECOND;
 			tv.tv_usec %= MICROSECS_IN_A_SECOND;
 		}
 
@@ -704,11 +430,12 @@ os_event_wait_time_low(
 	os_fast_mutex_lock(&event->os_mutex);
 
 	if (!reset_sig_count) {
-		reset_sig_count = event->signal_count;
+		reset_sig_count = event->signal_count();
 	}
 
 	do {
-		if (event->is_set || event->signal_count != reset_sig_count) {
+		if (event->is_set()
+		    || event->signal_count() != reset_sig_count) {
 
 			break;
 		}
@@ -752,18 +479,7 @@ os_mutex_create(void)
 	mutex_str->count = 0;
 	mutex_str->event = os_event_create();
 
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		/* When creating os_sync_mutex itself we cannot reserve it */
-		os_mutex_enter(os_sync_mutex);
-	}
-
-	UT_LIST_ADD_FIRST(os_mutex_list, os_mutex_list, mutex_str);
-
-	os_mutex_count++;
-
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		os_mutex_exit(os_sync_mutex);
-	}
+	os_atomic_increment_ulint(&os_mutex_count, 1);
 
 	return(mutex_str);
 }
@@ -809,21 +525,9 @@ os_mutex_free(
 {
 	ut_a(mutex);
 
-	if (UNIV_LIKELY(!os_sync_free_called)) {
-		os_event_free_internal(mutex->event);
-	}
+	os_event_free(mutex->event);
 
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		os_mutex_enter(os_sync_mutex);
-	}
-
-	UT_LIST_REMOVE(os_mutex_list, os_mutex_list, mutex);
-
-	os_mutex_count--;
-
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		os_mutex_exit(os_sync_mutex);
-	}
+	os_atomic_decrement_ulint(&os_mutex_count, 1);
 
 	os_fast_mutex_free(static_cast<os_fast_mutex_t*>(mutex->handle));
 	ut_free(mutex->handle);
@@ -845,18 +549,7 @@ os_fast_mutex_init_func(
 #else
 	ut_a(0 == pthread_mutex_init(fast_mutex, MY_MUTEX_INIT_FAST));
 #endif
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		/* When creating os_sync_mutex itself (in Unix) we cannot
-		reserve it */
-
-		os_mutex_enter(os_sync_mutex);
-	}
-
-	os_fast_mutex_count++;
-
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		os_mutex_exit(os_sync_mutex);
-	}
+	os_atomic_increment_ulint(&os_fast_mutex_count, 1);
 }
 
 /**********************************************************//**
@@ -890,6 +583,25 @@ os_fast_mutex_unlock_func(
 }
 
 /**********************************************************//**
+Releases ownership of a fast mutex. Implies a full memory barrier even on
+platforms such as PowerPC where this is not normally required. */
+UNIV_INTERN
+void
+os_fast_mutex_unlock_full_barrier(
+/*=================*/
+	os_fast_mutex_t*	fast_mutex)	/*!< in: mutex to release */
+{
+#ifdef __WIN__
+	LeaveCriticalSection(&fast_mutex->mutex);
+#else
+	pthread_mutex_unlock(&fast_mutex->mutex);
+#ifdef __powerpc__
+	os_mb;
+#endif
+#endif
+}
+
+/**********************************************************//**
 Frees a mutex object. */
 UNIV_INTERN
 void
@@ -918,17 +630,6 @@ os_fast_mutex_free_func(
 		putc('\n', stderr);
 	}
 #endif
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		/* When freeing the last mutexes, we have
-		already freed os_sync_mutex */
 
-		os_mutex_enter(os_sync_mutex);
-	}
-
-	ut_ad(os_fast_mutex_count > 0);
-	os_fast_mutex_count--;
-
-	if (UNIV_LIKELY(os_sync_mutex_inited)) {
-		os_mutex_exit(os_sync_mutex);
-	}
+	os_atomic_decrement_ulint(&os_fast_mutex_count, 1);
 }

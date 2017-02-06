@@ -5,7 +5,7 @@
 /*                                                                     */
 /* COPYRIGHT:                                                          */
 /* ----------                                                          */
-/*  (C) Copyright to the author Olivier BERTRAND          2005-2014    */
+/*  (C) Copyright to the author Olivier BERTRAND          2005-2015    */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -17,12 +17,12 @@
 /*  Include relevant sections of the System header files.              */
 /***********************************************************************/
 #include "my_global.h"
-#if defined(WIN32)
+#if defined(__WIN__)
 #if defined(__BORLANDC__)
 #define __MFC_COMPAT__                   // To define min/max as macro
 #endif   // __BORLANDC__
 //#include <windows.h>
-#else    // !WIN32
+#else    // !__WIN__
 #if defined(UNIX)
 #include <errno.h>
 #include <unistd.h>
@@ -30,7 +30,7 @@
 #include <io.h>
 #endif  // !UNIX
 #include <fcntl.h>
-#endif  // !WIN32
+#endif  // !__WIN__
 
 /***********************************************************************/
 /*  Include application header files:                                  */
@@ -45,8 +45,6 @@
 #include "maputil.h"
 #include "filamap.h"
 #include "tabdos.h"
-
-extern "C" int  trace;
 
 /* --------------------------- Class MAPFAM -------------------------- */
 
@@ -193,11 +191,11 @@ bool MAPFAM::OpenTableFile(PGLOBAL g)
       return true;
       } // endif Memory
 
-#if defined(WIN32)
+#if defined(__WIN__)
     if (mode != MODE_DELETE) {
-#else   // !WIN32
+#else   // !__WIN__
     if (mode == MODE_READ) {
-#endif  // !WIN32
+#endif  // !__WIN__
       CloseFileHandle(hFile);                    // Not used anymore
       hFile = INVALID_HANDLE_VALUE;              // For Fblock
       } // endif Mode
@@ -209,8 +207,7 @@ bool MAPFAM::OpenTableFile(PGLOBAL g)
     /*******************************************************************/
     fp = (PFBLOCK)PlugSubAlloc(g, NULL, sizeof(FBLOCK));
     fp->Type = TYPE_FB_MAP;
-    fp->Fname = (char*)PlugSubAlloc(g, NULL, strlen(filename) + 1);
-    strcpy((char*)fp->Fname, filename);
+    fp->Fname = PlugDup(g, filename);
     fp->Next = dbuserp->Openlist;
     dbuserp->Openlist = fp;
     fp->Count = 1;
@@ -279,7 +276,7 @@ bool MAPFAM::SetPos(PGLOBAL g, int pos)
 /***********************************************************************/
 /*  Record file position in case of UPDATE or DELETE.                  */
 /***********************************************************************/
-bool MAPFAM::RecordPos(PGLOBAL g)
+bool MAPFAM::RecordPos(PGLOBAL)
   {
   Fpos = Mempos;
   return false;
@@ -288,10 +285,10 @@ bool MAPFAM::RecordPos(PGLOBAL g)
 /***********************************************************************/
 /*  Initialize Fpos and Mempos for indexed DELETE.                     */
 /***********************************************************************/
-int MAPFAM::InitDelete(PGLOBAL g, int fpos, int spos)
+int MAPFAM::InitDelete(PGLOBAL, int fpos, int spos)
   {
-  Fpos = Memory + fpos;
-  Mempos = Memory + spos;
+  Fpos = Memory + (ptrdiff_t)fpos;
+  Mempos = Memory + (ptrdiff_t)spos;
   return RC_OK;
   } // end of InitDelete
 
@@ -360,7 +357,12 @@ int MAPFAM::ReadBuffer(PGLOBAL g)
   while (*Mempos++ != '\n') ;        // What about Unix ???
 
   // Set caller line buffer
-  len = (Mempos - Fpos) - Ending;
+  len = (Mempos - Fpos) - 1;
+
+  // Don't rely on ENDING setting
+  if (len > 0 && *(Mempos - 2) == '\r')
+    len--;             // Line ends by CRLF
+
   memcpy(Tdbp->GetLine(), Fpos, len);
   Tdbp->GetLine()[len] = '\0';
   return RC_OK;
@@ -369,7 +371,7 @@ int MAPFAM::ReadBuffer(PGLOBAL g)
 /***********************************************************************/
 /*  WriteBuffer: File write routine for MAP access method.             */
 /***********************************************************************/
-int MAPFAM::WriteBuffer(PGLOBAL g)
+int MAPFAM::WriteBuffer(PGLOBAL g __attribute__((unused)))
   {
 #if defined(_DEBUG)
   // Insert mode is no more handled using file mapping
@@ -411,7 +413,7 @@ int MAPFAM::DeleteRecords(PGLOBAL g, int irc)
 
   if (Tpos == Spos) {
     /*******************************************************************/
-    /*  First line to delete. Move of eventual preceeding lines is     */
+    /*  First line to delete. Move of eventual preceding lines is     */
     /*  not required here, just setting of future Spos and Tpos.       */
     /*******************************************************************/
     Tpos = Spos = Fpos;
@@ -450,7 +452,7 @@ int MAPFAM::DeleteRecords(PGLOBAL g, int irc)
       /*****************************************************************/
       n = Tpos - Memory;
 
-#if defined(WIN32)
+#if defined(__WIN__)
       DWORD drc = SetFilePointer(fp->Handle, n, NULL, FILE_BEGIN);
 
       if (drc == 0xFFFFFFFF) {
@@ -480,7 +482,7 @@ int MAPFAM::DeleteRecords(PGLOBAL g, int irc)
 #endif   // UNIX
     } // endif Abort
 
-#if defined(WIN32)
+#if defined(__WIN__)
   CloseHandle(fp->Handle);
 #else    // UNIX
   close(fp->Handle);
@@ -493,7 +495,7 @@ int MAPFAM::DeleteRecords(PGLOBAL g, int irc)
 /***********************************************************************/
 /*  Table file close routine for MAP access method.                    */
 /***********************************************************************/
-void MAPFAM::CloseTableFile(PGLOBAL g, bool abort)
+void MAPFAM::CloseTableFile(PGLOBAL g, bool)
   {
   PlugCloseFile(g, To_Fb);
   To_Fb = NULL;              // To get correct file size in Cardinality
@@ -549,7 +551,7 @@ int MBKFAM::Cardinality(PGLOBAL g)
 /***********************************************************************/
 /*  Skip one record in file.                                           */
 /***********************************************************************/
-int MBKFAM::SkipRecord(PGLOBAL g, bool header)
+int MBKFAM::SkipRecord(PGLOBAL, bool)
   {
   return RC_OK;
   } // end of SkipRecord
@@ -683,9 +685,9 @@ bool MPXFAM::SetPos(PGLOBAL g, int pos)
 /***********************************************************************/
 /*  Initialize CurBlk, CurNum, Mempos and Fpos for indexed DELETE.     */
 /***********************************************************************/
-int MPXFAM::InitDelete(PGLOBAL g, int fpos, int spos)
+int MPXFAM::InitDelete(PGLOBAL, int fpos, int)
   {
-  Fpos = Memory + Headlen + fpos * Lrecl;
+  Fpos = Memory + Headlen + (ptrdiff_t)fpos * Lrecl;
   Mempos = Fpos + Lrecl;
   return RC_OK;
   } // end of InitDelete
@@ -738,7 +740,7 @@ int MPXFAM::ReadBuffer(PGLOBAL g)
 /***********************************************************************/
 /*  WriteBuffer: File write routine for MAP access method.             */
 /***********************************************************************/
-int MPXFAM::WriteBuffer(PGLOBAL g)
+int MPXFAM::WriteBuffer(PGLOBAL g __attribute__((unused)))
   {
 #if defined(_DEBUG)
   // Insert mode is no more handled using file mapping

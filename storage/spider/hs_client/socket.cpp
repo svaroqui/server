@@ -7,6 +7,7 @@
  * See COPYRIGHT.txt for details.
  */
 
+#include <my_global.h>
 #ifndef __WIN__
 #include <sys/types.h>
 #include <sys/un.h>
@@ -66,7 +67,7 @@ socket_args::set(const config& conf)
         message.append(node);
         message.q_append(":", sizeof(":") - 1);
         message.append(port);
-        fatal_exit(message);
+        fatal_abort(message);
       }
     }
   }

@@ -22,7 +22,8 @@
 #include "my_sys.h"                    /* alloc_root, TRASH, MY_WME,
                                           MY_FAE, MY_ALLOW_ZERO_PTR */
 #include "m_string.h"                           /* bfill */
-#include "thr_malloc.h"                         /* sql_alloc */
+
+THD *thd_get_current_thd();
 
 /* mysql standard class memory allocator */
 
@@ -31,11 +32,11 @@ class Sql_alloc
 public:
   static void *operator new(size_t size) throw ()
   {
-    return sql_alloc(size);
+    return thd_alloc(thd_get_current_thd(), size);
   }
   static void *operator new[](size_t size) throw ()
   {
-    return sql_alloc(size);
+    return thd_alloc(thd_get_current_thd(), size);
   }
   static void *operator new[](size_t size, MEM_ROOT *mem_root) throw ()
   { return alloc_root(mem_root, size); }
@@ -48,8 +49,8 @@ public:
   { /* never called */ }
   static void operator delete[](void *ptr, size_t size) { TRASH(ptr, size); }
 #ifdef HAVE_valgrind
-  bool dummy;
-  inline Sql_alloc() :dummy(0) {}
+  bool dummy_for_valgrind;
+  inline Sql_alloc() :dummy_for_valgrind(0) {}
   inline ~Sql_alloc() {}
 #else
   inline Sql_alloc() {}
@@ -221,19 +222,22 @@ public:
     }
     return 1;
   }
-  inline bool push_front(void *info)
+  bool push_front_impl(list_node *node)
   {
-    list_node *node=new list_node(info,first);
     if (node)
     {
       if (last == &first)
-	last= &node->next;
+        last= &node->next;
       first=node;
       elements++;
       return 0;
     }
     return 1;
   }
+  inline bool push_front(void *info)
+  { return push_front_impl(new list_node(info, first)); }
+  inline bool push_front(void *info, MEM_ROOT *mem_root)
+  { return push_front_impl(new (mem_root) list_node(info,first)); }
   void remove(list_node **prev)
   {
     list_node *node=(*prev)->next;
@@ -447,6 +451,11 @@ public:
     el= &current->next;
     return current->info;
   }
+  /* Get what calling next() would return, without moving the iterator */
+  inline void *peek()
+  {
+    return (*el)->info;
+  }
   inline void *next_fast(void)
   {
     list_node *tmp;
@@ -499,6 +508,10 @@ public:
   {
     return el == &list->last_ref()->next;
   }
+  inline bool at_end()
+  {
+    return current == &end_of_list;
+  }
   friend class error_list_iterator;
 };
 
@@ -513,6 +526,8 @@ public:
   inline bool push_back(T *a, MEM_ROOT *mem_root)
   { return base_list::push_back(a, mem_root); }
   inline bool push_front(T *a) { return base_list::push_front(a); }
+  inline bool push_front(T *a, MEM_ROOT *mem_root)
+  { return base_list::push_front(a, mem_root); }
   inline T* head() {return (T*) base_list::head(); }
   inline T** head_ref() {return (T**) base_list::head_ref(); }
   inline T* pop()  {return (T*) base_list::pop(); }
@@ -544,6 +559,7 @@ public:
   List_iterator() : base_list_iterator() {}
   inline void init(List<T> &a) { base_list_iterator::init(a); }
   inline T* operator++(int) { return (T*) base_list_iterator::next(); }
+  inline T* peek() { return (T*) base_list_iterator::peek(); }
   inline T *replace(T *a)   { return (T*) base_list_iterator::replace(a); }
   inline T *replace(List<T> &a) { return (T*) base_list_iterator::replace(a); }
   inline void rewind(void)  { base_list_iterator::rewind(); }
@@ -601,7 +617,7 @@ inline void bubble_sort(List<T> *list_to_sort,
     swap= FALSE;
     while ((item2= it++) && (ref2= it.ref()) != last_ref)
     {
-      if (sort_func(item1, item2, arg) < 0)
+      if (sort_func(item1, item2, arg) > 0)
       {
         *ref1= item2;
         *ref2= item1;
@@ -643,6 +659,10 @@ struct ilink
     if (prev) *prev= next;
     if (next) next->prev=prev;
     prev=0 ; next=0;
+  }
+  inline void assert_linked()
+  {
+    DBUG_ASSERT(prev != 0 && next != 0);
   }
   virtual ~ilink() { unlink(); }		/*lint -e1740 */
 };

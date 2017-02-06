@@ -1,4 +1,4 @@
-/* Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2001, 2016, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -163,7 +163,7 @@ static int FTB_WORD_cmp_list(CHARSET_INFO *cs, FTB_WORD **a, FTB_WORD **b)
 {
   /* ORDER BY word, ndepth */
   int i= ha_compare_text(cs, (uchar*) (*a)->word + 1, (*a)->len - 1,
-                             (uchar*) (*b)->word + 1, (*b)->len - 1, 0, 0);
+                             (uchar*) (*b)->word + 1, (*b)->len - 1, 0);
   if (!i)
     i= CMP_NUM((*a)->ndepth, (*b)->ndepth);
   return i;
@@ -195,11 +195,7 @@ static int ftb_query_add_word(MYSQL_FTPARSER_PARAM *param,
   switch (info->type) {
     case FT_TOKEN_WORD:
       ftbw= (FTB_WORD *)alloc_root(&ftb_param->ftb->mem_root,
-                                   sizeof(FTB_WORD) +
-                                   (info->trunc ? HA_MAX_KEY_BUFF :
-                                    word_len * ftb_param->ftb->charset->mbmaxlen +
-                                    HA_FT_WLEN +
-                                    ftb_param->ftb->info->s->rec_reflength));
+                                   sizeof(FTB_WORD) + HA_MAX_KEY_BUFF);
       ftbw->len= word_len + 1;
       ftbw->flags= 0;
       ftbw->off= 0;
@@ -416,7 +412,7 @@ static int _ft2_search_no_lock(FTB *ftb, FTB_WORD *ftbw, my_bool init_search)
                        info->lastkey_length-extra-1,
               (uchar*) ftbw->word+1,
                        ftbw->len-1,
-             (my_bool) (ftbw->flags & FTB_FLAG_TRUNC),0);
+             (my_bool) (ftbw->flags & FTB_FLAG_TRUNC));
   }
 
   if (r) /* not found */
@@ -913,7 +909,7 @@ static int ftb_find_relevance_add_word(MYSQL_FTPARSER_PARAM *param,
     ftbw= ftb->list[c];
     if (ha_compare_text(ftb->charset, (uchar*)word, len,
                         (uchar*)ftbw->word+1, ftbw->len-1,
-                        (my_bool) (ftbw->flags & FTB_FLAG_TRUNC), 0) < 0)
+                        (my_bool) (ftbw->flags & FTB_FLAG_TRUNC)) < 0)
       b= c;
     else
       a= c;
@@ -940,7 +936,7 @@ static int ftb_find_relevance_add_word(MYSQL_FTPARSER_PARAM *param,
     ftbw= ftb->list[c];
     if (ha_compare_text(ftb->charset, (uchar*)word, len,
                         (uchar*)ftbw->word + 1,ftbw->len - 1,
-                        (my_bool)(ftbw->flags & FTB_FLAG_TRUNC), 0))
+                        (my_bool)(ftbw->flags & FTB_FLAG_TRUNC)))
     {
       if (ftb->with_scan & FTB_FLAG_TRUNC)
         continue;

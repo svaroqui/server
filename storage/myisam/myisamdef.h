@@ -199,6 +199,7 @@ typedef struct st_mi_isam_share
   ulong max_pack_length;
   ulong state_diff_length;
   uint	rec_reflength;			/* rec_reflength in use now */
+  ulong vreclength;                     /* full reclength, including vcols */
   uint  unique_name_length;
   uint32 ftkeys;                        /* Number of full-text keys + 1 */
   File	kfile;				/* Shared keyfile */
@@ -307,7 +308,7 @@ struct st_myisam_info
   int rtree_recursion_depth;
 };
 
-#define USE_WHOLE_KEY   HA_MAX_KEY_BUFF*2 /* Use whole key in _mi_search() */
+#define USE_WHOLE_KEY   (HA_MAX_KEY_BUFF*2) /* Use whole key in _mi_search() */
 #define F_EXTRA_LCK     -1
 /* bits in opt_flag */
 #define MEMMAP_USED     32
@@ -394,7 +395,7 @@ struct st_myisam_info
 #define PACK_TYPE_SELECTED      1       /* Bits in field->pack_type */
 #define PACK_TYPE_SPACE_FIELDS  2
 #define PACK_TYPE_ZERO_FILL     4
-#define MI_FOUND_WRONG_KEY 32738        /* Impossible value from ha_key_cmp */
+#define MI_FOUND_WRONG_KEY 0x7FFFFFFF   /* Impossible value from ha_key_cmp */
 
 #define MI_MAX_KEY_BLOCK_SIZE   (MI_MAX_KEY_BLOCK_LENGTH/MI_MIN_KEY_BLOCK_LENGTH)
 #define MI_BLOCK_SIZE(key_length,data_pointer,key_pointer,block_size) (((((key_length)+(data_pointer)+(key_pointer))*4+(key_pointer)+2)/(block_size)+1)*(block_size))

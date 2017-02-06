@@ -5,10 +5,6 @@
 # Spatial objects
 #
 
---disable_warnings
-DROP TABLE IF EXISTS t1, gis_point, gis_line, gis_polygon, gis_multi_point, gis_multi_line, gis_multi_polygon, gis_geometrycollection, gis_geometry;
---enable_warnings
-
 CREATE TABLE gis_point  (fid INTEGER NOT NULL PRIMARY KEY, g POINT);
 CREATE TABLE gis_line  (fid INTEGER NOT NULL PRIMARY KEY, g LINESTRING);
 CREATE TABLE gis_polygon   (fid INTEGER NOT NULL PRIMARY KEY, g POLYGON);
@@ -1119,33 +1115,27 @@ FROM named_places
 WHERE name = 'Goose Island'; 
 
 --echo # Conformance Item T10 
-# TODO: ST_SRID() alias
 SELECT SRID(boundary) 
 FROM named_places 
 WHERE name = 'Goose Island'; 
 
 --echo # Conformance Item T11 
-# TODO: ST_IsEmpty() alias
 SELECT IsEmpty(centerline) 
 FROM road_segments 
 WHERE name = 'Route 5' 
 AND aliases = 'Main Street'; 
 
-# FIXME: get wrong result:0, expected 1.
-#--echo # Conformance Item T12 
-# TODO: ST_IsSimple() alias
-#SELECT IsSimple(shore) 
-#FROM lakes 
-#WHERE name = 'Blue Lake'; 
+--echo # Conformance Item T12 
+SELECT IsSimple(shore) 
+FROM lakes 
+WHERE name = 'Blue Lake'; 
 
-# TODO: WL#2377
-#--echo # Conformance Item T13 
-#SELECT AsText(Boundary((boundary),101) 
-#FROM named_places 
-#WHERE name = 'Goose Island'; 
+--echo # Conformance Item T13 
+SELECT AsText(ST_Boundary(boundary))
+FROM named_places 
+WHERE name = 'Goose Island'; 
 
 --echo # Conformance Item T14 
-# TODO: ST_Envelope( ) alias
 # FIXME: we get anticlockwise, GIS suggests clockwise
 SELECT AsText(Envelope(boundary)) 
 FROM named_places 
@@ -1170,122 +1160,100 @@ FROM road_segments
 WHERE fid = 102; 
 
 --echo # Conformance Item T18 
-# TODO: ST_EndPoint
 SELECT AsText(EndPoint(centerline)) 
 FROM road_segments 
 WHERE fid = 102; 
 
-# TODO: WL#2377
-#--echo # Conformance Item T19 
-# TODO: ST_LineFromWKB() alias
-#SELECT IsClosed(LineFromWKB(AsBinary(Boundary(boundary)),SRID(boundary))) 
-#FROM named_places 
-#WHERE name = 'Goose Island'; 
+SELECT IsClosed(LineFromWKB(AsBinary(Boundary(boundary)),SRID(boundary))) 
+FROM named_places 
+WHERE name = 'Goose Island'; 
 
-# TODO: WL#2377
-#--echo # Conformance Item T20 
-#SELECT IsRing(LineFromWKB(AsBinary(Boundary(boundary)),SRID(boundary))) 
-#FROM named_places 
-#WHERE name = 'Goose Island'; 
+--echo # Conformance Item T20 
+SELECT IsRing(LineFromWKB(AsBinary(Boundary(boundary)),SRID(boundary))) 
+FROM named_places 
+WHERE name = 'Goose Island'; 
 
 --echo # Conformance Item T21 
-# TODO: ST_Length() alias
 SELECT GLength(centerline) 
 FROM road_segments 
 WHERE fid = 106; 
 
 --echo # Conformance Item T22 
-# TODO: ST_NumPoints() alias
 SELECT NumPoints(centerline) 
 FROM road_segments 
 WHERE fid = 102; 
 
 --echo # Conformance Item T23 
-# TODO: ST_PointN() alias
 SELECT AsText(PointN(centerline, 1)) 
 FROM road_segments 
 WHERE fid = 102; 
 
 --echo # Conformance Item T24 
-# TODO: ST_Centroid() alias
 SELECT AsText(Centroid(boundary)) 
 FROM named_places 
 WHERE name = 'Goose Island'; 
 
-# TODO: WL#2377
-#--echo # Conformance Item T25 
-#SELECT Contains(boundary, PointOnSurface(boundary)) 
-#FROM named_places 
-#WHERE name = 'Goose Island'; 
+SELECT ST_Contains(boundary, PointOnSurface(boundary)) 
+FROM named_places 
+WHERE name = 'Goose Island'; 
 
 --echo # Conformance Item T26 
-# TODO: ST_Area() alias
 SELECT Area(boundary) 
 FROM named_places 
 WHERE name = 'Goose Island'; 
 
 --echo # Conformance Item T27 
-# TODO: ST_ExteriorRing() alias
 SELECT AsText(ExteriorRing(shore)) 
 FROM lakes 
 WHERE name = 'Blue Lake'; 
 
 --echo # Conformance Item T28 
-# TODO: ST_NumInteriorRings() alias
 SELECT NumInteriorRings(shore) 
 FROM lakes 
 WHERE name = 'Blue Lake'; 
 
 --echo # Conformance Item T29 
-# TODO: ST_InteriorRingN() alias
 SELECT AsText(InteriorRingN(shore, 1)) 
 FROM lakes 
 WHERE name = 'Blue Lake'; 
 
 --echo # Conformance Item T30 
-# TODO: ST_NumGeometries() alias
 SELECT NumGeometries(centerlines) 
 FROM divided_routes 
 WHERE name = 'Route 75'; 
 
 --echo # Conformance Item T31 
-# TODO: ST_GeometryN() alias
 SELECT AsText(GeometryN(centerlines, 2)) 
 FROM divided_routes 
 WHERE name = 'Route 75'; 
 
 --echo # Conformance Item T32 
-# TODO: ST_IsClosed() alias
 SELECT IsClosed(centerlines) 
 FROM divided_routes 
 WHERE name = 'Route 75'; 
 
 --echo # Conformance Item T33 
-# TODO: ST_Length() alias
 SELECT GLength(centerlines) 
 FROM divided_routes 
 WHERE name = 'Route 75'; 
 
 --echo # Conformance Item T34 
-# TODO: ST_Centroid() alias
 SELECT AsText(Centroid(shores)) 
 FROM ponds 
 WHERE fid = 120; 
 
 # TODO: WL#2377
-#--echo # Conformance Item T35 
-#SELECT Contains(shores, PointOnSurface(shores)) 
-#FROM ponds 
-#WHERE fid = 120; 
+--echo # Conformance Item T35 
+SELECT Contains(shores, PointOnSurface(shores)) 
+FROM ponds 
+WHERE fid = 120; 
 
 --echo # Conformance Item T36 
-# TODO: ST_Area() alias
 SELECT Area(shores) 
 FROM ponds 
 WHERE fid = 120; 
 
 --echo # Conformance Item T37 
-# TODO: ST_PolyFromText() alias
 SELECT ST_Equals(boundary, 
 PolyFromText('POLYGON( ( 67 13, 67 18, 59 18, 59 13, 67 13) )',1)) 
 FROM named_places 
@@ -1303,22 +1271,19 @@ FROM streams, lakes
 WHERE streams.name = 'Cam Stream' 
 AND lakes.name = 'Blue Lake'; 
 
-# FIXME: wrong result: get 0, expected 1
-#--echo # Conformance Item T40 
-#SELECT ST_Within(boundary, footprint) 
-#FROM named_places, buildings 
-#WHERE named_places.name = 'Ashton' 
-#AND buildings.address = '215 Main Street'; 
+--echo # Conformance Item T40 
+SELECT ST_Within(footprint, boundary) 
+FROM named_places, buildings 
+WHERE named_places.name = 'Ashton' 
+AND buildings.address = '215 Main Street'; 
 
-# FIXME: wrong result: get 0, expected 1
-#--echo # Conformance Item T41 
-#SELECT ST_Overlaps(forests.boundary, named_places.boundary) 
-#FROM forests, named_places 
-#WHERE forests.name = 'Green Forest' 
-#AND named_places.name = 'Ashton'; 
+--echo # Conformance Item T41 
+SELECT ST_Overlaps(forests.boundary, named_places.boundary) 
+FROM forests, named_places 
+WHERE forests.name = 'Green Forest' 
+AND named_places.name = 'Ashton'; 
 
 --echo # Conformance Item T42
-# FIXME: TODO: ST_Crosses() alias
 SELECT Crosses(road_segments.centerline, divided_routes.centerlines)
 FROM road_segments, divided_routes 
 WHERE road_segments.fid = 102 
@@ -1336,12 +1301,11 @@ FROM forests, named_places
 WHERE forests.name = 'Green Forest' 
 AND named_places.name = 'Ashton'; 
 
-# TODO: WL#2377
-#--echo # Conformance Item T45 
-#SELECT Relate(forests.boundary, named_places.boundary, 'TTTTTTTTT') 
-#FROM forests, named_places 
-#WHERE forests.name = 'Green Forest' 
-#AND named_places.name = 'Ashton'; 
+--echo # Conformance Item T45 
+SELECT ST_Relate(forests.boundary, named_places.boundary, 'TTTTTTTTT') 
+FROM forests, named_places 
+WHERE forests.name = 'Green Forest' 
+AND named_places.name = 'Ashton'; 
 
 --echo # Conformance Item T46 
 SELECT ST_Distance(position, boundary) 
@@ -1349,12 +1313,11 @@ FROM bridges, named_places
 WHERE bridges.name = 'Cam Bridge' 
 AND named_places.name = 'Ashton'; 
 
-# FIXME: wrong result: NULL, expected 12
-#--echo # Conformance Item T47 
-#SELECT AsText(ST_Intersection(centerline, shore)) 
-#FROM streams, lakes 
-#WHERE streams.name = 'Cam Stream' 
-#AND lakes.name = 'Blue Lake'; 
+--echo # Conformance Item T47 
+SELECT AsText(ST_Intersection(centerline, shore)) 
+FROM streams, lakes 
+WHERE streams.name = 'Cam Stream' 
+AND lakes.name = 'Blue Lake'; 
 
 --echo # Conformance Item T48 
 SELECT AsText(ST_Difference(named_places.boundary, forests.boundary)) 
@@ -1379,11 +1342,10 @@ SELECT count(*)
 FROM buildings, bridges 
 WHERE ST_Contains(ST_Buffer(bridges.position, 15.0), buildings.footprint) = 1; 
 
-# TODO: WL#2377
-#--echo # Conformance Item T52 
-#SELECT AsText(ConvexHull(shore)) 
-#FROM lakes 
-#WHERE lakes.name = 'Blue Lake'; 
+--echo # Conformance Item T52 
+SELECT AsText(ConvexHull(shore)) 
+FROM lakes 
+WHERE lakes.name = 'Blue Lake'; 
 
 DROP DATABASE gis_ogs;
 USE test;
@@ -1411,7 +1373,13 @@ insert into t1 values(geomfromtext("POINT(0 0)"));
 insert into t1 values(geomfromtext("POINT(0 9.2233720368548e18)"));
 insert into t1 values(geomfromtext("POINT(0 9.2233720368548e18)"));
 select equals(`a`,convert(`a` using utf8)) from `t1`;
+select equals(`a`,left(`a`,23)) from `t1`;
 drop table t1;
+
+--echo #
+--echo # MDEV-6883 ST_WITHIN crashes server if (0,0) is matched to POLYGON((0 0))
+--echo #
+select st_within(GeomFromText('Polygon((0 0))'), Point(0,0));
 
 --echo End of 5.3 tests
 
@@ -1472,4 +1440,282 @@ create table t1 (pt point);
 insert into t1 values(Geomfromtext('POLYGON((1 1, 2 2, 2 1, 1 1))'));
 drop table t1;
 
+#
+# MDEV-7516 Assertion `!cur_p->event' failed in Gcalc_scan_iterator::arrange_event(int, int)
+#
+SELECT st_astext(ST_Buffer(ST_PolygonFromText('POLYGON((3 5, 2 4, 2 5, 3 5))'), -100));
+
+#
+# MDEV-7779 View definition changes upon creation
+#
+CREATE VIEW v1 AS SELECT POINT(1,1) AS p;
+SHOW CREATE VIEW v1;
+SELECT ASTEXT(p) FROM v1;
+DROP VIEW v1;
+
 --echo End of 5.5 tests
+
+SHOW CREATE TABLE information_schema.geometry_columns;
+SHOW CREATE TABLE information_schema.spatial_ref_sys;
+
+create table t1(g GEOMETRY, pt POINT);
+create table t2(g LINESTRING, pl POLYGON);
+select * from information_schema.geometry_columns;
+drop table t1, t2;
+
+--echo 10.1 tests
+create table t1(g GEOMETRY(9,4) REF_SYSTEM_ID=101, pt POINT(8,2), pg GEOMETRY REF_SYSTEM_ID=102);
+SELECT SRID from information_schema.geometry_columns WHERE G_TABLE_NAME='t1';
+drop table t1;
+
+-- echo # Expect an int(1) column to be created
+CREATE TABLE t1 AS SELECT CONTAINS(NULL, NULL);
+SHOW CREATE TABLE t1;
+DROP TABLE t1;
+
+
+--echo #
+--echo # MDEV-7334 valgrind warning "unitialized bytes" in 10.1.
+--echo #
+CREATE TABLE t1 (
+  gp  point,
+  ln  linestring,
+  pg  polygon,
+  mp  multipoint,
+  mln multilinestring,
+  mpg multipolygon,
+  gc  geometrycollection,
+  gm  geometry
+);
+ALTER TABLE t1 ADD fid INT NOT NULL;
+select SRID from information_schema.geometry_columns where F_TABLE_NAME='t1';
+drop table t1;
+
+--echo #
+--echo # MDEV-7510 GIS: IsRing returns false for a primitive triangle.
+--echo #
+select ST_IsRing(ST_LineFromText('LINESTRING(0 0,0 10,10 10,0 0)'));
+select ST_IsRing(ST_LineFromText('LINESTRING(0 0,0 10,10 10,-10 -10, 0 -10, 0 0)'));
+
+--echo #
+--echo # MDEV-7514 GIS: PointOnSurface returns NULL instead of the point.
+--echo #
+SELECT ST_GEOMETRYTYPE(ST_PointOnSurface(ST_PolyFromText('POLYGON((-70.916 42.1002,-70.9468 42.0946,-70.9754 42.0875,-70.9749 42.0879,-70.9759 42.0897,-70.916 42.1002))')));
+
+--echo #
+--echo # MDEV-7529 GIS: ST_Relate returns unexpected results for POINT relations
+--echo #
+select ST_Relate(ST_PointFromText('POINT(0 0)'),ST_PointFromText('POINT(0 0)'),'T*F**FFF*') AS equals;
+select ST_Relate(ST_PointFromText('POINT(0 0)'),ST_PointFromText('POINT(0 0)'),'T*****FF*') AS contains;
+select ST_Relate(ST_PointFromText('POINT(0 0)'),ST_PointFromText('POINT(0 0)'),'T*F**F***') AS within;
+select ST_Relate(ST_PointFromText('POINT(0 0)'),ST_PointFromText('POINT(1 1)'),'FF*FF****') as disjoint;
+select ST_Relate(ST_PointFromText('POINT(0 0)'),ST_PointFromText('POINT(0 0)'),'FF*FF****') as disjoint;
+
+
+--echo #
+--echo # MDEV-7528 GIS: Functions return NULL instead of specified -1 for NULL arguments.
+--echo #
+
+select ST_IsRing(NULL);
+
+--echo #
+--echo # MDEV-8675 Different results of GIS functions on NULL vs NOT NULL columns
+--echo #
+CREATE TABLE t1 (g1 GEOMETRY NOT NULL,g2 GEOMETRY NULL);
+CREATE TABLE t2 AS SELECT WITHIN(g1,g1) as w1,WITHIN(g2,g2) AS w2 FROM t1;
+SHOW CREATE TABLE t2;
+DROP TABLE t1,t2;
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+#
+# Item_func_spatial_collection::print()
+#
+create view v1 as select AsWKT(GeometryCollection(Point(44, 6), LineString(Point(3, 6), Point(7, 9))));
+show create view v1;
+select * from v1;
+drop view v1;
+
+--echo #
+--echo # MDEV-10134 Add full support for DEFAULT
+--echo #
+
+CREATE TABLE t1 (a POINT, x DOUBLE DEFAULT x(a), y DOUBLE DEFAULT y(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (Point(1,2));
+SELECT x,y FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (g GEOMETRY, area DOUBLE DEFAULT ST_AREA(g));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (g) VALUES (GeomFromText('POLYGON((0 0,20 0,20 20,0 20,0 0))'));
+SELECT area FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (g GEOMETRY, length DOUBLE DEFAULT ST_LENGTH(g));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (g) VALUES (GeomFromText('LINESTRING(0 0,20 0,20 20,0 20,0 0)'));
+SELECT length FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (g POINT, distance DOUBLE DEFAULT ST_DISTANCE(g, POINT(0,0)));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (g) VALUES (Point(1,0));
+SELECT distance FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a TEXT, g GEOMETRY DEFAULT GeomFromText(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES ('point(1 1)');
+SELECT AsText(g) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (x INT, y INT, g GEOMETRY DEFAULT POINT(x,y));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (x,y) VALUES (10,20);
+SELECT AsText(g) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT PointN(a,2));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('LineString(1 1,2 2,3 3)'));
+SELECT AsText(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT StartPoint(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('LineString(1 1,2 2,3 3)'));
+SELECT AsText(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY, c GEOMETRY DEFAULT GeometryCollection(a,b));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a,b) VALUES (Point(1,1), Point(2,2));
+SELECT AsText(c) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT GeomFromWKB(AsBinary(a),20));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('POINT(1 1)', 10));
+SELECT AsText(a), SRID(a), AsText(b), SRID(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT BOUNDARY(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('POLYGON((10 10, 10 20, 20 20, 20 10, 10 10))'));
+SELECT AsText(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT BUFFER(a,10));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('POLYGON((10 10, 10 20, 20 20, 20 10, 10 10))'));
+SELECT GeometryType(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT CENTROID(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('POLYGON((10 10, 10 20, 20 20, 20 10, 10 10))'));
+SELECT AsText(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT ENVELOPE(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('LineString(1 1,4 4)'));
+SELECT AsText(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT PointOnSurface(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('POLYGON((10 10, 10 20, 20 20, 20 10, 10 10))'));
+SELECT GeometryType(b) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY DEFAULT Point(1,1), c GEOMETRY DEFAULT ST_UNION(a,b));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (Point(0,0));
+SELECT AsText(c) FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b VARCHAR(20) DEFAULT GeometryType(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (Point(0, 0));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT IsSimple(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (Point(0, 0));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT IsEmpty(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (Point(0, 0));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT IsRing(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('LineString(0 0,0 1,1 1,1 0,0 0)'));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT IsClosed(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('LineString(0 0,0 1,1 1,1 0,0 0)'));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT Dimension(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (Buffer(Point(1,1),1));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT NumGeometries(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (ST_UNION(Point(1,1),Point(0,0)));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT NumInteriorRings(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('Polygon((0 0,0 3,3 3,3 0,0 0),(1 1,1 2,2 2,2 1,1 1))'));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT NumPoints(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (LineString(Point(1,1),Point(0,0)));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b INT DEFAULT SRID(a));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (GeomFromText('Point(1 1)', 100));
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY, c INT DEFAULT MBRDisjoint(a,b));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a,b) VALUES (Point(1,1),Point(1,1));
+SELECT c FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY, c INT DEFAULT ST_Disjoint(a,b));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a,b) VALUES (Point(1,1),Point(1,1));
+SELECT c FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a GEOMETRY, b GEOMETRY, c INT DEFAULT ST_Relate(a,b,'T*F**FFF*'));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a,b) VALUES (Point(1,1),Point(1,1));
+SELECT c FROM t1;
+DROP TABLE t1;
+
+--echo #
+--echo # End of 10.2 tests
+--echo #

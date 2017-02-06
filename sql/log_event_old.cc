@@ -1,4 +1,4 @@
-/* Copyright (c) 2007, 2013, Oracle and/or its affiliates.
+/* Copyright (c) 2007, 2016, Oracle and/or its affiliates.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,18 +13,17 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #ifndef MYSQL_CLIENT
 #include "unireg.h"
 #endif
-#include "my_global.h" // REQUIRED by log_event.h > m_string.h > my_bitmap.h
 #include "log_event.h"
 #ifndef MYSQL_CLIENT
 #include "sql_cache.h"                       // QUERY_CACHE_FLAGS_SIZE
 #include "sql_base.h"                       // close_tables_for_reopen
 #include "key.h"                            // key_copy
 #include "lock.h"                           // mysql_unlock_tables
-#include "sql_parse.h"             // mysql_reset_thd_for_next_command
 #include "rpl_rli.h"
 #include "rpl_utility.h"
 #endif
@@ -82,14 +81,14 @@ Old_rows_log_event::do_apply_event(Old_rows_log_event *ev, rpl_group_info *rgi)
       Lock_tables() reads the contents of ev_thd->lex, so they must be
       initialized.
 
-      We also call the mysql_reset_thd_for_next_command(), since this
+      We also call the THD::reset_for_next_command(), since this
       is the logical start of the next "statement". Note that this
       call might reset the value of current_stmt_binlog_format, so
       we need to do any changes to that value after this function.
     */
     delete_explain_query(thd->lex);
     lex_start(ev_thd);
-    mysql_reset_thd_for_next_command(ev_thd);
+    ev_thd->reset_for_next_command();
 
     /*
       This is a row injection, so we flag the "statement" as
@@ -121,16 +120,25 @@ Old_rows_log_event::do_apply_event(Old_rows_log_event *ev, rpl_group_info *rgi)
     /*
       When the open and locking succeeded, we check all tables to
       ensure that they still have the correct type.
-
-      We can use a down cast here since we know that every table added
-      to the tables_to_lock is a RPL_TABLE_LIST.
     */
 
     {
-      RPL_TABLE_LIST *ptr= rgi->tables_to_lock;
-      for (uint i= 0 ; ptr&& (i< rgi->tables_to_lock_count); 
-           ptr= static_cast<RPL_TABLE_LIST*>(ptr->next_global), i++)
+      TABLE_LIST *table_list_ptr= rgi->tables_to_lock;
+      for (uint i=0 ; table_list_ptr&& (i< rgi->tables_to_lock_count);
+           table_list_ptr= table_list_ptr->next_global, i++)
       {
+        /*
+          Please see comment in log_event.cc-Rows_log_event::do_apply_event()
+          function for the explanation of the below if condition
+        */
+        if (table_list_ptr->parent_l)
+          continue;
+        /*
+          We can use a down cast here since we know that every table added
+          to the tables_to_lock is a RPL_TABLE_LIST(or child table which is
+          skipped above).
+        */
+        RPL_TABLE_LIST *ptr=static_cast<RPL_TABLE_LIST*>(table_list_ptr);
         DBUG_ASSERT(ptr->m_tabledef_valid);
         TABLE *conv_table;
         if (!ptr->m_tabledef.compatible_with(thd, rgi, ptr->table, &conv_table))
@@ -163,7 +171,15 @@ Old_rows_log_event::do_apply_event(Old_rows_log_event *ev, rpl_group_info *rgi)
      */
     TABLE_LIST *ptr= rgi->tables_to_lock;
     for (uint i=0; ptr && (i < rgi->tables_to_lock_count); ptr= ptr->next_global, i++)
+    {
+      /*
+        Please see comment in log_event.cc-Rows_log_event::do_apply_event()
+        function for the explanation of the below if condition
+       */
+      if (ptr->parent_l)
+        continue;
       rgi->m_table_map.set_table(ptr->table_id, ptr->table);
+    }
 #ifdef HAVE_QUERY_CACHE
     query_cache.invalidate_locked_for_write(thd, rgi->tables_to_lock);
 #endif
@@ -249,7 +265,7 @@ Old_rows_log_event::do_apply_event(Old_rows_log_event *ev, rpl_group_info *rgi)
   }
 
   if (error)
-  {                     /* error has occured during the transaction */
+  {                     /* error has occurred during the transaction */
     rli->report(ERROR_LEVEL, ev_thd->get_stmt_da()->sql_errno(), NULL,
                 "Error in %s event: error during transaction execution "
                 "on table %s.%s. %s",
@@ -1421,16 +1437,25 @@ int Old_rows_log_event::do_apply_event(rpl_group_info *rgi)
     /*
       When the open and locking succeeded, we check all tables to
       ensure that they still have the correct type.
-
-      We can use a down cast here since we know that every table added
-      to the tables_to_lock is a RPL_TABLE_LIST.
     */
 
     {
-      RPL_TABLE_LIST *ptr= rgi->tables_to_lock;
-      for (uint i= 0 ; ptr&& (i< rgi->tables_to_lock_count);
-           ptr= static_cast<RPL_TABLE_LIST*>(ptr->next_global), i++)
+      TABLE_LIST *table_list_ptr= rgi->tables_to_lock;
+      for (uint i=0; table_list_ptr&& (i< rgi->tables_to_lock_count);
+           table_list_ptr= static_cast<RPL_TABLE_LIST*>(table_list_ptr->next_global), i++)
       {
+        /*
+          Please see comment in log_event.cc-Rows_log_event::do_apply_event()
+          function for the explanation of the below if condition
+        */
+        if (table_list_ptr->parent_l)
+          continue;
+        /*
+          We can use a down cast here since we know that every table added
+          to the tables_to_lock is a RPL_TABLE_LIST (or child table which is
+          skipped above).
+        */
+        RPL_TABLE_LIST *ptr=static_cast<RPL_TABLE_LIST*>(table_list_ptr);
         TABLE *conv_table;
         if (ptr->m_tabledef.compatible_with(thd, rgi, ptr->table, &conv_table))
         {
@@ -1523,6 +1548,7 @@ int Old_rows_log_event::do_apply_event(rpl_group_info *rgi)
     bitmap_set_all(table->write_set);
     if (!get_flags(COMPLETE_ROWS_F))
       bitmap_intersect(table->write_set,&m_cols);
+    table->rpl_write_set= table->write_set;
 
     // Do event specific preparations 
     
@@ -1556,11 +1582,10 @@ int Old_rows_log_event::do_apply_event(rpl_group_info *rgi)
         break;
 
       default:
-	rli->report(ERROR_LEVEL, thd->net.last_errno, NULL,
+        rli->report(ERROR_LEVEL, thd->net.last_errno, NULL,
                     "Error in %s event: row application failed. %s",
-                    get_type_str(),
-                    thd->net.last_error ? thd->net.last_error : "");
-       thd->is_slave_error= 1;
+                    get_type_str(), thd->net.last_error);
+        thd->is_slave_error = 1;
 	break;
       }
 
@@ -1593,13 +1618,13 @@ int Old_rows_log_event::do_apply_event(rpl_group_info *rgi)
   } // if (table)
 
   if (error)
-  {                     /* error has occured during the transaction */
+  {                     /* error has occurred during the transaction */
     rli->report(ERROR_LEVEL, thd->net.last_errno, NULL,
                 "Error in %s event: error during transaction execution "
                 "on table %s.%s. %s",
                 get_type_str(), table->s->db.str,
                 table->s->table_name.str,
-                thd->net.last_error ? thd->net.last_error : "");
+                thd->net.last_error);
 
     /*
       If one day we honour --skip-slave-errors in row-based replication, and
@@ -1733,7 +1758,7 @@ Old_rows_log_event::do_update_pos(rpl_group_info *rgi)
       Step the group log position if we are not in a transaction,
       otherwise increase the event log position.
      */
-    rli->stmt_done(log_pos, when, thd, rgi);
+    rli->stmt_done(log_pos, thd, rgi);
     /*
       Clear any errors in thd->net.last_err*. It is not known if this is
       needed or not. It is believed that any errors that may exist in
@@ -1754,7 +1779,7 @@ Old_rows_log_event::do_update_pos(rpl_group_info *rgi)
 
 
 #ifndef MYSQL_CLIENT
-bool Old_rows_log_event::write_data_header(IO_CACHE *file)
+bool Old_rows_log_event::write_data_header()
 {
   uchar buf[ROWS_HEADER_LEN];	// No need to init the buffer
 
@@ -1766,15 +1791,15 @@ bool Old_rows_log_event::write_data_header(IO_CACHE *file)
                   {
                     int4store(buf + 0, m_table_id);
                     int2store(buf + 4, m_flags);
-                    return (my_b_safe_write(file, buf, 6));
+                    return write_data(buf, 6);
                   });
   int6store(buf + RW_MAPID_OFFSET, (ulonglong)m_table_id);
   int2store(buf + RW_FLAGS_OFFSET, m_flags);
-  return (my_b_safe_write(file, buf, ROWS_HEADER_LEN));
+  return write_data(buf, ROWS_HEADER_LEN);
 }
 
 
-bool Old_rows_log_event::write_data_body(IO_CACHE*file)
+bool Old_rows_log_event::write_data_body()
 {
   /*
      Note that this should be the number of *bits*, not the number of
@@ -1791,13 +1816,12 @@ bool Old_rows_log_event::write_data_body(IO_CACHE*file)
   DBUG_ASSERT(static_cast<size_t>(sbuf_end - sbuf) <= sizeof(sbuf));
 
   DBUG_DUMP("m_width", sbuf, (size_t) (sbuf_end - sbuf));
-  res= res || my_b_safe_write(file, sbuf, (size_t) (sbuf_end - sbuf));
+  res= res || write_data(sbuf, (size_t) (sbuf_end - sbuf));
 
   DBUG_DUMP("m_cols", (uchar*) m_cols.bitmap, no_bytes_in_map(&m_cols));
-  res= res || my_b_safe_write(file, (uchar*) m_cols.bitmap,
-                              no_bytes_in_map(&m_cols));
+  res= res || write_data((uchar*)m_cols.bitmap, no_bytes_in_map(&m_cols));
   DBUG_DUMP("rows", m_rows_buf, data_size);
-  res= res || my_b_safe_write(file, m_rows_buf, (size_t) data_size);
+  res= res || write_data(m_rows_buf, (size_t) data_size);
 
   return res;
 
@@ -1806,7 +1830,7 @@ bool Old_rows_log_event::write_data_body(IO_CACHE*file)
 
 
 #if defined(HAVE_REPLICATION) && !defined(MYSQL_CLIENT)
-void Old_rows_log_event::pack_info(THD *thd, Protocol *protocol)
+void Old_rows_log_event::pack_info(Protocol *protocol)
 {
   char buf[256];
   char const *const flagstr=
@@ -1898,8 +1922,9 @@ Old_rows_log_event::write_row(rpl_group_info *rgi, const bool overwrite)
     DBUG_RETURN(error);
   
   /* unpack row into table->record[0] */
-  error= unpack_current_row(rgi); // TODO: how to handle errors?
-
+  if ((error= unpack_current_row(rgi)))
+    DBUG_RETURN(error);
+  
 #ifndef DBUG_OFF
   DBUG_DUMP("record[0]", table->record[0], table->s->reclength);
   DBUG_PRINT_BITSET("debug", "write_set = %s", table->write_set);

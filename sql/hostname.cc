@@ -24,9 +24,10 @@
   Hostnames are checked with reverse name lookup and checked that they
   doesn't resemble an IP address.
 */
+#include <my_global.h>
 #include "sql_priv.h"
+#include "unireg.h"                             // SPECIAL_NO_HOST_CACHE
 #include "hostname.h"
-#include "my_global.h"
 #ifndef __WIN__
 #include <netdb.h>        // getservbyname, servent
 #endif
@@ -410,7 +411,7 @@ static inline bool is_hostname_valid(const char *hostname)
 
 int ip_to_hostname(struct sockaddr_storage *ip_storage,
                    const char *ip_string,
-                   char **hostname,
+                   const char **hostname,
                    uint *connect_errors)
 {
   const struct sockaddr *ip= (const sockaddr *) ip_storage;
@@ -434,7 +435,7 @@ int ip_to_hostname(struct sockaddr_storage *ip_storage,
     DBUG_PRINT("info", ("Loopback address detected."));
 
     /* Do not count connect errors from localhost. */
-    *hostname= (char *) my_localhost;
+    *hostname= my_localhost;
 
     DBUG_RETURN(0);
   }

@@ -39,11 +39,14 @@ select a,name, old_a, old_b, truncate(rand_value,4) from t3;
 a	name	old_a	old_b	truncate(rand_value,4)
 100	log	0	0	0.0000
 101	t1	1	1	0.3203
-102	t1	0	2	0.5666
+102	t1	NULL	2	0.5666
 103	t2	1	2	0.9164
 104	t2	3	0	0.8826
 105	t2	4	0	0.6635
 106	t2	5	0	0.6699
 107	t2	500	0	0.3593
+connection slave;
+connection master;
 drop table t1,t2,t3;
+connection slave;
 include/rpl_end.inc

@@ -1,7 +1,7 @@
 /************** PlgDBSem H Declares Source Code File (.H) **************/
 /*  Name: PLGDBSEM.H  Version 3.6                                      */
 /*                                                                     */
-/*  (C) Copyright to the author Olivier BERTRAND          1998-2014    */
+/*  (C) Copyright to the author Olivier BERTRAND          1998-2015    */
 /*                                                                     */
 /*  This file contains the PlugDB++ application type definitions.      */
 /***********************************************************************/
@@ -72,10 +72,13 @@ enum TABTYPE {TAB_UNDEF =  0,   /* Table of undefined type             */
               TAB_OCCUR = 18,   /* OCCUR table                         */
               TAB_PRX   = 19,   /* Proxy (catalog) table               */
               TAB_PLG   = 20,   /* PLG NIY                             */
-              TAB_PIVOT = 21,   /* PIVOT NIY                           */
-              TAB_JCT   = 22,   /* Junction tables NIY                 */
-              TAB_DMY   = 23,   /* DMY Dummy tables NIY                */
-              TAB_NIY   = 24};  /* Table not implemented yet           */
+              TAB_PIVOT = 21,   /* PIVOT table                         */
+              TAB_VIR   = 22,   /* Virtual tables                      */
+              TAB_JSON  = 23,   /* JSON tables                         */
+              TAB_JCT   = 24,   /* Junction tables NIY                 */
+              TAB_DMY   = 25,   /* DMY Dummy tables NIY                */
+							TAB_JDBC  = 26,   /* Table accessed via JDBC             */
+							TAB_NIY   = 27};  /* Table not implemented yet           */
 
 enum AMT {TYPE_AM_ERROR =   0,        /* Type not defined              */
           TYPE_AM_ROWID =   1,        /* ROWID type (special column)   */
@@ -107,7 +110,9 @@ enum AMT {TYPE_AM_ERROR =   0,        /* Type not defined              */
           TYPE_AM_DIR   =  90,        /* DIR access method type no     */
           TYPE_AM_ODBC  = 100,        /* ODBC access method type no    */
           TYPE_AM_XDBC  = 101,        /* XDBC access method type no    */
-          TYPE_AM_OEM   = 110,        /* OEM access method type no     */
+					TYPE_AM_JDBC  = 102,        /* JDBC access method type no    */
+					TYPE_AM_XJDC  = 103,        /* XJDC access method type no    */
+					TYPE_AM_OEM   = 110,        /* OEM access method type no     */
           TYPE_AM_TBL   = 115,        /* TBL access method type no     */
           TYPE_AM_PIVOT = 120,        /* PIVOT access method type no   */
           TYPE_AM_SRC   = 121,        /* PIVOT multiple column type no */
@@ -120,6 +125,8 @@ enum AMT {TYPE_AM_ERROR =   0,        /* Type not defined              */
           TYPE_AM_BLK   = 131,        /* BLK access method type no     */
           TYPE_AM_ZIP   = 132,        /* ZIP access method type no     */
           TYPE_AM_ZLIB  = 133,        /* ZLIB access method type no    */
+          TYPE_AM_JSON  = 134,        /* JSON access method type no    */
+          TYPE_AM_JSN   = 135,        /* JSN access method type no     */
           TYPE_AM_MAC   = 137,        /* MAC table access method type  */
           TYPE_AM_WMI   = 139,        /* WMI table access method type  */
           TYPE_AM_XCL   = 140,        /* SYS column access method type */
@@ -127,6 +134,7 @@ enum AMT {TYPE_AM_ERROR =   0,        /* Type not defined              */
           TYPE_AM_TFC   = 155,        /* TFC (Circa) (Fuzzy compare)   */
           TYPE_AM_DBF   = 160,        /* DBF Dbase files am type no    */
           TYPE_AM_JCT   = 170,        /* Junction tables am type no    */
+          TYPE_AM_VIR   = 171,        /* Virtual tables am type no     */
           TYPE_AM_DMY   = 172,        /* DMY Dummy tables am type no   */
           TYPE_AM_SET   = 180,        /* SET Set tables am type no     */
           TYPE_AM_MYSQL = 192,        /* MYSQL access method type no   */
@@ -141,8 +149,9 @@ enum RECFM {RECFM_NAF   =    -2,      /* Not a file                    */
             RECFM_BIN   =     2,      /* Binary DOS files (also fixed) */
             RECFM_VCT   =     3,      /* VCT formatted files           */
             RECFM_ODBC  =     4,      /* Table accessed via ODBC       */
-            RECFM_PLG   =     5,      /* Table accessed via PLGconn    */
-            RECFM_DBF   =     6};     /* DBase formatted file          */
+						RECFM_JDBC  =     5,      /* Table accessed via JDBC       */
+						RECFM_PLG   =     6,      /* Table accessed via PLGconn    */
+            RECFM_DBF   =     7};     /* DBase formatted file          */
 
 enum MISC {DB_TABNO     =     1,      /* DB routines in Utility Table  */
            MAX_MULT_KEY =    10,      /* Max multiple key number       */
@@ -384,6 +393,7 @@ typedef struct _qryres   *PQRYRES;
 typedef struct _colres   *PCOLRES;
 typedef struct _datpar   *PDTP;
 typedef struct indx_used *PXUSED;
+typedef struct ha_table_option_struct TOS, *PTOS;
 
 /***********************************************************************/
 /*  Utility blocks for file and storage.                               */
@@ -499,9 +509,10 @@ enum XFLD {FLD_NO       =  0,         /* Not a field definition item   */
            FLD_EXTRA    = 13,         /* Field extra info              */
            FLD_PRIV     = 14,         /* Field priviledges             */
            FLD_DATEFMT  = 15,         /* Field date format             */
-           FLD_CAT      = 16,         /* Table catalog                 */
-           FLD_SCHEM    = 17,         /* Table schema                  */
-           FLD_TABNAME  = 18};        /* Column Table name             */
+           FLD_FORMAT   = 16,         /* Field format                  */
+           FLD_CAT      = 17,         /* Table catalog                 */
+           FLD_SCHEM    = 18,         /* Table schema                  */
+           FLD_TABNAME  = 19};        /* Column Table name             */
 
 /***********************************************************************/
 /*  Result of last SQL noconv query.                                   */
@@ -537,11 +548,11 @@ typedef  struct _colres {
   char    Var;                     /* Type added information           */
   } COLRES;
 
-#if defined(WIN32) && !defined(NOEX)
+#if defined(__WIN__) && !defined(NOEX)
 #define DllExport  __declspec( dllexport )
-#else   // !WIN32
+#else   // !__WIN__
 #define DllExport
-#endif  // !WIN32
+#endif  // !__WIN__
 
 /***********************************************************************/
 /*  Utility routines.                                                  */
@@ -579,13 +590,17 @@ DllExport PCATLG  PlgGetCatalog(PGLOBAL g, bool jump = true);
 DllExport bool    PlgSetXdbPath(PGLOBAL g, PSZ, PSZ, char *, int, char *, int);
 DllExport void    PlgDBfree(MBLOCK&);
 DllExport void   *PlgDBSubAlloc(PGLOBAL g, void *memp, size_t size);
+DllExport char   *PlgDBDup(PGLOBAL g, const char *str);
 DllExport void   *PlgDBalloc(PGLOBAL, void *, MBLOCK&);
 DllExport void   *PlgDBrealloc(PGLOBAL, void *, MBLOCK&, size_t);
 DllExport void    NewPointer(PTABS, void *, void *);
-DllExport char    *GetIni(int n= 0);
+//lExport char   *GetIni(int n= 0);    // Not used anymore
 DllExport void    SetTrc(void);
 DllExport char   *GetListOption(PGLOBAL, const char *, const char *,
                                          const char *def=NULL);
+DllExport char   *GetStringTableOption(PGLOBAL, PTOS, char *, char *);
+DllExport bool    GetBooleanTableOption(PGLOBAL, PTOS, char *, bool);
+DllExport int     GetIntegerTableOption(PGLOBAL, PTOS, char *, int);
 
 #define MSGID_NONE                         0
 #define MSGID_CANNOT_OPEN                  1

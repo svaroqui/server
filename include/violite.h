@@ -146,11 +146,15 @@ typedef my_socket YASSL_SOCKET_T;
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+#ifdef HAVE_ERR_remove_thread_state
+#define ERR_remove_state(X) ERR_remove_thread_state(NULL)
+#endif
+
 enum enum_ssl_init_error
 {
   SSL_INITERR_NOERROR= 0, SSL_INITERR_CERT, SSL_INITERR_KEY, 
   SSL_INITERR_NOMATCH, SSL_INITERR_BAD_PATHS, SSL_INITERR_CIPHERS, 
-  SSL_INITERR_MEMFAIL, SSL_INITERR_LASTERR
+  SSL_INITERR_MEMFAIL, SSL_INITERR_DH, SSL_INITERR_LASTERR
 };
 const char* sslGetErrString(enum enum_ssl_init_error err);
 
@@ -204,17 +208,9 @@ void vio_end(void);
 
 /* shutdown(2) flags */
 #ifndef SHUT_RD
-#define SHUT_RD SD_BOTH
+#define SHUT_RD SD_RECEIVE
 #endif
 
-/*
-  Set thread id for io cancellation (required on Windows XP only,
-  and should to be removed if XP is no more supported)
-*/
-
-#define vio_set_thread_id(vio, tid) if(vio) vio->thread_id= tid
-#else
-#define vio_set_thread_id(vio, tid)
 #endif
 
 /* This enumerator is used in parser - should be always visible */
@@ -284,7 +280,6 @@ struct st_vio
 #ifdef _WIN32
   HANDLE hPipe;
   OVERLAPPED overlapped;
-  DWORD thread_id; /* Used on XP only by vio_shutdown() */
   DWORD read_timeout_ms;
   DWORD write_timeout_ms;
 #endif

@@ -21,7 +21,7 @@
 #endif
 
 #define MYSQL_SERVER 1
-#include <mysql/plugin.h>
+#include <my_global.h>
 #include <m_ctype.h>
 #include <my_dir.h>
 #include <myisampack.h>
@@ -255,7 +255,7 @@ static MYSQL_SYSVAR_ULONG(pagecache_file_hash_size, pagecache_file_hash_size,
        "value is probably 1/10 of number of possible open Aria files.", 0,0,
        512, 128, 16384, 1);
 
-static MYSQL_SYSVAR_SET(recover, maria_recover_options, PLUGIN_VAR_OPCMDARG,
+static MYSQL_SYSVAR_SET(recover_options, maria_recover_options, PLUGIN_VAR_OPCMDARG,
        "Specifies how corrupted tables should be automatically repaired",
        NULL, NULL, HA_RECOVER_DEFAULT, &maria_recover_typelib);
 
@@ -289,6 +289,11 @@ static MYSQL_SYSVAR_BOOL(used_for_temp_tables,
        use_maria_for_temp_tables, PLUGIN_VAR_READONLY | PLUGIN_VAR_NOCMDOPT,
        "Whether temporary tables should be MyISAM or Aria", 0, 0,
        1);
+
+static MYSQL_SYSVAR_BOOL(encrypt_tables, maria_encrypt_tables, PLUGIN_VAR_OPCMDARG,
+       "Encrypt tables (only for tables with ROW_FORMAT=PAGE (default) "
+       "and not FIXED/DYNAMIC)",
+       0, 0, 0);
 
 #ifdef HAVE_PSI_INTERFACE
 
@@ -430,8 +435,8 @@ static void _ma_check_print_msg(HA_CHECK *param, const char *msg_type,
                           NullS) - name);
   /*
     TODO: switch from protocol to push_warning here. The main reason we didn't
-    it yet is parallel repair. Due to following trace:
-    ma_check_print_msg/push_warning/sql_alloc/my_pthread_getspecific_ptr.
+    it yet is parallel repair, which threads have no THD object accessible via
+    current_thd.
 
     Also we likely need to lock mutex here (in both cases with protocol and
     push_warning).
@@ -517,6 +522,14 @@ static int table2maria(TABLE *table_arg, data_file_type row_type,
     for (j= 0; j < pos->user_defined_key_parts; j++)
     {
       Field *field= pos->key_part[j].field;
+
+      if (!table_arg->field[field->field_index]->stored_in_db())
+      {
+        my_free(*recinfo_out);
+        my_error(ER_KEY_BASED_ON_GENERATED_VIRTUAL_COLUMN, MYF(0));
+        DBUG_RETURN(HA_ERR_UNSUPPORTED);
+      }
+
       type= field->key_type();
       keydef[i].seg[j].flag= pos->key_part[j].key_part_flag;
 
@@ -544,8 +557,7 @@ static int table2maria(TABLE *table_arg, data_file_type row_type,
       keydef[i].seg[j].type= (int) type;
       keydef[i].seg[j].start= pos->key_part[j].offset;
       keydef[i].seg[j].length= pos->key_part[j].length;
-      keydef[i].seg[j].bit_start= keydef[i].seg[j].bit_end=
-        keydef[i].seg[j].bit_length= 0;
+      keydef[i].seg[j].bit_start= keydef[i].seg[j].bit_length= 0;
       keydef[i].seg[j].bit_pos= 0;
       keydef[i].seg[j].language= field->charset()->number;
 
@@ -1563,6 +1575,7 @@ int ha_maria::repair(THD *thd, HA_CHECK *param, bool do_optimize)
   MARIA_SHARE *share= file->s;
   ha_rows rows= file->state->records;
   TRN *old_trn= file->trn;
+  my_bool locking= 0;
   DBUG_ENTER("ha_maria::repair");
 
   /*
@@ -1591,7 +1604,7 @@ int ha_maria::repair(THD *thd, HA_CHECK *param, bool do_optimize)
 
   param->db_name= table->s->db.str;
   param->table_name= table->alias.c_ptr();
-  param->tmpfile_createflag= O_RDWR | O_TRUNC | O_EXCL;
+  param->tmpfile_createflag= O_RDWR | O_TRUNC;
   param->using_global_keycache= 1;
   param->thd= thd;
   param->tmpdir= &mysql_tmpdir_list;
@@ -1599,12 +1612,18 @@ int ha_maria::repair(THD *thd, HA_CHECK *param, bool do_optimize)
   share->state.dupp_key= MI_MAX_KEY;
   strmov(fixed_name, share->open_file_name.str);
 
-  // Don't lock tables if we have used LOCK TABLE
-  if (!thd->locked_tables_mode &&
-      maria_lock_database(file, table->s->tmp_table ? F_EXTRA_LCK : F_WRLCK))
+  /*
+    Don't lock tables if we have used LOCK TABLE or if we come from
+    enable_index()
+  */
+  if (!thd->locked_tables_mode && ! (param->testflag & T_NO_LOCKS))
   {
-    _ma_check_print_error(param, ER(ER_CANT_LOCK), my_errno);
-    DBUG_RETURN(HA_ADMIN_FAILED);
+    locking= 1;
+    if (maria_lock_database(file, table->s->tmp_table ? F_EXTRA_LCK : F_WRLCK))
+    {
+      _ma_check_print_error(param, ER_THD(thd, ER_CANT_LOCK), my_errno);
+      DBUG_RETURN(HA_ADMIN_FAILED);
+    }
   }
 
   if (!do_optimize ||
@@ -1676,7 +1695,7 @@ int ha_maria::repair(THD *thd, HA_CHECK *param, bool do_optimize)
       thd_proc_info(thd, "Sorting index");
       error= maria_sort_index(param, file, fixed_name);
     }
-    if (!statistics_done && (local_testflag & T_STATISTICS))
+    if (!error && !statistics_done && (local_testflag & T_STATISTICS))
     {
       if (share->state.changed & STATE_NOT_ANALYZED)
       {
@@ -1740,7 +1759,7 @@ int ha_maria::repair(THD *thd, HA_CHECK *param, bool do_optimize)
   mysql_mutex_unlock(&share->intern_lock);
   thd_proc_info(thd, old_proc_info);
   thd_progress_end(thd);                        // Mark done
-  if (!thd->locked_tables_mode)
+  if (locking)
     maria_lock_database(file, F_UNLCK);
 
   /* Reset trn, that may have been set by repair */
@@ -1974,8 +1993,16 @@ int ha_maria::enable_indexes(uint mode)
     param.op_name= "recreating_index";
     param.testflag= (T_SILENT | T_REP_BY_SORT | T_QUICK |
                      T_CREATE_MISSING_KEYS | T_SAFE_REPAIR);
+    /*
+      Don't lock and unlock table if it's locked.
+      Normally table should be locked.  This test is mostly for safety.
+    */
+    if (likely(file->lock_type != F_UNLCK))
+      param.testflag|= T_NO_LOCKS;
+
     if (file->create_unique_index_by_sort)
       param.testflag|= T_CREATE_UNIQUE_BY_SORT;
+
     if (bulk_insert_single_undo == BULK_INSERT_SINGLE_UNDO_AND_NO_REPAIR)
     {
       bulk_insert_single_undo= BULK_INSERT_SINGLE_UNDO_AND_REPAIR;
@@ -2219,7 +2246,7 @@ bool ha_maria::check_and_repair(THD *thd)
   {
     /* Remove error about crashed table */
     thd->get_stmt_da()->clear_warning_info(thd->query_id);
-    push_warning_printf(current_thd, Sql_condition::WARN_LEVEL_NOTE,
+    push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE,
                         ER_CRASHED_ON_USAGE,
                         "Zerofilling moved table %s", table->s->path.str);
     sql_print_information("Zerofilling moved table:  '%s'",
@@ -2635,7 +2662,7 @@ void ha_maria::drop_table(const char *name)
 {
   DBUG_ASSERT(file->s->temporary);
   (void) ha_close();
-  (void) maria_delete_table_files(name, 0);
+  (void) maria_delete_table_files(name, 1, 0);
 }
 
 
@@ -2819,9 +2846,10 @@ int ha_maria::implicit_commit(THD *thd, bool new_trn)
   int error;
   uint locked_tables;
   DYNAMIC_ARRAY used_tables;
+  extern my_bool plugins_are_initialized;
   
   DBUG_ENTER("ha_maria::implicit_commit");
-  if (!maria_hton || !(trn= THD_TRN))
+  if (!maria_hton || !plugins_are_initialized || !(trn= THD_TRN))
     DBUG_RETURN(0);
   if (!new_trn && (thd->locked_tables_mode == LTM_LOCK_TABLES ||
                    thd->locked_tables_mode == LTM_PRELOCKED_UNDER_LOCK_TABLES))
@@ -3474,7 +3502,7 @@ static int mark_recovery_start(const char* log_dir)
   DBUG_ENTER("mark_recovery_start");
   if (!(maria_recover_options & HA_RECOVER_ANY))
     ma_message_no_user(ME_JUST_WARNING, "Please consider using option"
-                       " --aria-recover[=...] to automatically check and"
+                       " --aria-recover-options[=...] to automatically check and"
                        " repair tables when logs are removed by option"
                        " --aria-force-start-after-recovery-failures=#");
   if (recovery_failures >= force_start_after_recovery_failures)
@@ -3681,12 +3709,13 @@ struct st_mysql_sys_var* system_variables[]= {
   MYSQL_SYSVAR(pagecache_buffer_size),
   MYSQL_SYSVAR(pagecache_division_limit),
   MYSQL_SYSVAR(pagecache_file_hash_size),
-  MYSQL_SYSVAR(recover),
+  MYSQL_SYSVAR(recover_options),
   MYSQL_SYSVAR(repair_threads),
   MYSQL_SYSVAR(sort_buffer_size),
   MYSQL_SYSVAR(stats_method),
   MYSQL_SYSVAR(sync_log_dir),
   MYSQL_SYSVAR(used_for_temp_tables),
+  MYSQL_SYSVAR(encrypt_tables),
   NULL
 };
 

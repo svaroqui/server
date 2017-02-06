@@ -42,7 +42,7 @@ if (!$rpl_connection_name)
 --let $_rpl_port= \$SERVER_MYPORT_$rpl_server_number
 if (!$_rpl_port)
 {
-  --echo Bug in test case: '\$SERVER_MYPORT_$rpl_server_number' not initialized. Check the test's .cfg file.
+  --echo Bug in test case: '\$SERVER_MYPORT_$rpl_server_number' not initialized. Check the test's .cnf file.
   --die Not all SERVER_MYPORT_* environment variables are setup correctly.
 }
 
@@ -51,7 +51,9 @@ if ($rpl_debug)
 {
   --echo connect ($rpl_connection_name,127.0.0.1,root,,test,$_rpl_port,)
 }
+disable_connect_log;
 --connect ($rpl_connection_name,127.0.0.1,root,,test,$_rpl_port,)
+enable_connect_log;
 
 
 --let $include_filename= rpl_connect.inc

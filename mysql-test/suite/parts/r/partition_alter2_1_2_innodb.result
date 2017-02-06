@@ -11,8 +11,8 @@ SELECT @max_row DIV 4 INTO @max_row_div4;
 SET @max_int_4 = 2147483647;
 DROP TABLE IF EXISTS t0_template;
 CREATE TABLE t0_template (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000) ,
@@ -27,8 +27,8 @@ file_list      VARBINARY(10000),
 PRIMARY KEY (state)
 ) ENGINE = MEMORY;
 DROP TABLE IF EXISTS t0_aux;
-CREATE TABLE t0_aux ( f_int1 INTEGER,
-f_int2 INTEGER,
+CREATE TABLE t0_aux ( f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000) )
@@ -44,8 +44,8 @@ SET @@session.sql_mode= '';
 #  1.3.1 no PRIMARY KEY or UNIQUE INDEX exists
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -70,8 +70,8 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -500,8 +500,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -526,8 +526,8 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -956,8 +956,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -990,7 +990,7 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -998,7 +998,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -1427,8 +1427,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -1459,13 +1459,13 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -1892,8 +1892,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -1922,13 +1922,13 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -2355,8 +2355,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -2389,7 +2389,7 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -2402,7 +2402,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -2829,8 +2829,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -2863,7 +2863,7 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -2876,7 +2876,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -3305,8 +3305,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -3335,12 +3335,12 @@ t1	CREATE TABLE `t1` (
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -3771,8 +3771,8 @@ DROP TABLE t1;
 #  1.3.2 PRIMARY KEY exists
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -3791,15 +3791,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -4231,6 +4231,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -4263,8 +4266,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -4283,15 +4286,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -4723,6 +4726,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -4755,8 +4761,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -4783,14 +4789,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -4798,7 +4804,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -5230,6 +5236,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -5262,8 +5271,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -5288,20 +5297,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -5731,6 +5740,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -5763,8 +5775,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -5787,20 +5799,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -6230,6 +6242,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -6262,8 +6277,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -6290,14 +6305,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -6310,7 +6325,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -6740,6 +6755,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -6772,8 +6790,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -6800,14 +6818,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -6820,7 +6838,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -7252,6 +7270,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -7284,8 +7305,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -7308,19 +7329,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -7752,6 +7773,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -7785,8 +7809,8 @@ TRUNCATE t1;
 DROP TABLE t1;
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -7805,15 +7829,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -8245,6 +8269,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -8277,8 +8304,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -8297,15 +8324,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -8737,6 +8764,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -8769,8 +8799,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -8797,14 +8827,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -8812,7 +8842,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -9244,6 +9274,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -9276,8 +9309,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -9302,20 +9335,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -9745,6 +9778,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -9777,8 +9813,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -9801,20 +9837,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -10244,6 +10280,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -10276,8 +10315,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -10304,14 +10343,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -10324,7 +10363,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -10754,6 +10793,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -10786,8 +10828,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -10814,14 +10856,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -10834,7 +10876,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -11266,6 +11308,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -11298,8 +11343,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -11322,19 +11367,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` bigint(20) NOT NULL DEFAULT '0',
-  `f_int2` bigint(20) NOT NULL DEFAULT '0',
+  `f_int1` bigint(20) NOT NULL,
+  `f_int2` bigint(20) NOT NULL,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   PRIMARY KEY (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -11766,6 +11811,9 @@ SELECT CAST(f_int1 AS CHAR),
 CAST(f_int1 AS CHAR), 'just inserted' FROM t0_template
 WHERE f_int1 BETWEEN @max_row_div2 - 1 AND @max_row_div2 + 1
 ORDER BY f_int1;
+Warnings:
+Warning	1364	Field 'f_int1' doesn't have a default value
+Warning	1364	Field 'f_int2' doesn't have a default value
 DROP TRIGGER trg_3;
 	
 # check trigger-12 success: 	1
@@ -11800,8 +11848,8 @@ DROP TABLE t1;
 #  1.3.3 UNIQUE INDEX exists
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -11827,8 +11875,8 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -12308,8 +12356,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -12335,8 +12383,8 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -12816,8 +12864,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -12851,7 +12899,7 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -12859,7 +12907,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -13339,8 +13387,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -13372,13 +13420,13 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -13856,8 +13904,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -13887,13 +13935,13 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -14371,8 +14419,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -14406,7 +14454,7 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -14419,7 +14467,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -14897,8 +14945,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -14932,7 +14980,7 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -14945,7 +14993,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -15425,8 +15473,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -15456,12 +15504,12 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int1`,`f_int2`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -15942,8 +15990,8 @@ TRUNCATE t1;
 DROP TABLE t1;
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -15969,8 +16017,8 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -16450,8 +16498,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -16477,8 +16525,8 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -16958,8 +17006,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -16993,7 +17041,7 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = InnoDB,
  PARTITION part_2 VALUES IN (-2) ENGINE = InnoDB,
  PARTITION part_1 VALUES IN (-1) ENGINE = InnoDB,
@@ -17001,7 +17049,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part1 VALUES IN (1) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (2) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (3) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (3) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -17481,8 +17529,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -17514,13 +17562,13 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
  PARTITION partd VALUES LESS THAN (15) ENGINE = InnoDB,
  PARTITION parte VALUES LESS THAN (20) ENGINE = InnoDB,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -17998,8 +18046,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -18029,13 +18077,13 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = InnoDB,
  PARTITION partb VALUES LESS THAN (5) ENGINE = InnoDB,
  PARTITION partc VALUES LESS THAN (10) ENGINE = InnoDB,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -18513,8 +18561,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -18548,7 +18596,7 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = InnoDB,
@@ -18561,7 +18609,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = InnoDB),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = InnoDB,
-  SUBPARTITION subpart42 ENGINE = InnoDB)) */
+  SUBPARTITION subpart42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -19039,8 +19087,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -19074,7 +19122,7 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = InnoDB,
@@ -19087,7 +19135,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = InnoDB),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = InnoDB,
-  SUBPARTITION sp42 ENGINE = InnoDB)) */
+  SUBPARTITION sp42 ENGINE = InnoDB))
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1
@@ -19567,8 +19615,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -19598,12 +19646,12 @@ t1	CREATE TABLE `t1` (
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx` (`f_int2`,`f_int1`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = InnoDB,
  PARTITION part2 VALUES IN (1) ENGINE = InnoDB,
- PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = InnoDB)
 
 # check prerequisites-1 success:    1
 # check COUNT(*) success:    1

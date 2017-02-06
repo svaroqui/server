@@ -23,6 +23,10 @@
 
 #include "plugin.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MYSQL_AUDIT_CLASS_MASK_SIZE 1
 
 #define MYSQL_AUDIT_INTERFACE_VERSION 0x0302
@@ -56,7 +60,7 @@ struct mysql_event_general
   unsigned int general_command_length;
   const char *general_query;
   unsigned int general_query_length;
-  struct charset_info_st *general_charset;
+  const struct charset_info_st *general_charset;
   unsigned long long general_time;
   unsigned long long general_rows;
   /* Added in version 0x302 */
@@ -174,5 +178,9 @@ struct st_mysql_audit
   unsigned long class_mask[MYSQL_AUDIT_CLASS_MASK_SIZE];
 };
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

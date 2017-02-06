@@ -1,7 +1,7 @@
 /************* TabCol C++ Functions Source Code File (.CPP) ************/
 /*  Name: TABCOL.CPP  Version 2.7                                      */
 /*                                                                     */
-/*  (C) Copyright to the author Olivier BERTRAND          1998-2013    */
+/*  (C) Copyright to the author Olivier BERTRAND          1998-2015    */
 /*                                                                     */
 /*  This file contains the PlugDB++ XTAB, COLUMN and XORDER methods.   */
 /***********************************************************************/
@@ -21,8 +21,6 @@
 #include "plgdbsem.h"
 #include "xtable.h"
 #include "tabcol.h"
-
-extern "C" int  trace;
 
 /***********************************************************************/
 /*  XTAB public constructor.                                           */
@@ -52,7 +50,7 @@ XTAB::XTAB(PTABLE tp) : Name(tp->Name)
   Qualifier = tp->Qualifier;
 
   if (trace)
-    htrc(" making copy TABLE %s %s\n", Name, Srcdef);
+    htrc(" making copy TABLE %s %s\n", Name, SVP(Srcdef));
 
   } // end of XTAB constructor
 
@@ -93,7 +91,7 @@ void XTAB::Print(PGLOBAL g, FILE *f, uint n)
 /***********************************************************************/
 /*  Make string output of XTAB contents.                               */
 /***********************************************************************/
-void XTAB::Print(PGLOBAL g, char *ps, uint z)
+void XTAB::Print(PGLOBAL, char *ps, uint z)
   {
   char buf[128];
   int  i, n = (int)z - 1;
@@ -127,7 +125,7 @@ COLUMN::COLUMN(LPCSTR name) : Name(name)
 /***********************************************************************/
 /*  COLUMN SetFormat: should never be called.                          */
 /***********************************************************************/
-bool COLUMN::SetFormat(PGLOBAL g, FORMAT& fmt)
+bool COLUMN::SetFormat(PGLOBAL g, FORMAT&)
   {
   strcpy(g->Message, MSG(NO_FORMAT_COL));
   return true;
@@ -156,7 +154,7 @@ void COLUMN::Print(PGLOBAL g, FILE *f, uint n)
 /***********************************************************************/
 /*  Make string output of COLUMN contents.                             */
 /***********************************************************************/
-void COLUMN::Print(PGLOBAL g, char *ps, uint z)
+void COLUMN::Print(PGLOBAL, char *ps, uint z)
   {
   char buf[80];
 

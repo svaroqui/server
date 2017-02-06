@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (C) 2013, 2014, Fusion-io. All Rights Reserved.
-Copyright (C) 2013, 2014, SkySQL Ab. All Rights Reserved.
+Copyright (C) 2013, 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -43,7 +43,6 @@ Modified 06/02/2014 Jan Lindström jan.lindstrom@skysql.com
 #include "ibuf0ibuf.h"
 #include "log0log.h"
 #include "os0file.h"
-#include "os0sync.h"
 #include "trx0sys.h"
 #include "srv0mon.h"
 #include "mysql/plugin.h"
@@ -110,7 +109,8 @@ typedef struct wrk_itm
 					will be used */
 	wr_tsk_t	wr;		/*!< Flush page list */
 	rd_tsk_t	rd;		/*!< Decompress page list */
-        ulint		n_flushed; 	/*!< Flushed pages count  */
+        ulint		n_flushed; 	/*!< Number of flushed pages */
+	ulint		n_evicted;	/*!< Number of evicted pages */
  	os_thread_id_t	id_usr;		/*!< Thread-id currently working */
     	wrk_status_t    wi_status;	/*!< Work item status */
 	mem_heap_t      *wheap;         /*!< Heap were to allocate memory
@@ -118,18 +118,67 @@ typedef struct wrk_itm
 	mem_heap_t      *rheap;
 } wrk_t;
 
-typedef struct thread_data
+struct thread_data_t
 {
 	os_thread_id_t	wthread_id;	/*!< Identifier */
-	os_thread_t 	wthread;	/*!< Thread id */
 	wthr_status_t   wt_status;	/*!< Worker thread status */
-} thread_data_t;
+};
 
-/* Thread syncronization data */
-typedef struct thread_sync
+/** Flush dirty pages when multi-threaded flush is used. */
+extern "C" UNIV_INTERN
+os_thread_ret_t
+DECLARE_THREAD(mtflush_io_thread)(void* arg);
+
+/** Thread syncronization data */
+struct thread_sync_t
 {
+	/** Constructor */
+	thread_sync_t(ulint n_threads, mem_heap_t* wheap, mem_heap_t* rheap) :
+		thread_global_mtx(), n_threads(n_threads),
+		wq(ib_wqueue_create()),
+		wr_cq(ib_wqueue_create()),
+		rd_cq(ib_wqueue_create()),
+		wheap(wheap), rheap(rheap), gwt_status(),
+		thread_data(static_cast<thread_data_t*>(
+				    mem_heap_zalloc(wheap, n_threads
+						    * sizeof *thread_data)))
+	{
+		ut_a(wq);
+		ut_a(wr_cq);
+		ut_a(rd_cq);
+		ut_a(thread_data);
+
+		mutex_create(LATCH_ID_MTFLUSH_THREAD_MUTEX,
+			     &thread_global_mtx);
+
+		/* Create threads for page-compression-flush */
+		for(ulint i = 0; i < n_threads; i++) {
+			thread_data[i].wt_status = WTHR_INITIALIZED;
+			os_thread_create(mtflush_io_thread, this,
+					 &thread_data[i].wthread_id);
+		}
+	}
+
+	/** Destructor */
+	~thread_sync_t()
+	{
+		ut_a(ib_wqueue_is_empty(wq));
+		ut_a(ib_wqueue_is_empty(wr_cq));
+		ut_a(ib_wqueue_is_empty(rd_cq));
+
+		/* Free all queues */
+		ib_wqueue_free(wq);
+		ib_wqueue_free(wr_cq);
+		ib_wqueue_free(rd_cq);
+
+		mutex_free(&thread_global_mtx);
+
+		mem_heap_free(rheap);
+		mem_heap_free(wheap);
+	}
+
 	/* Global variables used by all threads */
-	os_fast_mutex_t	thread_global_mtx; /*!< Mutex used protecting below
+	ib_mutex_t	thread_global_mtx; /*!< Mutex used protecting below
 					   variables */
 	ulint           n_threads;	/*!< Number of threads */
 	ib_wqueue_t	*wq;		/*!< Work Queue */
@@ -143,22 +192,10 @@ typedef struct thread_sync
 
 	/* Variables used by only one thread at a time */
         thread_data_t*  thread_data;    /*!< Thread specific data */
+};
 
-} thread_sync_t;
-
-static int		mtflush_work_initialized = -1;
-static thread_sync_t*   mtflush_ctx=NULL;
-static os_fast_mutex_t  mtflush_mtx;
-
-/******************************************************************//**
-Set multi-threaded flush work initialized. */
-static inline
-void
-buf_mtflu_work_init(void)
-/*=====================*/
-{
-	mtflush_work_initialized = 1;
-}
+static thread_sync_t*   mtflush_ctx;
+static ib_mutex_t       mtflush_mtx;
 
 /******************************************************************//**
 Return true if multi-threaded flush is initialized
@@ -167,7 +204,7 @@ bool
 buf_mtflu_init_done(void)
 /*=====================*/
 {
-	return(mtflush_work_initialized == 1);
+	return(mtflush_ctx != NULL);
 }
 
 /******************************************************************//**
@@ -180,6 +217,7 @@ buf_mtflu_flush_pool_instance(
 /*==========================*/
 	wrk_t	*work_item)	/*!< inout: work item to be flushed */
 {
+	flush_counters_t	n;
 	ut_a(work_item != NULL);
 	ut_a(work_item->wr.buf_pool != NULL);
 
@@ -200,6 +238,7 @@ buf_mtflu_flush_pool_instance(
 		return 0;
 	}
 
+	memset(&n, 0, sizeof(flush_counters_t));
 
     	if (work_item->wr.flush_type == BUF_FLUSH_LRU) {
         	/* srv_LRU_scan_depth can be arbitrarily large value.
@@ -208,17 +247,19 @@ buf_mtflu_flush_pool_instance(
         	buf_pool_mutex_enter(work_item->wr.buf_pool);
         	work_item->wr.min = UT_LIST_GET_LEN(work_item->wr.buf_pool->LRU);
         	buf_pool_mutex_exit(work_item->wr.buf_pool);
-        	work_item->wr.min = ut_min(srv_LRU_scan_depth,work_item->wr.min);
+        	work_item->wr.min = ut_min((ulint)srv_LRU_scan_depth,(ulint)work_item->wr.min);
     	}
 
-	work_item->n_flushed = buf_flush_batch(work_item->wr.buf_pool,
-                                    		work_item->wr.flush_type,
-                                    		work_item->wr.min,
-						work_item->wr.lsn_limit);
-
+	buf_flush_batch(work_item->wr.buf_pool,
+		work_item->wr.flush_type,
+		work_item->wr.min,
+		work_item->wr.lsn_limit,
+		&n);
 
 	buf_flush_end(work_item->wr.buf_pool, work_item->wr.flush_type);
-	buf_flush_common(work_item->wr.flush_type, work_item->n_flushed);
+	buf_flush_common(work_item->wr.flush_type, n.flushed);
+	work_item->n_flushed = n.flushed;
+	work_item->n_evicted = n.evicted;
 
 	return work_item->n_flushed;
 }
@@ -304,22 +345,17 @@ mtflush_service_io(
 	}
 }
 
-/******************************************************************//**
-Thead used to flush dirty pages when multi-threaded flush is
-used.
-@return a dummy parameter*/
+/** Flush dirty pages when multi-threaded flush is used. */
 extern "C" UNIV_INTERN
 os_thread_ret_t
-DECLARE_THREAD(mtflush_io_thread)(
-/*==============================*/
-	void * arg)
+DECLARE_THREAD(mtflush_io_thread)(void* arg)
 {
 	thread_sync_t *mtflush_io = ((thread_sync_t *)arg);
 	thread_data_t *this_thread_data = NULL;
 	ulint i;
 
 	/* Find correct slot for this thread */
-	os_fast_mutex_lock(&(mtflush_io->thread_global_mtx));
+	mutex_enter(&(mtflush_io->thread_global_mtx));
 	for(i=0; i < mtflush_io->n_threads; i ++) {
 		if (mtflush_io->thread_data[i].wthread_id == os_thread_get_curr_id()) {
 			break;
@@ -328,7 +364,7 @@ DECLARE_THREAD(mtflush_io_thread)(
 
 	ut_a(i <= mtflush_io->n_threads);
 	this_thread_data = &mtflush_io->thread_data[i];
-	os_fast_mutex_unlock(&(mtflush_io->thread_global_mtx));
+	mutex_exit(&(mtflush_io->thread_global_mtx));
 
 	while (TRUE) {
 
@@ -347,7 +383,7 @@ DECLARE_THREAD(mtflush_io_thread)(
 		}
 	}
 
-	os_thread_exit(NULL);
+	os_thread_exit();
 	OS_THREAD_DUMMY_RETURN;
 }
 
@@ -359,7 +395,7 @@ void
 buf_mtflu_io_thread_exit(void)
 /*==========================*/
 {
-	long i;
+	ulint i;
 	thread_sync_t* mtflush_io = mtflush_ctx;
 	wrk_t* work_item = NULL;
 
@@ -375,9 +411,6 @@ buf_mtflu_io_thread_exit(void)
 
 	mtflush_io->gwt_status = WTHR_KILL_IT;
 
-	fprintf(stderr, "InnoDB: [Note]: Signal mtflush_io_threads to exit [%lu]\n",
-		srv_mtflush_threads);
-
 	/* This lock is to safequard against timing bug: flush request take
 	this mutex before sending work items to be processed by flush
 	threads. Inside flush thread we assume that work queue contains only
@@ -387,13 +420,13 @@ buf_mtflu_io_thread_exit(void)
 	been processed. Thus, we can get this mutex if and only if work
 	queue is empty. */
 
-	os_fast_mutex_lock(&mtflush_mtx);
+	mutex_enter(&mtflush_mtx);
 
 	/* Make sure the work queue is empty */
 	ut_a(ib_wqueue_is_empty(mtflush_io->wq));
 
 	/* Send one exit work item/thread */
-	for (i=0; i < srv_mtflush_threads; i++) {
+	for (i=0; i < (ulint)srv_mtflush_threads; i++) {
 		work_item[i].tsk = MT_WRK_NONE;
 		work_item[i].wi_status = WRK_ITEM_EXIT;
 		work_item[i].wheap = mtflush_io->wheap;
@@ -405,6 +438,9 @@ buf_mtflu_io_thread_exit(void)
 			mtflush_io->wheap);
 	}
 
+	/* Requests sent */
+	mutex_exit(&mtflush_mtx);
+
 	/* Wait until all work items on a work queue are processed */
 	while(!ib_wqueue_is_empty(mtflush_io->wq)) {
 		/* Wait */
@@ -413,11 +449,8 @@ buf_mtflu_io_thread_exit(void)
 
 	ut_a(ib_wqueue_is_empty(mtflush_io->wq));
 
-	/* Requests sent */
-	os_fast_mutex_unlock(&mtflush_mtx);
-
 	/* Collect all work done items */
-	for (i=0; i < srv_mtflush_threads;) {
+	for (i=0; i < (ulint)srv_mtflush_threads;) {
 		wrk_t* work_item = NULL;
 
 		work_item = (wrk_t *)ib_wqueue_timedwait(mtflush_io->wr_cq, MT_WAIT_IN_USECS);
@@ -432,21 +465,16 @@ buf_mtflu_io_thread_exit(void)
 	/* Wait about 1/2 sec to allow threads really exit */
 	os_thread_sleep(MT_WAIT_IN_USECS);
 
-	ut_a(ib_wqueue_is_empty(mtflush_io->wq));
-	ut_a(ib_wqueue_is_empty(mtflush_io->wr_cq));
-	ut_a(ib_wqueue_is_empty(mtflush_io->rd_cq));
+	/* Make sure that work queue is empty */
+	while(!ib_wqueue_is_empty(mtflush_io->wq))
+	{
+		ib_wqueue_nowait(mtflush_io->wq);
+	}
 
-	/* Free all queues */
-	ib_wqueue_free(mtflush_io->wq);
-	ib_wqueue_free(mtflush_io->wr_cq);
-	ib_wqueue_free(mtflush_io->rd_cq);
+	mtflush_ctx->~thread_sync_t();
+	mtflush_ctx = NULL;
 
-	os_fast_mutex_free(&mtflush_mtx);
-	os_fast_mutex_free(&mtflush_io->thread_global_mtx);
-
-	/* Free heap */
-	mem_heap_free(mtflush_io->wheap);
-	mem_heap_free(mtflush_io->rheap);
+	mutex_free(&mtflush_mtx);
 }
 
 /******************************************************************//**
@@ -458,7 +486,6 @@ buf_mtflu_handler_init(
 	ulint n_threads,	/*!< in: Number of threads to create */
 	ulint wrk_cnt)		/*!< in: Number of work items */
 {
-	ulint   	i;
 	mem_heap_t*	mtflush_heap;
 	mem_heap_t*	mtflush_heap2;
 
@@ -470,43 +497,10 @@ buf_mtflu_handler_init(
 	mtflush_heap2 = mem_heap_create(0);
 	ut_a(mtflush_heap2 != NULL);
 
-	mtflush_ctx = (thread_sync_t *)mem_heap_alloc(mtflush_heap,
-				sizeof(thread_sync_t));
-	memset(mtflush_ctx, 0, sizeof(thread_sync_t));
-	ut_a(mtflush_ctx != NULL);
-	mtflush_ctx->thread_data = (thread_data_t*)mem_heap_alloc(
-		mtflush_heap, sizeof(thread_data_t) * n_threads);
-	ut_a(mtflush_ctx->thread_data);
-	memset(mtflush_ctx->thread_data, 0, sizeof(thread_data_t) * n_threads);
+	mutex_create(LATCH_ID_MTFLUSH_MUTEX, &mtflush_mtx);
 
-	mtflush_ctx->n_threads = n_threads;
-	mtflush_ctx->wq = ib_wqueue_create();
-	ut_a(mtflush_ctx->wq);
-	mtflush_ctx->wr_cq = ib_wqueue_create();
-	ut_a(mtflush_ctx->wr_cq);
-	mtflush_ctx->rd_cq = ib_wqueue_create();
-	ut_a(mtflush_ctx->rd_cq);
-	mtflush_ctx->wheap = mtflush_heap;
-	mtflush_ctx->rheap = mtflush_heap2;
-
-	os_fast_mutex_init(PFS_NOT_INSTRUMENTED, &mtflush_ctx->thread_global_mtx);
-	os_fast_mutex_init(PFS_NOT_INSTRUMENTED, &mtflush_mtx);
-
-	/* Create threads for page-compression-flush */
-	for(i=0; i < n_threads; i++) {
-		os_thread_id_t new_thread_id;
-
-		mtflush_ctx->thread_data[i].wt_status = WTHR_INITIALIZED;
-
-		mtflush_ctx->thread_data[i].wthread = os_thread_create(
-			mtflush_io_thread,
-			((void *) mtflush_ctx),
-	                &new_thread_id);
-
-		mtflush_ctx->thread_data[i].wthread_id = new_thread_id;
-	}
-
-	buf_mtflu_work_init();
+	mtflush_ctx = new (mem_heap_zalloc(mtflush_heap, sizeof *mtflush_ctx))
+		thread_sync_t(n_threads, mtflush_heap, mtflush_heap2);
 
 	return((void *)mtflush_ctx);
 }
@@ -518,8 +512,8 @@ ulint
 buf_mtflu_flush_work_items(
 /*=======================*/
 	ulint buf_pool_inst,		/*!< in: Number of buffer pool instances */
-	ulint *per_pool_pages_flushed,	/*!< out: Number of pages
-					flushed/instance */
+	flush_counters_t *per_pool_cnt,	/*!< out: Number of pages
+					flushed or evicted /instance */
 	buf_flush_t flush_type,		/*!< in: Type of flush */
 	ulint min_n,			/*!< in: Wished minimum number of
 					blocks to be flushed */
@@ -532,6 +526,10 @@ buf_mtflu_flush_work_items(
 	mem_heap_t* work_heap;
 	mem_heap_t* reply_heap;
 	wrk_t work_item[MTFLUSH_MAX_WORKER];
+
+	if (mtflush_ctx->gwt_status == WTHR_KILL_IT) {
+		return 0;
+	}
 
 	/* Allocate heap where all work items used and queue
 	node items areallocated */
@@ -549,6 +547,7 @@ buf_mtflu_flush_work_items(
 		work_item[i].wheap = work_heap;
 		work_item[i].rheap = reply_heap;
 		work_item[i].n_flushed = 0;
+		work_item[i].n_evicted = 0;
 		work_item[i].id_usr = 0;
 
 		ib_wqueue_add(mtflush_ctx->wq,
@@ -562,7 +561,8 @@ buf_mtflu_flush_work_items(
 		done_wi = (wrk_t *)ib_wqueue_wait(mtflush_ctx->wr_cq);
 
 		if (done_wi != NULL) {
-			per_pool_pages_flushed[i] = done_wi->n_flushed;
+			per_pool_cnt[i].flushed = done_wi->n_flushed;
+			per_pool_cnt[i].evicted = done_wi->n_evicted;
 
 #ifdef UNIV_MTFLUSH_DEBUG
 			if((int)done_wi->id_usr == 0 &&
@@ -576,7 +576,7 @@ buf_mtflu_flush_work_items(
 			}
 #endif
 
-			n_flushed+= done_wi->n_flushed;
+			n_flushed+= done_wi->n_flushed+done_wi->n_evicted;
 			i++;
 		}
 	}
@@ -607,9 +607,9 @@ buf_mtflu_flush_list(
 					back to caller. Ignored if NULL */
 
 {
-	ulint		i;
-	bool		success = true;
-	ulint		cnt_flush[MTFLUSH_MAX_WORKER];
+	ulint				i;
+	bool				success = true;
+	flush_counters_t		cnt[MTFLUSH_MAX_WORKER];
 
 	if (n_processed) {
 		*n_processed = 0;
@@ -625,22 +625,31 @@ buf_mtflu_flush_list(
 	}
 
 	/* This lock is to safequard against re-entry if any. */
-	os_fast_mutex_lock(&mtflush_mtx);
+	mutex_enter(&mtflush_mtx);
 	buf_mtflu_flush_work_items(srv_buf_pool_instances,
-                cnt_flush, BUF_FLUSH_LIST,
+                cnt, BUF_FLUSH_LIST,
                 min_n, lsn_limit);
-	os_fast_mutex_unlock(&mtflush_mtx);
+	mutex_exit(&mtflush_mtx);
 
 	for (i = 0; i < srv_buf_pool_instances; i++) {
 		if (n_processed) {
-			*n_processed += cnt_flush[i];
+			*n_processed += cnt[i].flushed+cnt[i].evicted;
 		}
-		if (cnt_flush[i]) {
+
+		if (cnt[i].flushed) {
 			MONITOR_INC_VALUE_CUMULATIVE(
 				MONITOR_FLUSH_BATCH_TOTAL_PAGE,
 				MONITOR_FLUSH_BATCH_COUNT,
 				MONITOR_FLUSH_BATCH_PAGES,
-				cnt_flush[i]);
+				cnt[i].flushed);
+		}
+
+		if(cnt[i].evicted) {
+				MONITOR_INC_VALUE_CUMULATIVE(
+				MONITOR_LRU_BATCH_EVICT_TOTAL_PAGE,
+				MONITOR_LRU_BATCH_EVICT_COUNT,
+				MONITOR_LRU_BATCH_EVICT_PAGES,
+				cnt[i].evicted);
 		}
 	}
 #ifdef UNIV_MTFLUSH_DEBUG
@@ -663,25 +672,38 @@ buf_mtflu_flush_LRU_tail(void)
 /*==========================*/
 {
 	ulint	total_flushed=0, i;
-	ulint	cnt_flush[MTFLUSH_MAX_WORKER];
+	flush_counters_t	cnt[MTFLUSH_MAX_WORKER];
 
 	ut_a(buf_mtflu_init_done());
 
+	/* At shutdown do not send requests anymore */
+	if (!mtflush_ctx || mtflush_ctx->gwt_status == WTHR_KILL_IT) {
+		return (total_flushed);
+	}
+
 	/* This lock is to safeguard against re-entry if any */
-	os_fast_mutex_lock(&mtflush_mtx);
+	mutex_enter(&mtflush_mtx);
 	buf_mtflu_flush_work_items(srv_buf_pool_instances,
-		cnt_flush, BUF_FLUSH_LRU, srv_LRU_scan_depth, 0);
-	os_fast_mutex_unlock(&mtflush_mtx);
+		cnt, BUF_FLUSH_LRU, srv_LRU_scan_depth, 0);
+	mutex_exit(&mtflush_mtx);
 
 	for (i = 0; i < srv_buf_pool_instances; i++) {
-		if (cnt_flush[i]) {
-			total_flushed += cnt_flush[i];
+		total_flushed += cnt[i].flushed+cnt[i].evicted;
 
+		if (cnt[i].flushed) {
 			MONITOR_INC_VALUE_CUMULATIVE(
-			        MONITOR_LRU_BATCH_TOTAL_PAGE,
-			        MONITOR_LRU_BATCH_COUNT,
-			        MONITOR_LRU_BATCH_PAGES,
-			        cnt_flush[i]);
+			        MONITOR_LRU_BATCH_FLUSH_TOTAL_PAGE,
+			        MONITOR_LRU_BATCH_FLUSH_COUNT,
+			        MONITOR_LRU_BATCH_FLUSH_PAGES,
+			        cnt[i].flushed);
+		}
+
+		if(cnt[i].evicted) {
+				MONITOR_INC_VALUE_CUMULATIVE(
+				MONITOR_LRU_BATCH_EVICT_TOTAL_PAGE,
+				MONITOR_LRU_BATCH_EVICT_COUNT,
+				MONITOR_LRU_BATCH_EVICT_PAGES,
+				cnt[i].evicted);
 		}
 	}
 

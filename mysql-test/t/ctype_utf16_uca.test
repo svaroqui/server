@@ -208,3 +208,36 @@ SET collation_connection=utf16_myanmar_ci;
 --echo #
 --echo # End of MariaDB-10.0 tests
 --echo #
+
+--echo #
+--echo # Start of 10.1 tests
+--echo #
+
+SET NAMES utf8;
+SET collation_connection=utf16_thai_520_w2;
+--source include/ctype_uca_w2.inc
+--source include/ctype_thai.inc
+
+--echo #
+--echo # End of 10.1 tests
+--echo #
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo #
+--echo # MDEV-10877 xxx_unicode_nopad_ci collations
+--echo #
+SET NAMES utf8, character_set_connection=utf16;
+let $coll='utf16_unicode_nopad_ci';
+let $coll_pad='utf16_unicode_ci';
+--source include/ctype_pad_all_engines.inc
+
+let $coll='utf16_unicode_520_nopad_ci';
+let $coll_pad='utf16_unicode_520_ci';
+--source include/ctype_pad_all_engines.inc
+
+--echo #
+--echo # End of 10.2 tests
+--echo #

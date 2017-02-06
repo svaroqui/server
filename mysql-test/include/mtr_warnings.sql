@@ -133,7 +133,7 @@ INSERT INTO global_suppressions VALUES
  ("Slave: Query caused different errors on master and slave"),
  ("Slave: Table .* doesn't exist"),
  ("Slave: Table width mismatch"),
- ("Slave: The incident LOST_EVENTS occured on the master"),
+ ("Slave: The incident LOST_EVENTS occurred on the master"),
  ("Slave: Unknown error.* 1105"),
  ("Slave: Can't drop database.* database doesn't exist"),
  ("Warning:\s+One can only use the --user.*root"),
@@ -164,6 +164,9 @@ INSERT INTO global_suppressions VALUES
  ("setrlimit could not change the size of core files to 'infinity'"),
 
  ("The slave I.O thread stops because a fatal error is encountered when it try to get the value of SERVER_ID variable from master."),
+
+ /*It will print a warning if server is run without --explicit_defaults_for_timestamp.*/
+ ("TIMESTAMP with implicit DEFAULT value is deprecated. Please use --explicit_defaults_for_timestamp server option (see documentation for more details)*"),
 
  /* Added 2009-08-XX after fixing Bug #42408 */
 
@@ -203,14 +206,6 @@ INSERT INTO global_suppressions VALUES
  ("==[0-9]*== Warning: invalid file descriptor -1 in syscall read()"),
 
  /*
-   BUG#42147 - Concurrent DML and LOCK TABLE ... READ for InnoDB 
-   table cause warnings in errlog
-   Note: This is a temporary suppression until Bug#42147 can be 
-   fixed properly. See bug page for more information.
-  */
- ("Found lock of type 6 that is write and read locked"),
-
- /*
    Transient network failures that cause warnings on reconnect.
    BUG#47743 and BUG#47983.
  */
@@ -223,6 +218,12 @@ INSERT INTO global_suppressions VALUES
  ("Slave I/O: Notifying master by SET @master_binlog_checksum= @@global.binlog_checksum failed with error.*"),
  ("Slave I/O: Setting master-side filtering of @@skip_replication failed with error:.*"),
  ("Slave I/O: Setting @mariadb_slave_capability failed with error:.*"),
+ ("Slave I/O: Get master @@GLOBAL.gtid_domain_id failed with error.*"),
+ ("Slave I/O: Setting @slave_connect_state failed with error.*"),
+ ("Slave I/O: Setting @slave_gtid_strict_mode failed with error.*"),
+ ("Slave I/O: Setting @slave_gtid_ignore_duplicates failed with error.*"),
+ ("Slave I/O: Setting @slave_until_gtid failed with error.*"),
+ ("Slave I/O: Get master GTID position failed with error.*"),
  ("THE_LAST_SUPPRESSION")||
 
 

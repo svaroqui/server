@@ -57,7 +57,7 @@ typedef struct st_HA_KEYSEG		/* Key-portion */
   uint16 language;
   uint8  type;				/* Type of key (for sort) */
   uint8  null_bit;			/* bitmask to test for NULL */
-  uint8  bit_start,bit_end;		/* if bit field */
+  uint8  bit_start;
   uint8  bit_length;                    /* Length of bit part */
 } HA_KEYSEG;
 
@@ -108,7 +108,7 @@ typedef struct st_HA_KEYSEG		/* Key-portion */
   set_rec_bits(0, bit_ptr, bit_ofs, bit_len)
 
 extern int ha_compare_text(CHARSET_INFO *, const uchar *, uint,
-                           const uchar *, uint , my_bool, my_bool);
+                           const uchar *, uint , my_bool);
 extern int ha_key_cmp(HA_KEYSEG *keyseg, const uchar *a,
 		      const uchar *b, uint key_length, uint nextflag,
 		      uint *diff_pos);

@@ -48,6 +48,7 @@
   (assuming a index for column d of table t2 is defined)
 */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "key.h"                                // key_cmp_if_same
 #include "sql_select.h"
@@ -340,7 +341,8 @@ int opt_sum_query(THD *thd,
           there are no outer joins.
         */
         if (!conds && !((Item_sum_count*) item)->get_arg(0)->maybe_null &&
-            !outer_tables && maybe_exact_count)
+            !outer_tables && maybe_exact_count &&
+            ((item->used_tables() & OUTER_REF_TABLE_BIT) == 0))
         {
           if (!is_exact_count)
           {
@@ -368,7 +370,8 @@ int opt_sum_query(THD *thd,
           indexes to find the key.
         */
         Item *expr=item_sum->get_arg(0);
-        if (expr->real_item()->type() == Item::FIELD_ITEM)
+        if (((expr->used_tables() & OUTER_REF_TABLE_BIT) == 0) &&
+            expr->real_item()->type() == Item::FIELD_ITEM)
         {
           uchar key_buff[MAX_KEY_LENGTH];
           TABLE_REF ref;
@@ -403,7 +406,7 @@ int opt_sum_query(THD *thd,
 	  if (!error && reckey_in_range(is_max, &ref, item_field->field, 
 			                conds, range_fl, prefix_len))
 	    error= HA_ERR_KEY_NOT_FOUND;
-          table->disable_keyread();
+          table->set_keyread(false);
           table->file->ha_index_end();
           if (error)
 	  {
@@ -577,7 +580,7 @@ bool simple_pred(Item_func *func_item, Item **args, bool *inv_order)
         if (!item->const_item())
           return 0;
         args[i]= item;
-        if (check_item1_shorter_item2(args[0], args[1]))
+        if (check_item1_shorter_item2(args[0], args[i]))
           return 0;
       }
     }
@@ -653,12 +656,13 @@ static bool matching_cond(bool max_fl, TABLE_REF *ref, KEY *keyinfo,
   if (!cond)
     DBUG_RETURN(TRUE);
   Field *field= field_part->field;
-  if (cond->used_tables() & OUTER_REF_TABLE_BIT)
+  table_map cond_used_tables= cond->used_tables();
+  if (cond_used_tables & OUTER_REF_TABLE_BIT)
   { 
     DBUG_RETURN(FALSE);
   } 
-  if (!(cond->used_tables() & field->table->map) &&
-      MY_TEST(cond->used_tables() & ~PSEUDO_TABLE_BITS))
+  if (!(cond_used_tables & field->table->map) &&
+      MY_TEST(cond_used_tables & ~PSEUDO_TABLE_BITS))
   {
     /* Condition doesn't restrict the used table */
     DBUG_RETURN(!cond->const_item());
@@ -964,7 +968,7 @@ static bool find_key_for_maxmin(bool max_fl, TABLE_REF *ref,
             converted (for example to upper case)
           */
           if (field->part_of_key.is_set(idx))
-            table->enable_keyread();
+            table->set_keyread(true);
           DBUG_RETURN(TRUE);
         }
       }

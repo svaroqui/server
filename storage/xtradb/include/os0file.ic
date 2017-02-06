@@ -202,6 +202,7 @@ ibool
 pfs_os_aio_func(
 /*============*/
 	ulint		type,	/*!< in: OS_FILE_READ or OS_FILE_WRITE */
+	ulint		is_log,	/*!< in: 1 is OS_FILE_LOG or 0 */
 	ulint		mode,	/*!< in: OS_AIO_NORMAL etc. I/O mode */
 	const char*	name,	/*!< in: name of the file or path as a
 				null-terminated string */
@@ -210,6 +211,7 @@ pfs_os_aio_func(
 				to write */
 	os_offset_t	offset,	/*!< in: file offset where to read or write */
 	ulint		n,	/*!< in: number of bytes to read or write */
+	ulint		page_size, /*!< in: page size in bytes */
 	fil_node_t*	message1,/*!< in: message for the aio handler
 				(can be used to identify a completed
 				aio operation); ignored if mode is
@@ -220,10 +222,6 @@ pfs_os_aio_func(
                                 OS_AIO_SYNC */
 	ulint		space_id,
 	trx_t*		trx,
-	ibool		page_compression, /*!< in: is page compression used
-					  on this file space */
-	ulint		page_compression_level, /*!< page compression
-						 level to be used */
 	ulint*		write_size,/*!< in/out: Actual write size initialized
 			       after fist successfull trim
 			       operation for this page and if
@@ -243,9 +241,9 @@ pfs_os_aio_func(
 					: PSI_FILE_READ,
 				   src_file, src_line);
 
-	result = os_aio_func(type, mode, name, file, buf, offset,
-			     n, message1, message2, space_id, trx,
-			     page_compression, page_compression_level, write_size);
+	result = os_aio_func(type, is_log, mode, name, file, buf, offset,
+			     n, page_size, message1, message2, space_id, trx,
+			     write_size);
 
 	register_pfs_file_io_end(locker, n);
 
@@ -267,8 +265,6 @@ pfs_os_file_read_func(
 	os_offset_t	offset,	/*!< in: file offset where to read */
 	ulint		n,	/*!< in: number of bytes to read */
 	trx_t*		trx,
-	ibool		compressed, /*!< in: is this file space
-				    compressed ? */
 	const char*	src_file,/*!< in: file name where func invoked */
 	ulint		src_line)/*!< in: line where the func invoked */
 {
@@ -279,7 +275,7 @@ pfs_os_file_read_func(
 	register_pfs_file_io_begin(&state, locker, file, n, PSI_FILE_READ,
 				   src_file, src_line);
 
-	result = os_file_read_func(file, buf, offset, n, trx, compressed);
+	result = os_file_read_func(file, buf, offset, n, trx);
 
 	register_pfs_file_io_end(locker, n);
 
@@ -302,8 +298,6 @@ pfs_os_file_read_no_error_handling_func(
 	void*		buf,	/*!< in: buffer where to read */
 	os_offset_t	offset,	/*!< in: file offset where to read */
 	ulint		n,	/*!< in: number of bytes to read */
-	ibool		compressed, /*!< in: is this file space
-				    compressed ? */
 	const char*	src_file,/*!< in: file name where func invoked */
 	ulint		src_line)/*!< in: line where the func invoked */
 {
@@ -314,7 +308,7 @@ pfs_os_file_read_no_error_handling_func(
 	register_pfs_file_io_begin(&state, locker, file, n, PSI_FILE_READ,
 				   src_file, src_line);
 
-	result = os_file_read_no_error_handling_func(file, buf, offset, n, compressed);
+	result = os_file_read_no_error_handling_func(file, buf, offset, n);
 
 	register_pfs_file_io_end(locker, n);
 

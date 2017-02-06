@@ -37,17 +37,20 @@
 
 --source include/add_anonymous_users.inc
 
+set GLOBAL sql_mode="";
+set LOCAL sql_mode="";
 #
 --disable_warnings
 drop table if exists test.t1,mysqltest.t1,mysqltest.t2;
 drop database if exists mysqltest;
 --enable_warnings
 
+set GLOBAL query_cache_type=ON;
+set LOCAL query_cache_type=ON;
 set GLOBAL query_cache_size=1355776;
 
 reset query cache;
 flush status;
---echo ----- establish connection root -----
 connect (root,localhost,root,,test,$MASTER_MYPORT,$MASTER_MYSOCK);
 connection root;
 show grants for current_user;
@@ -63,7 +66,6 @@ insert into mysqltest.t2 values (3,3,3);
 create table test.t1 (a char (10));
 insert into test.t1 values ("test.t1");
 select * from t1;
---echo ----- establish connection root2 -----
 connect (root2,localhost,root,,mysqltest,$MASTER_MYPORT,$MASTER_MYSOCK);
 connection root2;
 # put queries in cache
@@ -82,7 +84,6 @@ grant SELECT on test.t1 to mysqltest_2@localhost;
 grant SELECT(a) on mysqltest.t1 to mysqltest_3@localhost;
 
 # The following queries should be fetched from cache
---echo ----- establish connection user1 (user=mysqltest_1) -----
 connect (user1,localhost,mysqltest_1,,mysqltest,$MASTER_MYPORT,$MASTER_MYSOCK);
 connection user1;
 show grants for current_user();
@@ -108,14 +109,12 @@ show status like "Qcache_hits";
 show status like "Qcache_not_cached";
 
 
---echo ----- establish connection unkuser (user=unkuser) -----
 # Don't use '' as user because it will pick Unix login
 connect (unkuser,localhost,unkuser,,,$MASTER_MYPORT,$MASTER_MYSOCK);
 connection unkuser;
 show grants for current_user();
 
 # The following queries should be fetched from cache
---echo ----- establish connection user2 (user=mysqltest_2) -----
 connect (user2,localhost,mysqltest_2,,mysqltest,$MASTER_MYPORT,$MASTER_MYSOCK);
 connection user2;
 select "user2";
@@ -131,7 +130,6 @@ show status like "Qcache_hits";
 show status like "Qcache_not_cached";
 
 # The following queries should not be fetched from cache
---echo ----- establish connection user3 (user=mysqltest_3) -----
 connect (user3,localhost,mysqltest_3,,mysqltest,$MASTER_MYPORT,$MASTER_MYSOCK);
 connection user3;
 select "user3";
@@ -153,7 +151,6 @@ show status like "Qcache_hits";
 show status like "Qcache_not_cached";
 
 # Connect without a database
---echo ----- establish connection user4 (user=mysqltest_1) -----
 connect (user4,localhost,mysqltest_1,,*NO-ONE*,$MASTER_MYPORT,$MASTER_MYSOCK);
 connection user4;
 select "user4";
@@ -171,7 +168,6 @@ show status like "Qcache_not_cached";
 
 # Cleanup
 
---echo ----- close connections -----
 connection root;
 disconnect root;
 --source include/wait_until_disconnected.inc
@@ -193,7 +189,6 @@ disconnect user4;
 connection unkuser;
 disconnect unkuser;
 --source include/wait_until_disconnected.inc
---echo ----- switch to connection default -----
 connection default;
 
 #
@@ -214,5 +209,9 @@ drop table test.t1,mysqltest.t1,mysqltest.t2;
 drop database mysqltest;
 
 set GLOBAL query_cache_size=default;
+set GLOBAL query_cache_type=ON;
+set LOCAL query_cache_type=ON;
 
 --source include/delete_anonymous_users.inc
+set GLOBAL sql_mode=default;
+set GLOBAL query_cache_type=default;

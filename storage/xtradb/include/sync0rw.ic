@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2011, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
 
 Portions of this file contain modifications contributed and copyrighted by
@@ -363,7 +363,7 @@ ibool
 rw_lock_s_lock_low(
 /*===============*/
 	rw_lock_t*	lock,	/*!< in: pointer to rw-lock */
-	ulint		pass __attribute__((unused)),
+	ulint		pass MY_ATTRIBUTE((unused)),
 				/*!< in: pass value; != 0, if the lock will be
 				passed to another thread to unlock */
 	const char*	file_name, /*!< in: file name where lock requested */
@@ -381,6 +381,12 @@ rw_lock_s_lock_low(
 	or even refer to a line that is invalid for the file name. */
 	lock->last_s_file_name = file_name;
 	lock->last_s_line = line;
+
+	if (srv_instrument_semaphores) {
+		lock->thread_id = os_thread_get_curr_id();
+		lock->file_name = file_name;
+		lock->line = line;
+	}
 
 	return(TRUE);	/* locking succeeded */
 }
@@ -511,6 +517,7 @@ rw_lock_x_lock_func_nowait(
 	ulint		line)	/*!< in: line where requested */
 {
 	ibool success;
+	ibool local_recursive= lock->recursive;
 
 #ifdef INNODB_RW_LOCKS_USE_ATOMICS
 	success = os_compare_and_swap_lint(&lock->lock_word, X_LOCK_DECR, 0);
@@ -525,10 +532,14 @@ rw_lock_x_lock_func_nowait(
 	mutex_exit(&(lock->mutex));
 
 #endif
+	/* Note: recursive must be loaded before writer_thread see
+	comment for rw_lock_set_writer_id_and_recursion_flag().
+	To achieve this we load it before os_compare_and_swap_lint(),
+	which implies full memory barrier in current implementation. */
 	if (success) {
 		rw_lock_set_writer_id_and_recursion_flag(lock, TRUE);
 
-	} else if (lock->recursive
+	} else if (local_recursive
 		   && os_thread_eq(lock->writer_thread,
 				   os_thread_get_curr_id())) {
 		/* Relock: this lock_word modification is safe since no other
@@ -550,6 +561,12 @@ rw_lock_x_lock_func_nowait(
 #ifdef UNIV_SYNC_DEBUG
 	rw_lock_add_debug_info(lock, 0, RW_LOCK_EX, file_name, line);
 #endif
+
+	if (srv_instrument_semaphores) {
+		lock->thread_id = os_thread_get_curr_id();
+		lock->file_name = file_name;
+		lock->line = line;
+	}
 
 	lock->last_x_file_name = file_name;
 	lock->last_x_line = line;
@@ -585,7 +602,7 @@ rw_lock_s_unlock_func(
 		/* wait_ex waiter exists. It may not be asleep, but we signal
 		anyway. We do not wake other waiters, because they can't
 		exist without wait_ex waiter and wait_ex waiter goes first.*/
-		os_event_set(lock->wait_ex_event);
+		os_event_set(&lock->wait_ex_event);
 		sync_array_object_signalled();
 
 	}
@@ -625,7 +642,7 @@ rw_lock_s_unlock_func(
 
 		/* A waiting next-writer exists, either high priority or
 		regular, sharing the same wait event.  */
-		os_event_set(lock->base_lock.wait_ex_event);
+		os_event_set(&lock->base_lock.wait_ex_event);
 		sync_array_object_signalled();
 
 	} else if (lock_word == X_LOCK_DECR) {
@@ -636,7 +653,7 @@ rw_lock_s_unlock_func(
 		if (lock->base_lock.waiters) {
 
 			rw_lock_reset_waiter_flag(&lock->base_lock);
-			os_event_set(lock->base_lock.event);
+			os_event_set(&lock->base_lock.event);
 			sync_array_object_signalled();
 		}
 	}
@@ -718,7 +735,7 @@ rw_lock_x_unlock_func(
 
 		if (lock->waiters) {
 			rw_lock_reset_waiter_flag(lock);
-			os_event_set(lock->event);
+			os_event_set(&lock->event);
 			sync_array_object_signalled();
 		}
 	}
@@ -761,16 +778,16 @@ rw_lock_x_unlock_func(
 
 		if (lock->high_priority_x_waiters) {
 
-			os_event_set(lock->high_priority_x_event);
+			os_event_set(&lock->high_priority_x_event);
 			sync_array_object_signalled();
 		} else if (lock->high_priority_s_waiters) {
 
-			os_event_set(lock->high_priority_s_event);
+			os_event_set(&lock->high_priority_s_event);
 			sync_array_object_signalled();
 		} else if (lock->base_lock.waiters) {
 
 			rw_lock_reset_waiter_flag(&lock->base_lock);
-			os_event_set(lock->base_lock.event);
+			os_event_set(&lock->base_lock.event);
 			sync_array_object_signalled();
 		}
 	}
@@ -799,10 +816,10 @@ pfs_rw_lock_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 	ulint		level,		/*!< in: level */
 #  endif /* UNIV_SYNC_DEBUG */
-	const char*	cfile_name,	/*!< in: file name where created */
-	ulint		cline,		/*!< in: file line where created */
 # endif /* UNIV_DEBUG */
-	const char*	cmutex_name)	/*!< in: mutex name */
+	const char*	cmutex_name,	/*!< in: mutex name */
+	const char*	cfile_name,	/*!< in: file name where created */
+	ulint		cline)		/*!< in: file line where created */
 {
 	/* Initialize the rwlock for performance schema */
 	lock->pfs_psi = PSI_RWLOCK_CALL(init_rwlock)(key, lock);
@@ -813,10 +830,10 @@ pfs_rw_lock_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 			    level,
 #  endif /* UNIV_SYNC_DEBUG */
-			    cfile_name,
-			    cline,
 # endif /* UNIV_DEBUG */
-			    cmutex_name);
+			    cmutex_name,
+			    cfile_name,
+			    cline);
 }
 
 /******************************************************************//**
@@ -834,10 +851,10 @@ pfs_rw_lock_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 	ulint		level,		/*!< in: level */
 #  endif /* UNIV_SYNC_DEBUG */
-	const char*	cfile_name,	/*!< in: file name where created */
-	ulint		cline,		/*!< in: file line where created */
 # endif /* UNIV_DEBUG */
-	const char*	cmutex_name)	/*!< in: mutex name */
+	const char*	cmutex_name,	/*!< in: mutex name */
+	const char*	cfile_name,	/*!< in: file name where created */
+	ulint		cline)		/*!< in: file line where created */
 {
 	/* Initialize the rwlock for performance schema */
 	lock->base_lock.pfs_psi = PSI_RWLOCK_CALL(init_rwlock)(key, lock);
@@ -848,10 +865,10 @@ pfs_rw_lock_create_func(
 #  ifdef UNIV_SYNC_DEBUG
 			    level,
 #  endif /* UNIV_SYNC_DEBUG */
-			    cfile_name,
-			    cline,
 # endif /* UNIV_DEBUG */
-			    cmutex_name);
+			    cmutex_name,
+			    cfile_name,
+			    cline);
 }
 
 /******************************************************************//**

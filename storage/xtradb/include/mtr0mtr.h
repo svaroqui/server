@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -35,6 +35,7 @@ Created 11/26/1995 Heikki Tuuri
 #include "ut0byte.h"
 #include "mtr0types.h"
 #include "page0types.h"
+#include "trx0types.h"
 
 /* Logging modes for a mini-transaction */
 #define MTR_LOG_ALL		21	/* default mode: log all operations
@@ -188,6 +189,14 @@ For 1 - 8 bytes, the flag value must give the length also! @{ */
 						page */
 #define MLOG_BIGGEST_TYPE	((byte)53)	/*!< biggest value (used in
 						assertions) */
+
+#define MLOG_FILE_WRITE_CRYPT_DATA ((byte)100)	/*!< log record for
+						writing/updating crypt data of
+						a tablespace */
+
+#define EXTRA_CHECK_MLOG_NUMBER(x) \
+  ((x) == MLOG_FILE_WRITE_CRYPT_DATA)
+
 /* @} */
 
 /** @name Flags for MLOG_FILE operations
@@ -204,10 +213,22 @@ functions).  The page number parameter was originally written as 0. @{ */
 Starts a mini-transaction. */
 UNIV_INLINE
 void
+mtr_start_trx(
+/*======*/
+	mtr_t*	mtr,	/*!< out: mini-transaction */
+	trx_t*	trx)	/*!< in: transaction */
+	__attribute__((nonnull (1)));
+/***************************************************************//**
+Starts a mini-transaction. */
+UNIV_INLINE
+void
 mtr_start(
 /*======*/
 	mtr_t*	mtr)	/*!< out: mini-transaction */
-	__attribute__((nonnull));
+{
+	mtr_start_trx(mtr, NULL);
+}
+	MY_ATTRIBUTE((nonnull))
 /***************************************************************//**
 Commits a mini-transaction. */
 UNIV_INTERN
@@ -215,7 +236,7 @@ void
 mtr_commit(
 /*=======*/
 	mtr_t*	mtr)	/*!< in/out: mini-transaction */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 /**********************************************************//**
 Sets and returns a savepoint in mtr.
 @return	savepoint */
@@ -238,6 +259,18 @@ mtr_release_s_latch_at_savepoint(
 #else /* !UNIV_HOTBACKUP */
 # define mtr_release_s_latch_at_savepoint(mtr,savepoint,lock) ((void) 0)
 #endif /* !UNIV_HOTBACKUP */
+
+/**********************************************************//**
+Releases a buf_page stored in an mtr memo after a
+savepoint. */
+UNIV_INTERN
+void
+mtr_release_buf_page_at_savepoint(
+/*=============================*/
+	mtr_t*		mtr,		/*!< in: mtr */
+	ulint		savepoint,	/*!< in: savepoint */
+	buf_block_t*	block);		/*!< in: block to release */
+
 /***************************************************************//**
 Gets the logging mode of a mini-transaction.
 @return	logging mode: MTR_LOG_NONE, ... */
@@ -308,7 +341,7 @@ mtr_memo_release(
 	mtr_t*	mtr,	/*!< in/out: mini-transaction */
 	void*	object,	/*!< in: object */
 	ulint	type)	/*!< in: object type: MTR_MEMO_S_LOCK, ... */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 #ifdef UNIV_DEBUG
 # ifndef UNIV_HOTBACKUP
 /**********************************************************//**
@@ -321,7 +354,7 @@ mtr_memo_contains(
 	mtr_t*		mtr,	/*!< in: mtr */
 	const void*	object,	/*!< in: object to search */
 	ulint		type)	/*!< in: type of object */
-	__attribute__((warn_unused_result, nonnull));
+	MY_ATTRIBUTE((warn_unused_result, nonnull));
 
 /**********************************************************//**
 Checks if memo contains the given page.
@@ -403,6 +436,7 @@ struct mtr_t{
 #ifdef UNIV_DEBUG
 	ulint		magic_n;
 #endif /* UNIV_DEBUG */
+	trx_t*		trx;	/*!< transaction */
 };
 
 #ifdef UNIV_DEBUG

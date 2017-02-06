@@ -43,9 +43,6 @@ public:
   /// Name of the SP-variable.
   LEX_STRING name;
 
-  /// Field-type of the SP-variable.
-  enum enum_field_types type;
-
   /// Mode of the SP-variable.
   enum_mode mode;
 
@@ -60,15 +57,15 @@ public:
   Item *default_value;
 
   /// Full type information (field meta-data) of the SP-variable.
-  Create_field field_def;
+  Column_definition field_def;
 
+  /// Field-type of the SP-variable.
+  enum_field_types sql_type() const { return field_def.sql_type; }
 public:
-  sp_variable(LEX_STRING _name, enum_field_types _type, enum_mode _mode,
-              uint _offset)
+  sp_variable(LEX_STRING _name, uint _offset)
    :Sql_alloc(),
     name(_name),
-    type(_type),
-    mode(_mode),
+    mode(MODE_IN),
     offset(_offset),
     default_value(NULL)
   { }
@@ -340,20 +337,15 @@ public:
   ///
   /// @param thd  Thread context.
   /// @param name Name of the SP-variable.
-  /// @param type Type of the SP-variable.
-  /// @param mode Mode of the SP-variable.
   ///
   /// @return instance of newly added SP-variable.
-  sp_variable *add_variable(THD *thd,
-                            LEX_STRING name,
-                            enum enum_field_types type,
-                            sp_variable::enum_mode mode);
+  sp_variable *add_variable(THD *thd, LEX_STRING name);
 
   /// Retrieve full type information about SP-variables in this parsing
   /// context and its children.
   ///
   /// @param field_def_lst[out] Container to store type information.
-  void retrieve_field_definitions(List<Create_field> *field_def_lst) const;
+  void retrieve_field_definitions(List<Column_definition> *field_def_lst) const;
 
   /// Find SP-variable by name.
   ///

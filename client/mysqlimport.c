@@ -1,5 +1,6 @@
 /*
-   Copyright (c) 2000, 2012, Oracle and/or its affiliates.
+   Copyright (c) 2000, 2015, Oracle and/or its affiliates.
+   Copyright (c) 2011, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -30,19 +31,15 @@
 
 #include "client_priv.h"
 #include "mysql_version.h"
-#ifdef HAVE_LIBPTHREAD
-#include <my_pthread.h>
-#endif
 
 #include <welcome_copyright_notice.h>   /* ORACLE_WELCOME_COPYRIGHT_NOTICE */
 
 
 /* Global Thread counter */
-uint counter;
-#ifdef HAVE_LIBPTHREAD
+uint counter= 0;
+pthread_mutex_t init_mutex;
 pthread_mutex_t counter_mutex;
 pthread_cond_t count_threshhold;
-#endif
 
 static void db_error_with_table(MYSQL *mysql, char *table);
 static void db_error(MYSQL *mysql);
@@ -423,10 +420,22 @@ static MYSQL *db_connect(char *host, char *database,
                          char *user, char *passwd)
 {
   MYSQL *mysql;
+  my_bool reconnect;
   if (verbose)
     fprintf(stdout, "Connecting to %s\n", host ? host : "localhost");
-  if (!(mysql= mysql_init(NULL)))
-    return 0;
+  if (opt_use_threads && !lock_tables)
+  {
+    pthread_mutex_lock(&init_mutex);
+    if (!(mysql= mysql_init(NULL)))
+    {
+      pthread_mutex_unlock(&init_mutex);
+      return 0;
+    }
+    pthread_mutex_unlock(&init_mutex);
+  }
+  else
+    if (!(mysql= mysql_init(NULL)))
+      return 0;
   if (opt_compress)
     mysql_options(mysql,MYSQL_OPT_COMPRESS,NullS);
   if (opt_local_file)
@@ -467,7 +476,8 @@ static MYSQL *db_connect(char *host, char *database,
     ignore_errors=0;	  /* NO RETURN FROM db_error */
     db_error(mysql);
   }
-  mysql->reconnect= 0;
+  reconnect= 0;
+  mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
   if (verbose)
     fprintf(stdout, "Selecting database %s\n", database);
   if (mysql_select_db(mysql, database))
@@ -488,11 +498,15 @@ static void db_disconnect(char *host, MYSQL *mysql)
 }
 
 
-
 static void safe_exit(int error, MYSQL *mysql)
 {
   if (error && ignore_errors)
     return;
+
+  /* in multi-threaded mode protect from concurrent safe_exit's */
+  if (counter)
+    pthread_mutex_lock(&counter_mutex);
+
   if (mysql)
     mysql_close(mysql);
 
@@ -502,7 +516,10 @@ static void safe_exit(int error, MYSQL *mysql)
   free_defaults(argv_to_free);
   mysql_library_end();
   my_free(opt_password);
-  my_end(my_end_arg);
+  if (error)
+    sf_leaking_memory= 1; /* dirty exit, some threads are still running */
+  else
+    my_end(my_end_arg); /* clean exit */
   exit(error);
 }
 
@@ -575,7 +592,6 @@ static char *field_escape(char *to,const char *from,uint length)
 
 int exitcode= 0;
 
-#ifdef HAVE_LIBPTHREAD
 pthread_handler_t worker_thread(void *arg)
 {
   int error;
@@ -612,10 +628,9 @@ error:
   pthread_cond_signal(&count_threshhold);
   pthread_mutex_unlock(&counter_mutex);
   mysql_thread_end();
-
+  pthread_exit(0);
   return 0;
 }
-#endif
 
 
 int main(int argc, char **argv)
@@ -635,17 +650,32 @@ int main(int argc, char **argv)
   }
   sf_leaking_memory=0; /* from now on we cleanup properly */
 
-#ifdef HAVE_LIBPTHREAD
   if (opt_use_threads && !lock_tables)
   {
-    pthread_t mainthread;            /* Thread descriptor */
-    pthread_attr_t attr;          /* Thread attributes */
+    char **save_argv;
+    uint worker_thread_count= 0, table_count= 0, i= 0;
+    pthread_t *worker_threads;       /* Thread descriptor */
+    pthread_attr_t attr;             /* Thread attributes */
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr,
-                                PTHREAD_CREATE_DETACHED);
+                                PTHREAD_CREATE_JOINABLE);
 
+    pthread_mutex_init(&init_mutex, NULL);
     pthread_mutex_init(&counter_mutex, NULL);
     pthread_cond_init(&count_threshhold, NULL);
+
+    /* Count the number of tables. This number denotes the total number
+       of threads spawn.
+    */
+    save_argv= argv;
+    for (table_count= 0; *argv != NULL; argv++)
+      table_count++;
+    argv= save_argv;
+
+    if (!(worker_threads= (pthread_t*) my_malloc(table_count *
+                                                 sizeof(*worker_threads),
+                                                 MYF(0))))
+      return -2;
 
     for (counter= 0; *argv != NULL; argv++) /* Loop through tables */
     {
@@ -661,15 +691,16 @@ int main(int argc, char **argv)
       counter++;
       pthread_mutex_unlock(&counter_mutex);
       /* now create the thread */
-      if (pthread_create(&mainthread, &attr, worker_thread, 
-                         (void *)*argv) != 0)
+      if (pthread_create(&worker_threads[worker_thread_count], &attr,
+                         worker_thread, (void *)*argv) != 0)
       {
         pthread_mutex_lock(&counter_mutex);
         counter--;
         pthread_mutex_unlock(&counter_mutex);
-        fprintf(stderr,"%s: Could not create thread\n",
-                my_progname);
+        fprintf(stderr,"%s: Could not create thread\n", my_progname);
+        continue;
       }
+      worker_thread_count++;
     }
 
     /*
@@ -684,12 +715,20 @@ int main(int argc, char **argv)
       pthread_cond_timedwait(&count_threshhold, &counter_mutex, &abstime);
     }
     pthread_mutex_unlock(&counter_mutex);
+    pthread_mutex_destroy(&init_mutex);
     pthread_mutex_destroy(&counter_mutex);
     pthread_cond_destroy(&count_threshhold);
     pthread_attr_destroy(&attr);
+
+    for(i= 0; i < worker_thread_count; i++)
+    {
+      if (pthread_join(worker_threads[i], NULL))
+        fprintf(stderr,"%s: Could not join worker thread.\n", my_progname);
+    }
+
+    my_free(worker_threads);
   }
   else
-#endif
   {
     MYSQL *mysql= 0;
     if (!(mysql= db_connect(current_host,current_db,current_user,opt_password)))

@@ -7,24 +7,24 @@
 /*  DO NOT define DLL_EXPORT in your application so these items are    */
 /*  declared are imported from the Myconn DLL.                         */
 /***********************************************************************/
-#if defined(WIN32)
+#if defined(__WIN__)
 #include <winsock.h>
-#else   // !WIN32
+#else   // !__WIN__
 #include <sys/socket.h>
-#endif  // !WIN32
+#endif  // !__WIN__
 #include <mysql.h>
 #include <errmsg.h>
 #include "myutil.h"
 
-#if defined(WIN32) && defined(MYCONN_EXPORTS)
+#if defined(__WIN__) && defined(MYCONN_EXPORTS)
 #if defined(DLL_EXPORT)
 #define DllItem _declspec(dllexport)
 #else   // !DLL_EXPORT
 #define DllItem _declspec(dllimport)
 #endif  // !DLL_EXPORT
-#else   // !WIN32  ||        !MYCONN_EXPORTS
+#else   // !__WIN__  ||        !MYCONN_EXPORTS
 #define DllItem
-#endif  // !WIN32
+#endif  // !__WIN__
 
 #define MYSQL_ENABLED  0x00000001
 #define MYSQL_LOGON    0x00000002
@@ -67,7 +67,7 @@ class DllItem MYSQLC {
   int     GetTableSize(PGLOBAL g, PSZ query);
   int     Open(PGLOBAL g, const char *host, const char *db,
                           const char *user= "root", const char *pwd= "*",
-                          int pt= 0);
+                          int pt= 0, const char *csname = NULL);
   int     KillQuery(ulong id);
   int     ExecSQL(PGLOBAL g, const char *query, int *w = NULL);
   int     ExecSQLcmd(PGLOBAL g, const char *query, int *w);
@@ -80,7 +80,7 @@ class DllItem MYSQLC {
   int     Fetch(PGLOBAL g, int pos);
   char   *GetCharField(int i);
   int     GetFieldLength(int i);
-  void    Rewind(void);
+  int     Rewind(PGLOBAL g, PSZ sql);
   void    FreeResult(void);
   void    Close(void);
 
@@ -90,13 +90,16 @@ class DllItem MYSQLC {
 
   // Members
   MYSQL      *m_DB;         // The return from MySQL connection
-  MYSQL_STMT *m_Stmt;       // Prepared statement handle
-  MYSQL_RES  *m_Res;        // Points to MySQL Result
+#if defined (MYSQL_PREPARED_STATEMENTS)
+	MYSQL_STMT *m_Stmt;       // Prepared statement handle
+#endif    // MYSQL_PREPARED_STATEMENTS
+	MYSQL_RES  *m_Res;        // Points to MySQL Result
   MYSQL_ROW   m_Row;        // Point to current row
   int         m_Rows;       // The number of rows of the result
   int         N;
   int         m_Fields;     // The number of result fields
   int         m_Afrw;       // The number of affected rows
   bool        m_Use;        // Use or store result set
+  const char *csname;       // Table charset name
   }; // end of class MYSQLC
 

@@ -312,6 +312,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #define MYSQL_SERVER 1
+#include <my_global.h>
 #include <mysql/plugin.h>
 #include "ha_federatedx.h"
 #include "sql_servers.h"
@@ -336,7 +337,6 @@ static const int bulk_padding= 64;              // bytes "overhead" in packet
 
 /* Variables used when chopping off trailing characters */
 static const uint sizeof_trailing_comma= sizeof(", ") - 1;
-static const uint sizeof_trailing_closeparen= sizeof(") ") - 1;
 static const uint sizeof_trailing_and= sizeof(" AND ") - 1;
 static const uint sizeof_trailing_where= sizeof(" WHERE ") - 1;
 
@@ -499,8 +499,7 @@ bool append_ident(String *string, const char *name, uint length,
     for (name_end= name+length; name < name_end; name+= clen)
     {
       uchar c= *(uchar *) name;
-      if (!(clen= my_mbcharlen(system_charset_info, c)))
-        clen= 1;
+      clen= my_charlen_fix(system_charset_info, name, name_end);
       if (clen == 1 && c == (uchar) quote_char &&
           (result= string->append(&quote_char, 1, system_charset_info)))
         goto err;
@@ -565,17 +564,17 @@ int get_connection(MEM_ROOT *mem_root, FEDERATEDX_SHARE *share)
     at the address of the share.
   */
   share->server_name_length= server->server_name_length;
-  share->server_name= server->server_name;
-  share->username= server->username;
-  share->password= server->password;
-  share->database= server->db;
+  share->server_name= const_cast<char*>(server->server_name);
+  share->username= const_cast<char*>(server->username);
+  share->password= const_cast<char*>(server->password);
+  share->database= const_cast<char*>(server->db);
   share->port= server->port > MIN_PORT && server->port < 65536 ? 
                (ushort) server->port : MYSQL_PORT;
-  share->hostname= server->host;
-  if (!(share->socket= server->socket) &&
+  share->hostname= const_cast<char*>(server->host);
+  if (!(share->socket= const_cast<char*>(server->socket)) &&
       !strcmp(share->hostname, my_localhost))
     share->socket= (char *) MYSQL_UNIX_ADDR;
-  share->scheme= server->scheme;
+  share->scheme= const_cast<char*>(server->scheme);
 
   DBUG_PRINT("info", ("share->username: %s", share->username));
   DBUG_PRINT("info", ("share->password: %s", share->password));
@@ -1318,7 +1317,7 @@ bool ha_federatedx::create_where_from_key(String *to,
           break;
         }
         DBUG_PRINT("info", ("federatedx HA_READ_AFTER_KEY %d", i));
-        if (store_length >= length) /* end key */
+        if (store_length >= length || i > 0) /* end key */
         {
           if (emit_key_part_name(&tmp, key_part))
             goto err;
@@ -1640,6 +1639,7 @@ error:
 }
 
 
+static federatedx_txn zero_txn;
 static int free_server(federatedx_txn *txn, FEDERATEDX_SERVER *server)
 {
   bool destroy;
@@ -1655,12 +1655,9 @@ static int free_server(federatedx_txn *txn, FEDERATEDX_SERVER *server)
     MEM_ROOT mem_root;
 
     if (!txn)
-    {
-      federatedx_txn tmp_txn;
-      tmp_txn.close(server);
-    }
-    else
-      txn->close(server);
+      txn= &zero_txn;
+
+    txn->close(server);
 
     DBUG_ASSERT(server->io_count == 0);
 
@@ -1679,7 +1676,7 @@ static int free_server(federatedx_txn *txn, FEDERATEDX_SERVER *server)
   free memory associated with it.
 */
 
-static int free_share(federatedx_txn *txn, FEDERATEDX_SHARE *share)
+static void free_share(federatedx_txn *txn, FEDERATEDX_SHARE *share)
 {
   bool destroy;
   DBUG_ENTER("free_share");
@@ -1702,7 +1699,7 @@ static int free_share(federatedx_txn *txn, FEDERATEDX_SHARE *share)
     free_server(txn, server);
   }
 
-  DBUG_RETURN(0);
+  DBUG_VOID_RETURN;
 }
 
 
@@ -1752,7 +1749,7 @@ int ha_federatedx::disconnect(handlerton *hton, MYSQL_THD thd)
 int ha_federatedx::open(const char *name, int mode, uint test_if_locked)
 {
   int error;
-  THD *thd= current_thd;
+  THD *thd= ha_thd();
   DBUG_ENTER("ha_federatedx::open");
 
   if (!(share= get_share(name, table)))
@@ -1782,6 +1779,20 @@ int ha_federatedx::open(const char *name, int mode, uint test_if_locked)
   DBUG_RETURN(0);
 }
 
+class Net_error_handler : public Internal_error_handler
+{
+public:
+  Net_error_handler() {}
+
+public:
+  bool handle_condition(THD *thd, uint sql_errno, const char* sqlstate,
+                        Sql_condition::enum_warning_level *level,
+                        const char* msg, Sql_condition ** cond_hdl)
+  {
+    return sql_errno >= ER_ABORTING_CONNECTION &&
+           sql_errno <= ER_NET_WRITE_INTERRUPTED;
+  }
+};
 
 /*
   Closes a table. We call the free_share() function to free any resources
@@ -1796,8 +1807,8 @@ int ha_federatedx::open(const char *name, int mode, uint test_if_locked)
 
 int ha_federatedx::close(void)
 {
-  int retval= 0, error;
-  THD *thd= current_thd;
+  int retval= 0;
+  THD *thd= ha_thd();
   DBUG_ENTER("ha_federatedx::close");
 
   /* free the result set */
@@ -1807,24 +1818,18 @@ int ha_federatedx::close(void)
 
   /* Disconnect from mysql */
   if (!thd || !(txn= get_txn(thd, true)))
-  {
-    federatedx_txn tmp_txn;
+    txn= &zero_txn;
 
-    tmp_txn.release(&io);
+  txn->release(&io);
+  DBUG_ASSERT(io == NULL);
 
-    DBUG_ASSERT(io == NULL);
+  Net_error_handler err_handler;
+  if (thd)
+    thd->push_internal_handler(&err_handler);
+  free_share(txn, share);
+  if (thd)
+    thd->pop_internal_handler();
 
-    if ((error= free_share(&tmp_txn, share)))
-      retval= error;
-  }
-  else
-  {
-    txn->release(&io);
-    DBUG_ASSERT(io == NULL);
-
-    if ((error= free_share(txn, share)))
-      retval= error;
-  }
   DBUG_RETURN(retval);
 }
 
@@ -1847,9 +1852,8 @@ int ha_federatedx::close(void)
       0    otherwise
 */
 
-static inline uint field_in_record_is_null(TABLE *table,
-                                    Field *field,
-                                    char *record)
+static inline uint field_in_record_is_null(TABLE *table, Field *field,
+                                           char *record)
 {
   int null_offset;
   DBUG_ENTER("ha_federatedx::field_in_record_is_null");
@@ -2151,7 +2155,7 @@ void ha_federatedx::start_bulk_insert(ha_rows rows, uint flags)
   
   @return Operation status
   @retval       0       No error
-  @retval       != 0    Error occured at remote server. Also sets my_errno.
+  @retval       != 0    Error occurred at remote server. Also sets my_errno.
 */
 
 int ha_federatedx::end_bulk_insert()
@@ -2186,7 +2190,7 @@ int ha_federatedx::end_bulk_insert()
 */
 void ha_federatedx::update_auto_increment(void)
 {
-  THD *thd= current_thd;
+  THD *thd= ha_thd();
   DBUG_ENTER("ha_federatedx::update_auto_increment");
 
   ha_federatedx::info(HA_STATUS_AUTO);
@@ -3033,7 +3037,7 @@ error:
 int ha_federatedx::info(uint flag)
 {
   uint error_code;
-  THD *thd= current_thd;
+  THD *thd= ha_thd();
   federatedx_txn *tmp_txn;
   federatedx_io *tmp_io= 0, **iop= 0;
   DBUG_ENTER("ha_federatedx::info");
@@ -3084,7 +3088,7 @@ error:
   else if (remote_error_number != -1 /* error already reported */)
   {
     error_code= remote_error_number;
-    my_error(error_code, MYF(0), ER(error_code));
+    my_error(error_code, MYF(0), ER_THD(thd, error_code));
   }
 fail:
   tmp_txn->release(&tmp_io);
@@ -3164,7 +3168,7 @@ int ha_federatedx::reset(void)
     federatedx_io *tmp_io= 0, **iop;
 
     // external_lock may not have been called so txn may not be set
-    tmp_txn= get_txn(current_thd);
+    tmp_txn= get_txn(ha_thd());
 
     if (!*(iop= &io) && (error= tmp_txn->acquire(share, TRUE, (iop= &tmp_io))))
     {
@@ -3339,7 +3343,7 @@ int ha_federatedx::create(const char *name, TABLE *table_arg,
                          HA_CREATE_INFO *create_info)
 {
   int retval;
-  THD *thd= current_thd;
+  THD *thd= ha_thd();
   FEDERATEDX_SHARE tmp_share; // Only a temporary share, to test the url
   federatedx_txn *tmp_txn;
   federatedx_io *tmp_io= NULL;

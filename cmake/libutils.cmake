@@ -57,14 +57,14 @@ IF(WIN32 OR CYGWIN OR APPLE OR WITH_PIC OR DISABLE_SHARED OR NOT CMAKE_SHARED_LI
  SET(_SKIP_PIC 1)
 ENDIF()
 
-INCLUDE(${MYSQL_CMAKE_SCRIPT_DIR}/cmake_parse_arguments.cmake)
-# CREATE_EXPORT_FILE (VAR target api_functions)
+INCLUDE(CMakeParseArguments)
+# CREATE_EXPORTS_FILE (VAR target api_functions)
 # Internal macro, used to create source file for shared libraries that 
 # otherwise consists entirely of "convenience" libraries. On Windows, 
 # also exports API functions as dllexport. On unix, creates a dummy file 
 # that references all exports and this prevents linker from creating an 
 # empty library(there are unportable alternatives, --whole-archive)
-MACRO(CREATE_EXPORT_FILE VAR TARGET API_FUNCTIONS)
+MACRO(CREATE_EXPORTS_FILE VAR TARGET API_FUNCTIONS)
   IF(WIN32)
     SET(DUMMY ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}_dummy.c)
     SET(EXPORTS ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}_exports.def)
@@ -87,6 +87,11 @@ MACRO(CREATE_EXPORT_FILE VAR TARGET API_FUNCTIONS)
     ENDFOREACH()
     SET(CONTENT "${CONTENT} (void *)0\n}\;")
     CONFIGURE_FILE_CONTENT(${CONTENT} ${EXPORTS})
+    # Avoid "function redeclared as variable" error
+    # when using gcc/clang option -flto(link time optimization)
+    IF(" ${CMAKE_C_FLAGS} ${CMAKE_CXX_FLAGS} " MATCHES " -flto")
+      SET_SOURCE_FILES_PROPERTIES(${EXPORTS} PROPERTIES COMPILE_FLAGS "-fno-lto")
+    ENDIF()
     SET(${VAR} ${EXPORTS})
   ENDIF()
 ENDMACRO()
@@ -213,13 +218,14 @@ ENDMACRO()
 #  [OUTPUT_NAME output_name]
 #)
 MACRO(MERGE_LIBRARIES)
-  MYSQL_PARSE_ARGUMENTS(ARG
-    "EXPORTS;OUTPUT_NAME;COMPONENT;VERSION;SOVERSION"
+  CMAKE_PARSE_ARGUMENTS(ARG
     "STATIC;SHARED;MODULE;NOINSTALL"
+    "OUTPUT_NAME;COMPONENT;VERSION;SOVERSION"
+    "EXPORTS"
     ${ARGN}
   )
-  LIST(GET ARG_DEFAULT_ARGS 0 TARGET) 
-  SET(LIBS ${ARG_DEFAULT_ARGS})
+  LIST(GET ARG_UNPARSED_ARGUMENTS 0 TARGET)
+  SET(LIBS ${ARG_UNPARSED_ARGUMENTS})
   LIST(REMOVE_AT LIBS 0)
   IF(ARG_STATIC)
     IF (NOT ARG_OUTPUT_NAME)
@@ -249,7 +255,7 @@ MACRO(MERGE_LIBRARIES)
         ENDIF()
       ENDFOREACH()
     ENDIF()
-    CREATE_EXPORT_FILE(SRC ${TARGET} "${ARG_EXPORTS}")
+    CREATE_EXPORTS_FILE(SRC ${TARGET} "${ARG_EXPORTS}")
     IF(NOT ARG_NOINSTALL)
       ADD_VERSION_INFO(${TARGET} SHARED SRC)
     ENDIF()
@@ -304,17 +310,17 @@ FUNCTION(GET_DEPENDEND_OS_LIBS target result)
   SET(${result} ${ret} PARENT_SCOPE)
 ENDFUNCTION()
 
+INCLUDE(CheckCCompilerFlag)
+
 SET(VISIBILITY_HIDDEN_FLAG)
 
-IF(CMAKE_COMPILER_IS_GNUCXX AND UNIX)
+IF(CMAKE_C_COMPILER_ID MATCHES "SunPro")
+  SET(VISIBILITY_HIDDEN_FLAG "-xldscope=hidden")
+ELSEIF(UNIX)
   CHECK_C_COMPILER_FLAG("-fvisibility=hidden" HAVE_VISIBILITY_HIDDEN)
   IF(HAVE_VISIBILITY_HIDDEN)
     SET(VISIBILITY_HIDDEN_FLAG "-fvisibility=hidden")
   ENDIF()
-ENDIF()
-
-IF(CMAKE_C_COMPILER_ID MATCHES "SunPro")
-  SET(VISIBILITY_HIDDEN_FLAG "-xldscope=hidden")
 ENDIF()
 
 # We try to hide the symbols in yassl/zlib to avoid name clashes with

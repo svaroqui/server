@@ -1,6 +1,7 @@
 /*****************************************************************************
 
 Copyright (C) 2013, 2014 Facebook, Inc. All Rights Reserved.
+Copyright (C) 2014, 2015, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -18,10 +19,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #ifndef btr0defragment_h
 #define btr0defragment_h
-
-#include "univ.i"
-
-#ifndef UNIV_HOTBACKUP
 
 #include "btr0pcur.h"
 
@@ -67,7 +64,9 @@ is a synchronized defragmentation. */
 os_event_t
 btr_defragment_add_index(
 	dict_index_t*	index,	/*!< index to be added  */
-	bool		async);	/*!< whether this is an async defragmentation */
+	bool		async,	/*!< whether this is an async
+				defragmentation */
+	dberr_t*	err);	/*!< out: error code */
 /******************************************************************//**
 When table is dropped, this function is called to mark a table as removed in
 btr_efragment_wq. The difference between this function and the remove_index
@@ -95,7 +94,4 @@ DECLARE_THREAD(btr_defragment_thread)(
 /*==========================================*/
 	void*	arg);		/*!< in: a dummy parameter required by
 				os_thread_create */
-
-
-#endif /* !UNIV_HOTBACKUP */
 #endif

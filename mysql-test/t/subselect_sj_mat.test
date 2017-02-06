@@ -1841,5 +1841,99 @@ drop database mysqltest2;
 drop database mysqltest3;
 drop database mysqltest4;
 
+--echo #
+--echo # MDEV-7810 Wrong result on execution of a query as a PS
+--echo # (both 1st and further executions)
+
+CREATE TABLE t1 (a INT NOT NULL) ENGINE=MyISAM;
+INSERT INTO t1 VALUES (0),(8);
+
+SELECT a FROM (SELECT DISTINCT * FROM t1) AS sq WHERE a IN (SELECT MIN(t2.a) FROM (t1 AS t2));
+PREPARE stmt FROM "
+SELECT a FROM (SELECT DISTINCT * FROM t1) AS sq WHERE a IN (SELECT MIN(t2.a) FROM (t1 AS t2))
+";
+execute stmt;
+execute stmt;
+
+drop table t1;
+
 --echo # End of 5.5 tests
+--echo #
+--echo # MDEV-7220: Materialization strategy is not used for REPLACE ... SELECT
+--echo #
+create table t0(a int);
+insert into t0 values (0),(1),(2),(3),(4),(5),(6),(7),(8),(9);
+
+create table t1 (a int, b int, c int);
+insert into t1 
+select A.a+B.a*10+C.a*100, A.a+B.a*10+C.a*100, A.a+B.a*10+C.a*100
+from t0 A, t0 B, t0 C;
+
+create table t2 (a int, b int, c int);
+insert into t2 select A.a, A.a, A.a from t1 A;
+insert into t2 select * from t2;
+insert into t2 select * from t2;
+
+create table t3 as select * from t2 limit 1;
+
+--echo # The testcase only makes sense if the following uses Materialization:
+explain
+select * from t1 where (a,b) in (select max(a),b from t2 group by b);
+
+flush status;
+replace into t3 
+select * from t1 where (a,b) in (select max(a),b from t2 group by b);
+--echo #  Sequential reads:
+--echo #    1K is read from t1
+--echo #    4K is read from t2
+--echo #    1K groups is read from the tmp. table
+--echo #
+--echo #  Lookups:
+--echo #    4K lookups in group by table
+--echo #    1K lookups in temp.table
+--echo #
+--echo #  Writes:
+--echo #    2x 1K writes to temporary tables (grouping table and subquery materialization table
+--echo #
+--echo #  The point is that neither counter should be in the millions (this
+--echo #     will happen if Materialization is not used 
+show status where Variable_name like 'Handler_read%' or  Variable_name like 'Handler_%write%';
+
+drop table t0,t1,t2,t3;
+
+--echo #
+--echo # MDEV-7971: Assertion `name != __null' failed in ACL_internal_schema_registry::lookup 
+--echo #            on 2nd execution os PS with multi-table update
+--echo #
+CREATE TABLE t1 (f1 INT);
+INSERT INTO t1 VALUES (1),(2);
+
+CREATE TABLE t2 (f2 INT);
+INSERT INTO t2 VALUES (3),(4);
+
+CREATE TABLE t3 (f3 INT);
+INSERT INTO t3 VALUES (5),(6);
+
+PREPARE stmt FROM '
+  UPDATE t1, t2 
+  SET f1 = 5
+  WHERE 8 IN ( SELECT MIN(f3) FROM t3 )
+';
+
+EXECUTE stmt;
+EXECUTE stmt;
+
+DROP TABLE t1,t2,t3;
+
+--echo #
+--echo # MDEV-10389: Query returns different results on a debug vs non-debug build of the same revision
+--echo #
+CREATE TABLE t1 (i1 INT, i2 INT NOT NULL);
+INSERT INTO t1 VALUES (1,4),(2,6);
+
+SELECT * FROM t1 AS alias1
+WHERE alias1.i1 IN (
+    SELECT i1 FROM t1 WHERE alias1.i2 IN ( SELECT i2 FROM t1 HAVING i2 <> 7 )
+);
+DROP TABLE t1;
 

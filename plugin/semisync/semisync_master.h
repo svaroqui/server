@@ -102,7 +102,7 @@ public:
     it are in use. A new Block is allocated and is put into the rear of the
     Block link table if no Block is free.
 
-    @return Return a TranxNode *, or NULL if an error occured.
+    @return Return a TranxNode *, or NULL if an error occurred.
    */
   TranxNode *allocate_node()
   {
@@ -134,7 +134,7 @@ public:
   /**
     All nodes are freed.
 
-    @return Return 0, or 1 if an error occured.
+    @return Return 0, or 1 if an error occurred.
    */
   int free_all_nodes()
   {
@@ -150,7 +150,7 @@ public:
 
     @param node All nodes before 'node' will be freed
 
-    @return Return 0, or 1 if an error occured.
+    @return Return 0, or 1 if an error occurred.
    */
   int free_nodes_before(TranxNode* node)
   {
@@ -594,9 +594,15 @@ class ReplSemiSyncMaster
   int resetMaster();
 };
 
+enum rpl_semi_sync_master_wait_point_t {
+  SEMI_SYNC_MASTER_WAIT_POINT_AFTER_BINLOG_SYNC,
+  SEMI_SYNC_MASTER_WAIT_POINT_AFTER_STORAGE_COMMIT,
+};
+
 /* System and status variables for the master component */
 extern char rpl_semi_sync_master_enabled;
 extern char rpl_semi_sync_master_status;
+extern unsigned long rpl_semi_sync_master_wait_point;
 extern unsigned long rpl_semi_sync_master_clients;
 extern unsigned long rpl_semi_sync_master_timeout;
 extern unsigned long rpl_semi_sync_master_trace_level;

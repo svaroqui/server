@@ -1,6 +1,6 @@
 /*
-   Copyright (c) 2002, 2013, Oracle and/or its affiliates.
-   Copyright (c) 2011, 2013, Monty Program Ab
+   Copyright (c) 2002, 2016, Oracle and/or its affiliates.
+   Copyright (c) 2011, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
-#include "my_global.h"                          /* NO_EMBEDDED_ACCESS_CHECKS */
+#include <my_global.h>                          /* NO_EMBEDDED_ACCESS_CHECKS */
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_prepare.h"
@@ -68,28 +68,6 @@ static void reset_start_time_for_sp(THD *thd)
 {
   if (!thd->in_sub_stmt)
     thd->set_start_time();
-}
-
-Item_result
-sp_map_result_type(enum enum_field_types type)
-{
-  switch (type) {
-  case MYSQL_TYPE_BIT:
-  case MYSQL_TYPE_TINY:
-  case MYSQL_TYPE_SHORT:
-  case MYSQL_TYPE_LONG:
-  case MYSQL_TYPE_LONGLONG:
-  case MYSQL_TYPE_INT24:
-    return INT_RESULT;
-  case MYSQL_TYPE_DECIMAL:
-  case MYSQL_TYPE_NEWDECIMAL:
-    return DECIMAL_RESULT;
-  case MYSQL_TYPE_FLOAT:
-  case MYSQL_TYPE_DOUBLE:
-    return REAL_RESULT;
-  default:
-    return STRING_RESULT;
-  }
 }
 
 
@@ -238,6 +216,7 @@ sp_get_flags_for_command(LEX *lex)
   case SQLCOM_SHOW_CREATE_PROC:
   case SQLCOM_SHOW_CREATE_EVENT:
   case SQLCOM_SHOW_CREATE_TRIGGER:
+  case SQLCOM_SHOW_CREATE_USER:
   case SQLCOM_SHOW_DATABASES:
   case SQLCOM_SHOW_ERRORS:
   case SQLCOM_SHOW_EXPLAIN:
@@ -274,6 +253,7 @@ sp_get_flags_for_command(LEX *lex)
     statement within an IF condition.
   */
   case SQLCOM_EXECUTE:
+  case SQLCOM_EXECUTE_IMMEDIATE:
     flags= sp_head::MULTI_RESULTS | sp_head::CONTAINS_DYNAMIC_SQL;
     break;
   case SQLCOM_PREPARE:
@@ -281,13 +261,13 @@ sp_get_flags_for_command(LEX *lex)
     flags= sp_head::CONTAINS_DYNAMIC_SQL;
     break;
   case SQLCOM_CREATE_TABLE:
-    if (lex->create_info.tmp_table())
+    if (lex->tmp_table())
       flags= 0;
     else
       flags= sp_head::HAS_COMMIT_OR_ROLLBACK;
     break;
   case SQLCOM_DROP_TABLE:
-    if (lex->drop_temporary)
+    if (lex->tmp_table())
       flags= 0;
     else
       flags= sp_head::HAS_COMMIT_OR_ROLLBACK;
@@ -305,6 +285,7 @@ sp_get_flags_for_command(LEX *lex)
   case SQLCOM_CREATE_USER:
   case SQLCOM_CREATE_ROLE:
   case SQLCOM_ALTER_TABLE:
+  case SQLCOM_ALTER_USER:
   case SQLCOM_GRANT:
   case SQLCOM_GRANT_ROLE:
   case SQLCOM_REVOKE:
@@ -341,11 +322,13 @@ sp_get_flags_for_command(LEX *lex)
   case SQLCOM_DELETE_MULTI:
   {
     /* 
-      DELETE normally doesn't return resultset, but there are two exceptions:
+      DELETE normally doesn't return resultset, but there are 3 exceptions:
        - DELETE ... RETURNING
        - EXPLAIN DELETE ...
+       - ANALYZE DELETE ...
     */
-    if (lex->select_lex.item_list.is_empty() && !lex->describe)
+    if (lex->select_lex.item_list.is_empty() &&
+        !lex->describe && !lex->analyze_stmt)
       flags= 0;
     else
       flags= sp_head::MULTI_RESULTS; 
@@ -358,7 +341,7 @@ sp_get_flags_for_command(LEX *lex)
   case SQLCOM_REPLACE_SELECT:
   case SQLCOM_INSERT_SELECT:
   {
-    if (!lex->describe)
+    if (!lex->describe && !lex->analyze_stmt)
       flags= 0;
     else
       flags= sp_head::MULTI_RESULTS; 
@@ -532,13 +515,15 @@ sp_name::init_qname(THD *thd)
 bool
 check_routine_name(LEX_STRING *ident)
 {
-  if (!ident || !ident->str || !ident->str[0] ||
-      ident->str[ident->length-1] == ' ')
+  DBUG_ASSERT(ident);
+  DBUG_ASSERT(ident->str);
+
+  if (!ident->str[0] || ident->str[ident->length-1] == ' ')
   {
     my_error(ER_SP_WRONG_NAME, MYF(0), ident->str);
     return TRUE;
   }
-  if (check_string_char_length(ident, "", NAME_CHAR_LEN,
+  if (check_string_char_length(ident, 0, NAME_CHAR_LEN,
                                system_charset_info, 1))
   {
     my_error(ER_TOO_LONG_IDENT, MYF(0), ident->str);
@@ -723,6 +708,7 @@ sp_head::set_stmt_end(THD *thd)
 {
   Lex_input_stream *lip= & thd->m_parser_state->m_lip; /* shortcut */
   const char *end_ptr= lip->get_cpp_ptr(); /* shortcut */
+  uint not_used;
 
   /* Make the string of parameters. */
 
@@ -740,7 +726,7 @@ sp_head::set_stmt_end(THD *thd)
 
   m_body.length= end_ptr - m_body_begin;
   m_body.str= thd->strmake(m_body_begin, m_body.length);
-  trim_whitespace(thd->charset(), & m_body);
+  trim_whitespace(thd->charset(), &m_body, &not_used);
 
   /* Make the string of UTF-body. */
 
@@ -748,7 +734,7 @@ sp_head::set_stmt_end(THD *thd)
 
   m_body_utf8.length= lip->get_body_utf8_length();
   m_body_utf8.str= thd->strmake(lip->get_body_utf8_str(), m_body_utf8.length);
-  trim_whitespace(thd->charset(), & m_body_utf8);
+  trim_whitespace(thd->charset(), &m_body_utf8, &not_used);
 
   /*
     Make the string of whole stored-program-definition query (in the
@@ -757,12 +743,12 @@ sp_head::set_stmt_end(THD *thd)
 
   m_defstr.length= end_ptr - lip->get_cpp_buf();
   m_defstr.str= thd->strmake(lip->get_cpp_buf(), m_defstr.length);
-  trim_whitespace(thd->charset(), & m_defstr);
+  trim_whitespace(thd->charset(), &m_defstr, &not_used);
 }
 
 
 static TYPELIB *
-create_typelib(MEM_ROOT *mem_root, Create_field *field_def, List<String> *src)
+create_typelib(MEM_ROOT *mem_root, Column_definition *field_def, List<String> *src)
 {
   TYPELIB *result= NULL;
   CHARSET_INFO *cs= field_def->charset;
@@ -861,29 +847,56 @@ Field *
 sp_head::create_result_field(uint field_max_length, const char *field_name,
                              TABLE *table)
 {
-  uint field_length;
   Field *field;
 
   DBUG_ENTER("sp_head::create_result_field");
 
-  field_length= !m_return_field_def.length ?
-                field_max_length : m_return_field_def.length;
+  /*
+    m_return_field_def.length is always set to the field length calculated
+    by the parser, according to the RETURNS clause. See prepare_create_field()
+    in sql_table.cc. Value examples, depending on data type:
+    - 11 for INT                          (character representation length)
+    - 20 for BIGINT                       (character representation length)
+    - 22 for DOUBLE                       (character representation length)
+    - N for CHAR(N) CHARACTER SET latin1  (octet length)
+    - 3*N for CHAR(N) CHARACTER SET utf8  (octet length)
+    - 8 for blob-alike data types         (packed length !!!)
 
-  field= ::make_field(table->s,                     /* TABLE_SHARE ptr */
-                      (uchar*) 0,                   /* field ptr */
-                      field_length,                 /* field [max] length */
-                      (uchar*) "",                  /* null ptr */
-                      0,                            /* null bit */
-                      m_return_field_def.pack_flag,
-                      m_return_field_def.sql_type,
-                      m_return_field_def.charset,
-                      m_return_field_def.geom_type,
-                      Field::NONE,                  /* unreg check */
-                      m_return_field_def.interval,
-                      field_name ? field_name : (const char *) m_name.str);
+    field_max_length is also set according to the data type in the RETURNS
+    clause but can have different values depending on the execution stage:
+
+    1. During direct execution:
+    field_max_length is 0, because Item_func_sp::fix_length_and_dec() has
+    not been called yet, so Item_func_sp::max_length is 0 by default.
+
+    2a. During PREPARE:
+    field_max_length is 0, because Item_func_sp::fix_length_and_dec()
+    has not been called yet. It's called after create_result_field().
+
+    2b. During EXEC:
+    field_max_length is set to the maximum possible octet length of the
+    RETURNS data type.
+    - N for CHAR(N) CHARACTER SET latin1  (octet length)
+    - 3*N for CHAR(N) CHARACTER SET utf8  (octet length)
+    - 255 for TINYBLOB                    (octet length, not packed length !!!)
+
+    Perhaps we should refactor prepare_create_field() to set
+    Create_field::length to maximum octet length for BLOBs,
+    instead of packed length).
+  */
+  DBUG_ASSERT(field_max_length <= m_return_field_def.length ||
+              (current_thd->stmt_arena->is_stmt_execute() &&
+               m_return_field_def.length == 8 &&
+               (m_return_field_def.pack_flag &
+                (FIELDFLAG_BLOB|FIELDFLAG_GEOM))));
+
+  field= m_return_field_def.make_field(table->s, /* TABLE_SHARE ptr */
+                                       table->in_use->mem_root,
+                                       field_name ?
+                                       field_name :
+                                       (const char *) m_name.str);
 
   field->vcol_info= m_return_field_def.vcol_info;
-  field->stored_in_db= m_return_field_def.stored_in_db;
   if (field)
     field->init(table);
 
@@ -1127,35 +1140,12 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
   const uint status_backup_mask= SERVER_STATUS_CURSOR_EXISTS |
                                  SERVER_STATUS_LAST_ROW_SENT;
   Reprepare_observer *save_reprepare_observer= thd->m_reprepare_observer;
-  Object_creation_ctx *saved_creation_ctx;
+  Object_creation_ctx *UNINIT_VAR(saved_creation_ctx);
   Diagnostics_area *da= thd->get_stmt_da();
   Warning_info sp_wi(da->warning_info_id(), false, true);
 
-  /*
-    Just reporting a stack overrun error
-    (@sa check_stack_overrun()) requires stack memory for error
-    message buffer. Thus, we have to put the below check
-    relatively close to the beginning of the execution stack,
-    where available stack margin is still big. As long as the check
-    has to be fairly high up the call stack, the amount of memory
-    we "book" for has to stay fairly high as well, and hence
-    not very accurate. The number below has been calculated
-    by trial and error, and reflects the amount of memory necessary
-    to execute a single stored procedure instruction, be it either
-    an SQL statement, or, heaviest of all, a CALL, which involves
-    parsing and loading of another stored procedure into the cache
-    (@sa db_load_routine() and Bug#10100).
-    At the time of measuring, a recursive SP invocation required
-    3232 bytes of stack on 32 bit Linux, 6016 bytes on 64 bit Mac
-    and 11152 on 64 bit Solaris sparc.
-    The same with db_load_routine() required circa 7k bytes and
-    14k bytes accordingly. Hence, here we book the stack with some
-    reasonable margin.
-
-    Reverting back to 8 * STACK_MIN_SIZE until further fix.
-    8 * STACK_MIN_SIZE is required on some exotic platforms.
-  */
-  if (check_stack_overrun(thd, 8 * STACK_MIN_SIZE, (uchar*)&old_packet))
+  /* this 7*STACK_MIN_SIZE is a complex matter with a long history (see it!) */
+  if (check_stack_overrun(thd, 7 * STACK_MIN_SIZE, (uchar*)&old_packet))
     DBUG_RETURN(TRUE);
 
   /* init per-instruction memroot */
@@ -1205,7 +1195,7 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
 
   /*
     Switch query context. This has to be done early as this is sometimes
-    allocated trough sql_alloc
+    allocated on THD::mem_root
   */
   if (m_creation_ctx)
     saved_creation_ctx= m_creation_ctx->set_n_backup(thd);
@@ -1331,7 +1321,12 @@ sp_head::execute(THD *thd, bool merge_da_on_success)
     if (thd->locked_tables_mode <= LTM_LOCK_TABLES)
       thd->user_var_events_alloc= thd->mem_root;
 
+    sql_digest_state *parent_digest= thd->m_digest;
+    thd->m_digest= NULL;
+
     err_status= i->execute(thd, &ip);
+
+    thd->m_digest= parent_digest;
 
     if (i->free_list)
       cleanup_items(i->free_list);
@@ -1716,7 +1711,7 @@ bool
 sp_head::execute_function(THD *thd, Item **argp, uint argcount,
                           Field *return_value_fld)
 {
-  ulonglong binlog_save_options;
+  ulonglong UNINIT_VAR(binlog_save_options);
   bool need_binlog_call= FALSE;
   uint arg_no;
   sp_rcontext *octx = thd->spcont;
@@ -1729,8 +1724,6 @@ sp_head::execute_function(THD *thd, Item **argp, uint argcount,
   Query_arena backup_arena;
   DBUG_ENTER("sp_head::execute_function");
   DBUG_PRINT("info", ("function %s", m_name.str));
-
-  LINT_INIT(binlog_save_options);
 
   /*
     Check that the function is called with all specified arguments.
@@ -2037,7 +2030,7 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
 
       if (spvar->mode == sp_variable::MODE_OUT)
       {
-        Item_null *null_item= new Item_null();
+        Item_null *null_item= new (thd->mem_root) Item_null(thd);
         Item *tmp_item= null_item;
 
         if (!null_item ||
@@ -2057,6 +2050,8 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
           break;
         }
       }
+
+      TRANSACT_TRACKER(add_trx_state_from_thd(thd));
     }
 
     /*
@@ -2166,7 +2161,7 @@ sp_head::execute_procedure(THD *thd, List<Item> *args)
       }
 
       Send_field *out_param_info= new (thd->mem_root) Send_field();
-      nctx->get_item(i)->make_field(out_param_info);
+      nctx->get_item(i)->make_field(thd, out_param_info);
       out_param_info->db_name= m_db.str;
       out_param_info->table_name= m_name.str;
       out_param_info->org_table_name= m_name.str;
@@ -2239,16 +2234,6 @@ sp_head::reset_lex(THD *thd)
   sublex->trg_table_fields.empty();
   sublex->sp_lex_in_use= FALSE;
 
-  /* Reset type info. */
-
-  sublex->charset= NULL;
-  sublex->length= NULL;
-  sublex->dec= NULL;
-  sublex->interval_list.empty();
-  sublex->type= 0;
-  sublex->uint_geom_type= 0;
-  sublex->vcol_info= 0;
-
   /* Reset part of parser state which needs this. */
   thd->m_parser_state->m_yacc.reset_before_substatement();
 
@@ -2319,9 +2304,9 @@ sp_head::restore_lex(THD *thd)
   Put the instruction on the backpatch list, associated with the label.
 */
 int
-sp_head::push_backpatch(sp_instr *i, sp_label *lab)
+sp_head::push_backpatch(THD *thd, sp_instr *i, sp_label *lab)
 {
-  bp_t *bp= (bp_t *)sql_alloc(sizeof(bp_t));
+  bp_t *bp= (bp_t *) thd->alloc(sizeof(bp_t));
 
   if (!bp)
     return 1;
@@ -2355,12 +2340,11 @@ sp_head::backpatch(sp_label *lab)
 }
 
 /**
-  Prepare an instance of Create_field for field creation (fill all necessary
-  attributes).
+  Prepare an instance of Column_definition for field creation
+  (fill all necessary attributes).
 
   @param[in]  thd          Thread handle
   @param[in]  lex          Yacc parsing context
-  @param[in]  field_type   Field type
   @param[out] field_def    An instance of create_field to be filled
 
   @retval
@@ -2371,19 +2355,11 @@ sp_head::backpatch(sp_label *lab)
 
 bool
 sp_head::fill_field_definition(THD *thd, LEX *lex,
-                               enum enum_field_types field_type,
-                               Create_field *field_def)
+                               Column_definition *field_def)
 {
-  LEX_STRING cmt = { 0, 0 };
   uint unused1= 0;
 
-  if (field_def->init(thd, (char*) "", field_type, lex->length, lex->dec,
-                      lex->type, (Item*) 0, (Item*) 0, &cmt, 0,
-                      &lex->interval_list,
-                      lex->charset ? lex->charset :
-                                     thd->variables.collation_database,
-                      lex->uint_geom_type,
-		      lex->vcol_info, NULL, FALSE))
+  if (field_def->check(thd))
     return TRUE;
 
   if (field_def->interval_list.elements)
@@ -2438,7 +2414,7 @@ sp_head::do_cont_backpatch()
 
 void
 sp_head::set_info(longlong created, longlong modified,
-                  st_sp_chistics *chistics, ulonglong sql_mode)
+                  st_sp_chistics *chistics, sql_mode_t sql_mode)
 {
   m_created= created;
   m_modified= modified;
@@ -2566,6 +2542,69 @@ bool check_show_routine_access(THD *thd, sp_head *sp, bool *full_access)
 
 
 /**
+  Collect metadata for SHOW CREATE statement for stored routines.
+
+  @param thd  Thread context.
+  @param type         Stored routine type
+  @param type         Stored routine type
+                      (TYPE_ENUM_PROCEDURE or TYPE_ENUM_FUNCTION)
+
+  @return Error status.
+    @retval FALSE on success
+    @retval TRUE on error
+*/
+
+void
+sp_head::show_create_routine_get_fields(THD *thd, int type, List<Item> *fields)
+{
+  const char *col1_caption= type == TYPE_ENUM_PROCEDURE ?
+                            "Procedure" : "Function";
+
+  const char *col3_caption= type == TYPE_ENUM_PROCEDURE ?
+                            "Create Procedure" : "Create Function";
+
+  MEM_ROOT *mem_root= thd->mem_root;
+
+  /* Send header. */
+
+  fields->push_back(new (mem_root)
+                    Item_empty_string(thd, col1_caption, NAME_CHAR_LEN),
+                    mem_root);
+  fields->push_back(new (mem_root)
+                    Item_empty_string(thd, "sql_mode", 256),
+                    mem_root);
+
+  {
+    /*
+      NOTE: SQL statement field must be not less than 1024 in order not to
+      confuse old clients.
+    */
+
+    Item_empty_string *stmt_fld=
+      new (mem_root) Item_empty_string(thd, col3_caption, 1024);
+    stmt_fld->maybe_null= TRUE;
+
+    fields->push_back(stmt_fld, mem_root);
+  }
+
+  fields->push_back(new (mem_root)
+                   Item_empty_string(thd, "character_set_client",
+                                     MY_CS_NAME_SIZE),
+                   mem_root);
+
+  fields->push_back(new (mem_root)
+                   Item_empty_string(thd, "collation_connection",
+                                     MY_CS_NAME_SIZE),
+                   mem_root);
+
+  fields->push_back(new (mem_root)
+                   Item_empty_string(thd, "Database Collation",
+                                     MY_CS_NAME_SIZE),
+                   mem_root);
+}
+
+
+/**
   Implement SHOW CREATE statement for stored routines.
 
   @param thd  Thread context.
@@ -2594,6 +2633,7 @@ sp_head::show_create_routine(THD *thd, int type)
   LEX_STRING sql_mode;
 
   bool full_access;
+  MEM_ROOT *mem_root= thd->mem_root;
 
   DBUG_ENTER("sp_head::show_create_routine");
   DBUG_PRINT("info", ("routine %s", m_name.str));
@@ -2608,8 +2648,12 @@ sp_head::show_create_routine(THD *thd, int type)
 
   /* Send header. */
 
-  fields.push_back(new Item_empty_string(col1_caption, NAME_CHAR_LEN));
-  fields.push_back(new Item_empty_string("sql_mode", sql_mode.length));
+  fields.push_back(new (mem_root)
+                   Item_empty_string(thd, col1_caption, NAME_CHAR_LEN),
+                   thd->mem_root);
+  fields.push_back(new (mem_root)
+                   Item_empty_string(thd, "sql_mode", sql_mode.length),
+                   thd->mem_root);
 
   {
     /*
@@ -2618,22 +2662,28 @@ sp_head::show_create_routine(THD *thd, int type)
     */
 
     Item_empty_string *stmt_fld=
-      new Item_empty_string(col3_caption,
+      new (mem_root) Item_empty_string(thd, col3_caption,
                             MY_MAX(m_defstr.length, 1024));
 
     stmt_fld->maybe_null= TRUE;
 
-    fields.push_back(stmt_fld);
+    fields.push_back(stmt_fld, thd->mem_root);
   }
 
-  fields.push_back(new Item_empty_string("character_set_client",
-                                         MY_CS_NAME_SIZE));
+  fields.push_back(new (mem_root)
+                   Item_empty_string(thd, "character_set_client",
+                                     MY_CS_NAME_SIZE),
+                   thd->mem_root);
 
-  fields.push_back(new Item_empty_string("collation_connection",
-                                         MY_CS_NAME_SIZE));
+  fields.push_back(new (mem_root)
+                   Item_empty_string(thd, "collation_connection",
+                                     MY_CS_NAME_SIZE),
+                   thd->mem_root);
 
-  fields.push_back(new Item_empty_string("Database Collation",
-                                         MY_CS_NAME_SIZE));
+  fields.push_back(new (mem_root)
+                   Item_empty_string(thd, "Database Collation",
+                                     MY_CS_NAME_SIZE),
+                   thd->mem_root);
 
   if (protocol->send_result_set_metadata(&fields,
                             Protocol::SEND_NUM_ROWS | Protocol::SEND_EOF))
@@ -2816,10 +2866,13 @@ sp_head::show_routine_code(THD *thd)
   if (check_show_routine_access(thd, this, &full_access) || !full_access)
     DBUG_RETURN(1);
 
-  field_list.push_back(new Item_uint("Pos", 9));
+  field_list.push_back(new (thd->mem_root) Item_uint(thd, "Pos", 9),
+                       thd->mem_root);
   // 1024 is for not to confuse old clients
-  field_list.push_back(new Item_empty_string("Instruction",
-                                             MY_MAX(buffer.length(), 1024)));
+  field_list.push_back(new (thd->mem_root)
+                       Item_empty_string(thd, "Instruction",
+                                         MY_MAX(buffer.length(), 1024)),
+                       thd->mem_root);
   if (protocol->send_result_set_metadata(&field_list, Protocol::SEND_NUM_ROWS |
                                          Protocol::SEND_EOF))
     DBUG_RETURN(1);
@@ -2928,6 +2981,18 @@ sp_lex_keeper::reset_lex_and_exec_core(THD *thd, uint *nextp,
 
   reinit_stmt_before_use(thd, m_lex);
 
+#ifndef EMBEDDED_LIBRARY
+  /*
+    If there was instruction which changed tracking state,
+    the result of changed tracking state send to client in OK packed.
+    So it changes result sent to client and probably can be different
+    independent on query text. So we can't cache such results.
+  */
+  if ((thd->client_capabilities & CLIENT_SESSION_TRACK) &&
+      (thd->server_status & SERVER_SESSION_STATE_CHANGED))
+    thd->lex->safe_to_cache_query= 0;
+#endif
+
   if (open_tables)
     res= instr->exec_open_and_lock_tables(thd, m_lex->query_tables);
 
@@ -3004,6 +3069,9 @@ sp_lex_keeper::reset_lex_and_exec_core(THD *thd, uint *nextp,
     what is needed from the substatement gained
   */
   thd->transaction.stmt.modified_non_trans_table |= parent_modified_non_trans_table;
+
+  TRANSACT_TRACKER(add_trx_state_from_thd(thd));
+
   /*
     Unlike for PS we should not call Item's destructors for newly created
     items after execution of each instruction in stored routine. This is
@@ -3013,6 +3081,7 @@ sp_lex_keeper::reset_lex_and_exec_core(THD *thd, uint *nextp,
 
     cleanup_items() is called in sp_head::execute()
   */
+  thd->lex->restore_set_statement_var();
   DBUG_RETURN(res || thd->is_error());
 }
 
@@ -3029,7 +3098,7 @@ int sp_instr::exec_open_and_lock_tables(THD *thd, TABLE_LIST *tables)
     Check whenever we have access to tables for this statement
     and open and lock them before executing instructions core function.
   */
-  if (open_temporary_tables(thd, tables) ||
+  if (thd->open_temporary_tables(tables) ||
       check_table_access(thd, SELECT_ACL, tables, FALSE, UINT_MAX, FALSE)
       || open_and_lock_tables(thd, tables, TRUE, 0))
     result= -1;
@@ -3228,7 +3297,8 @@ sp_instr_set::print(String *str)
   }
   str->qs_append(m_offset);
   str->qs_append(' ');
-  m_value->print(str, QT_ORDINARY);
+  m_value->print(str, enum_query_type(QT_ORDINARY |
+                                      QT_ITEM_ORIGINAL_FUNC_NULLIF));
 }
 
 
@@ -3248,7 +3318,10 @@ sp_instr_set_trigger_field::execute(THD *thd, uint *nextp)
 int
 sp_instr_set_trigger_field::exec_core(THD *thd, uint *nextp)
 {
+  bool sav_abort_on_warning= thd->abort_on_warning;
+  thd->abort_on_warning= thd->is_strict_mode() && !thd->lex->ignore;
   const int res= (trigger_field->set_value(thd, &value) ? -1 : 0);
+  thd->abort_on_warning= sav_abort_on_warning;
   *nextp = m_ip+1;
   return res;
 }
@@ -3257,9 +3330,11 @@ void
 sp_instr_set_trigger_field::print(String *str)
 {
   str->append(STRING_WITH_LEN("set_trigger_field "));
-  trigger_field->print(str, QT_ORDINARY);
+  trigger_field->print(str, enum_query_type(QT_ORDINARY |
+                                            QT_ITEM_ORIGINAL_FUNC_NULLIF));
   str->append(STRING_WITH_LEN(":="));
-  value->print(str, QT_ORDINARY);
+  value->print(str, enum_query_type(QT_ORDINARY |
+                                    QT_ITEM_ORIGINAL_FUNC_NULLIF));
 }
 
 /*
@@ -3385,7 +3460,8 @@ sp_instr_jump_if_not::print(String *str)
   str->qs_append('(');
   str->qs_append(m_cont_dest);
   str->qs_append(STRING_WITH_LEN(") "));
-  m_expr->print(str, QT_ORDINARY);
+  m_expr->print(str, enum_query_type(QT_ORDINARY |
+                                     QT_ITEM_ORIGINAL_FUNC_NULLIF));
 }
 
 
@@ -3481,7 +3557,8 @@ sp_instr_freturn::print(String *str)
   str->qs_append(STRING_WITH_LEN("freturn "));
   str->qs_append((uint)m_type);
   str->qs_append(' ');
-  m_value->print(str, QT_ORDINARY);
+  m_value->print(str, enum_query_type(QT_ORDINARY |
+                                      QT_ITEM_ORIGINAL_FUNC_NULLIF));
 }
 
 /*
@@ -3652,7 +3729,7 @@ sp_instr_cpush::execute(THD *thd, uint *nextp)
 {
   DBUG_ENTER("sp_instr_cpush::execute");
 
-  int ret= thd->spcont->push_cursor(&m_lex_keeper, this);
+  int ret= thd->spcont->push_cursor(thd, &m_lex_keeper, this);
 
   *nextp= m_ip+1;
 
@@ -3885,7 +3962,7 @@ sp_instr_error::execute(THD *thd, uint *nextp)
 {
   DBUG_ENTER("sp_instr_error::execute");
 
-  my_message(m_errcode, ER(m_errcode), MYF(0));
+  my_message(m_errcode, ER_THD(thd, m_errcode), MYF(0));
   *nextp= m_ip+1;
   DBUG_RETURN(-1);
 }
@@ -3927,7 +4004,7 @@ sp_instr_set_case_expr::exec_core(THD *thd, uint *nextp)
       initialized. Set to NULL so we can continue.
     */
 
-    Item *null_item= new Item_null();
+    Item *null_item= new (thd->mem_root) Item_null(thd);
 
     if (!null_item ||
         thd->spcont->set_case_expr(thd, m_case_expr_id, &null_item))
@@ -3953,7 +4030,8 @@ sp_instr_set_case_expr::print(String *str)
   str->qs_append(STRING_WITH_LEN(") "));
   str->qs_append(m_case_expr_id);
   str->qs_append(' ');
-  m_case_expr->print(str, QT_ORDINARY);
+  m_case_expr->print(str, enum_query_type(QT_ORDINARY |
+                                          QT_ITEM_ORIGINAL_FUNC_NULLIF));
 }
 
 uint
@@ -4040,7 +4118,7 @@ sp_head::merge_table_list(THD *thd, TABLE_LIST *table, LEX *lex_for_tmp_check)
   SP_TABLE *tab;
 
   if (lex_for_tmp_check->sql_command == SQLCOM_DROP_TABLE &&
-      lex_for_tmp_check->drop_temporary)
+      lex_for_tmp_check->tmp_table())
     return TRUE;
 
   for (uint i= 0 ; i < m_sptabs.records ; i++)
@@ -4105,7 +4183,7 @@ sp_head::merge_table_list(THD *thd, TABLE_LIST *table, LEX *lex_for_tmp_check)
           return FALSE;
         if (lex_for_tmp_check->sql_command == SQLCOM_CREATE_TABLE &&
             lex_for_tmp_check->query_tables == table &&
-            lex_for_tmp_check->create_info.tmp_table())
+            lex_for_tmp_check->tmp_table())
         {
           tab->temp= TRUE;
           tab->qname.length= temp_table_key_length;
@@ -4178,7 +4256,7 @@ sp_head::add_used_tables_to_table_list(THD *thd,
     if (stab->temp)
       continue;
 
-    if (!(tab_buff= (char *)thd->calloc(ALIGN_SIZE(sizeof(TABLE_LIST)) *
+    if (!(tab_buff= (char *)thd->alloc(ALIGN_SIZE(sizeof(TABLE_LIST)) *
                                         stab->lock_count)) ||
         !(key_buff= (char*)thd->memdup(stab->qname.str,
                                        stab->qname.length)))
@@ -4187,32 +4265,11 @@ sp_head::add_used_tables_to_table_list(THD *thd,
     for (uint j= 0; j < stab->lock_count; j++)
     {
       table= (TABLE_LIST *)tab_buff;
-
-      table->db= key_buff;
-      table->db_length= stab->db_length;
-      table->table_name= table->db + table->db_length + 1;
-      table->table_name_length= stab->table_name_length;
-      table->alias= table->table_name + table->table_name_length + 1;
-      table->lock_type= stab->lock_type;
-      table->cacheable_table= 1;
-      table->prelocking_placeholder= 1;
-      table->belong_to_view= belong_to_view;
-      table->trg_event_map= stab->trg_event_map;
-      /*
-        Since we don't allow DDL on base tables in prelocked mode it
-        is safe to infer the type of metadata lock from the type of
-        table lock.
-      */
-      table->mdl_request.init(MDL_key::TABLE, table->db, table->table_name,
-                              table->lock_type >= TL_WRITE_ALLOW_WRITE ?
-                              MDL_SHARED_WRITE : MDL_SHARED_READ,
-                              MDL_TRANSACTION);
-
-      /* Everyting else should be zeroed */
-
-      **query_tables_last_ptr= table;
-      table->prev_global= *query_tables_last_ptr;
-      *query_tables_last_ptr= &table->next_global;
+      table->init_one_table_for_prelocking(key_buff, stab->db_length,
+           key_buff + stab->db_length + 1, stab->table_name_length,
+           key_buff + stab->db_length + stab->table_name_length + 2,
+           stab->lock_type, true, belong_to_view, stab->trg_event_map,
+           query_tables_last_ptr);
 
       tab_buff+= ALIGN_SIZE(sizeof(TABLE_LIST));
       result= TRUE;

@@ -1,4 +1,4 @@
-# Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2009, 2014, Oracle and/or its affiliates. All rights reserved.
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,9 +14,6 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA 
 
 SET(CPACK_SOURCE_IGNORE_FILES
-\\\\.bzr/
-\\\\.bzr-mysql
-\\\\.bzrignore
 \\\\.git/
 \\\\.gitignore
 CMakeCache\\\\.txt
@@ -42,7 +39,6 @@ scripts/mysql_fix_extensions$
 scripts/mysql_install_db$
 scripts/mysql_secure_installation$
 scripts/mysql_setpermission$
-scripts/mysql_zap$
 scripts/mysqlaccess$
 scripts/mysqld_multi$
 scripts/mysqld_safe$

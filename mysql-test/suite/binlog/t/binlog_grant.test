@@ -15,7 +15,7 @@ show grants for mysqltest_1@localhost;
 connect (plain,localhost,mysqltest_1,,test);
 connect (root,localhost,root,,test);
 
-# Testing setting both session and global SQL_LOG_BIN variable both as
+# Testing setting session SQL_LOG_BIN variable both as
 # root and as plain user.
 
 --echo **** Variable SQL_LOG_BIN ****
@@ -58,6 +58,7 @@ drop user mysqltest_1@localhost;
 
 # Testing if REPLICATION CLIENT privilege is enough to execute
 # SHOW MASTER LOGS and SHOW BINARY.
+CREATE USER 'mysqltest_1'@'localhost';
 GRANT REPLICATION CLIENT ON *.* TO 'mysqltest_1'@'localhost';
 --connect(rpl,localhost,mysqltest_1,,)
 

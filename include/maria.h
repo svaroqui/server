@@ -20,12 +20,10 @@
 #ifndef _maria_h
 #define _maria_h
 #include <my_base.h>
-#include <my_sys.h>
 #include <m_ctype.h>
 #include "my_compare.h"
 #include "ft_global.h"
 #include <myisamchk.h>
-#include <mysql/plugin.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -46,7 +44,7 @@ extern "C" {
 #define MARIA_NAME_IEXT	".MAI"
 #define MARIA_NAME_DEXT	".MAD"
 /* Max extra space to use when sorting keys */
-#define MARIA_MAX_TEMP_LENGTH	2*1024L*1024L*1024L
+#define MARIA_MAX_TEMP_LENGTH	(2*1024L*1024L*1024L)
 /* Possible values for maria_block_size (must be power of 2) */
 #define MARIA_KEY_BLOCK_LENGTH	8192		/* default key block length */
 #define MARIA_MIN_KEY_BLOCK_LENGTH	1024	/* Min key block length */
@@ -151,7 +149,7 @@ typedef struct st_maria_create_info
   uint null_bytes;
   uint old_options;
   enum data_file_type org_data_file_type;
-  uint8 language;
+  uint16 language;
   my_bool with_auto_increment, transactional;
 } MARIA_CREATE_INFO;
 
@@ -270,6 +268,8 @@ extern my_bool maria_delay_key_write;
 extern my_off_t maria_max_temp_length;
 extern ulong maria_bulk_insert_tree_size, maria_data_pointer_size;
 extern MY_TMPDIR *maria_tmpdir;
+extern my_bool maria_encrypt_tables;
+
 /*
   This is used to check if a symlink points into the mysql data home,
   which is normally forbidden as it can be used to get access to

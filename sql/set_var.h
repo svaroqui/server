@@ -48,6 +48,7 @@ struct sys_var_chain
 int mysql_add_sys_var_chain(sys_var *chain);
 int mysql_del_sys_var_chain(sys_var *chain);
 
+
 /**
   A class representing one system variable - that is something
   that can be accessed as @@global.variable_name or @@session.variable_name,
@@ -55,13 +56,15 @@ int mysql_del_sys_var_chain(sys_var *chain);
   optionally it can be assigned to, optionally it can have a command-line
   counterpart with the same name.
 */
-class sys_var
+class sys_var: protected Value_source // for double_from_string_with_check
 {
 public:
   sys_var *next;
   LEX_CSTRING name;
+  bool *test_load;
   enum flag_enum { GLOBAL, SESSION, ONLY_SESSION, SCOPE_MASK=1023,
-                   READONLY=1024, ALLOCATED=2048, PARSE_EARLY=4096 };
+                   READONLY=1024, ALLOCATED=2048, PARSE_EARLY=4096,
+                   NO_SET_STATEMENT=8192, AUTO_SET=16384};
   enum { NO_GETOPT=-1, GETOPT_ONLY_HELP=-2 };
   enum where { CONFIG, AUTO, SQL, COMPILE_TIME, ENV };
 
@@ -133,10 +136,12 @@ public:
     that support the syntax @@keycache_name.variable_name
   */
   bool is_struct() { return option.var_type & GET_ASK_ADDR; }
+  bool is_set_stmt_ok() const { return !(flags & NO_SET_STATEMENT); }
   bool is_written_to_binlog(enum_var_type type)
   { return type != OPT_GLOBAL && binlog_status == SESSION_VARIABLE_IN_BINLOG; }
-  bool check_update_type(Item_result type)
+  bool check_update_type(const Item *item)
   {
+    Item_result type= item->result_type();
     switch (option.var_type & GET_TYPE_MASK) {
     case GET_INT:
     case GET_UINT:
@@ -144,7 +149,8 @@ public:
     case GET_ULONG:
     case GET_LL:
     case GET_ULL:
-      return type != INT_RESULT;
+      return type != INT_RESULT &&
+             (type != DECIMAL_RESULT || item->decimals != 0);
     case GET_STR:
     case GET_STR_ALLOC:
       return type != STRING_RESULT;
@@ -191,6 +197,15 @@ public:
     return insert_dynamic(array, (uchar*)&option);
   }
   void do_deprecated_warning(THD *thd);
+  /**
+    whether session value of a sysvar is a default one.
+
+    in this simple implementation we don't distinguish between default
+    and non-default values. for most variables it's ok, they don't treat
+    default values specially. this method is overwritten in descendant
+    classes as necessary.
+  */
+  virtual bool session_is_default(THD *thd) { return false; }
 
   virtual uchar *default_value_ptr(THD *thd)
   { return (uchar*)&option.def_value; }
@@ -227,6 +242,9 @@ protected:
 
   uchar *global_var_ptr()
   { return ((uchar*)&global_system_variables) + offset; }
+
+  friend class Session_sysvars_tracker;
+  friend class Session_tracker;
 };
 
 #include "sql_plugin.h"                    /* SHOW_HA_ROWS, SHOW_MY_BOOL */
@@ -249,6 +267,7 @@ public:
   virtual int check(THD *thd)=0;           /* To check privileges etc. */
   virtual int update(THD *thd)=0;                  /* To set the value */
   virtual int light_check(THD *thd) { return check(thd); }   /* for PS */
+  virtual bool is_system() { return FALSE; }
 };
 
 
@@ -273,23 +292,9 @@ public:
   } save_result;
   LEX_STRING base; /**< for structured variables, like keycache_name.variable_name */
 
-  set_var(enum_var_type type_arg, sys_var *var_arg,
-          const LEX_STRING *base_name_arg, Item *value_arg)
-    :var(var_arg), type(type_arg), base(*base_name_arg)
-  {
-    /*
-      If the set value is a field, change it to a string to allow things like
-      SET table_type=MYISAM;
-    */
-    if (value_arg && value_arg->type() == Item::FIELD_ITEM)
-    {
-      Item_field *item= (Item_field*) value_arg;
-      if (!(value=new Item_string_sys(item->field_name))) // names are utf8
-        value=value_arg;                        /* Give error message later */
-    }
-    else
-      value=value_arg;
-  }
+  set_var(THD *thd, enum_var_type type_arg, sys_var *var_arg,
+          const LEX_STRING *base_name_arg, Item *value_arg);
+  virtual bool is_system() { return 1; }
   int check(THD *thd);
   int update(THD *thd);
   int light_check(THD *thd);
@@ -314,10 +319,8 @@ public:
 class set_var_password: public set_var_base
 {
   LEX_USER *user;
-  char *password;
 public:
-  set_var_password(LEX_USER *user_arg,char *password_arg)
-    :user(user_arg), password(password_arg)
+  set_var_password(LEX_USER *user_arg) :user(user_arg)
   {}
   int check(THD *thd);
   int update(THD *thd);
@@ -339,7 +342,7 @@ public:
 
 class set_var_default_role: public set_var_base
 {
-  LEX_USER *user;
+  LEX_USER *user, *real_user;
   LEX_STRING role;
 public:
   set_var_default_role(LEX_USER *user_arg, LEX_STRING role_arg) :
@@ -387,21 +390,28 @@ extern SHOW_COMP_OPTION have_openssl;
 SHOW_VAR* enumerate_sys_vars(THD *thd, bool sorted, enum enum_var_type type);
 int fill_sysvars(THD *thd, TABLE_LIST *tables, COND *cond);
 
-sys_var *find_sys_var(THD *thd, const char *str, uint length=0);
-int sql_set_variables(THD *thd, List<set_var_base> *var_list);
+sys_var *find_sys_var(THD *thd, const char *str, size_t length=0);
+int sql_set_variables(THD *thd, List<set_var_base> *var_list, bool free);
 
 #define SYSVAR_AUTOSIZE(VAR,VAL)                        \
   do {                                                  \
     VAR= (VAL);                                         \
-    mark_sys_var_value_origin(&VAR, sys_var::AUTO);     \
+    set_sys_var_value_origin(&VAR, sys_var::AUTO);      \
   } while(0)
 
-void mark_sys_var_value_origin(void *ptr, enum sys_var::where here);
+void set_sys_var_value_origin(void *ptr, enum sys_var::where here);
+
+enum sys_var::where get_sys_var_value_origin(void *ptr);
+inline bool IS_SYSVAR_AUTOSIZE(void *ptr)
+{
+  enum sys_var::where res= get_sys_var_value_origin(ptr);
+  return (res == sys_var::AUTO || res == sys_var::COMPILE_TIME);
+}
 
 bool fix_delay_key_write(sys_var *self, THD *thd, enum_var_type type);
 
-ulonglong expand_sql_mode(ulonglong sql_mode);
-bool sql_mode_string_representation(THD *thd, ulonglong sql_mode, LEX_STRING *ls);
+sql_mode_t expand_sql_mode(sql_mode_t sql_mode);
+bool sql_mode_string_representation(THD *thd, sql_mode_t sql_mode, LEX_STRING *ls);
 int default_regex_flags_pcre(const THD *thd);
 
 extern sys_var *Sys_autocommit_ptr;
@@ -409,6 +419,7 @@ extern sys_var *Sys_autocommit_ptr;
 CHARSET_INFO *get_old_charset_by_name(const char *old_name);
 
 int sys_var_init();
+uint sys_var_elements();
 int sys_var_add_options(DYNAMIC_ARRAY *long_options, int parse_flags);
 void sys_var_end(void);
 

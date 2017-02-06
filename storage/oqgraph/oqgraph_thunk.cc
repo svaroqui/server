@@ -22,17 +22,18 @@
    ======================================================================
 */
 
+#include <my_config.h>
 #include "oqgraph_thunk.h"
 
 #include <boost/tuple/tuple.hpp>
 
 #define MYSQL_SERVER
-#include "mysql_version.h"
+#include <my_global.h>
+#include "unireg.h"
 #include "sql_base.h"
 #include "table.h"
 #include "field.h"
 #include "key.h"
-#include "unireg.h"
 
 #if MYSQL_VERSION_ID	< 100000
 // Allow compatibility with build for 5.5.32
@@ -193,7 +194,7 @@ int oqgraph3::cursor::restore_position()
     }
 
     if (table.vfield)
-      update_virtual_fields(table.in_use, &table);
+      table.update_virtual_fields(VCOL_UPDATE_FOR_READ);
 
     table.file->position(table.record[0]);
 
@@ -206,7 +207,7 @@ int oqgraph3::cursor::restore_position()
       }
 
       if (table.vfield)
-        update_virtual_fields(table.in_use, &table);
+        table.update_virtual_fields(VCOL_UPDATE_FOR_READ);
 
       if ((_origid && vertex_id(_graph->_source->val_int()) != *_origid) ||
           (_destid && vertex_id(_graph->_target->val_int()) != *_destid))
@@ -231,7 +232,7 @@ int oqgraph3::cursor::restore_position()
     }
 
     if (table.vfield)
-      update_virtual_fields(table.in_use, &table);
+      table.update_virtual_fields(VCOL_UPDATE_FOR_READ);
   }
 
   _graph->_cursor= this;
@@ -310,7 +311,7 @@ int oqgraph3::cursor::seek_next()
   }
 
   if (table.vfield)
-    update_virtual_fields(table.in_use, &table);
+    table.update_virtual_fields(VCOL_UPDATE_FOR_READ);
   _graph->_stale= true;
 
   if ((_origid && vertex_id(_graph->_source->val_int()) != *_origid) ||
@@ -345,7 +346,7 @@ int oqgraph3::cursor::seek_prev()
   }
 
   if (table.vfield)
-    update_virtual_fields(table.in_use, &table);
+    table.update_virtual_fields(VCOL_UPDATE_FOR_READ);
   _graph->_stale= true;
 
   if ((_origid && vertex_id(_graph->_source->val_int()) != *_origid) ||
@@ -507,7 +508,7 @@ int oqgraph3::cursor::seek_to(
     }
 
     if (table.vfield)
-      update_virtual_fields(table.in_use, &table);
+      table.update_virtual_fields(VCOL_UPDATE_FOR_READ);
 
     if ((_origid && vertex_id(_graph->_source->val_int()) != *_origid) ||
         (_destid && vertex_id(_graph->_target->val_int()) != *_destid))
@@ -545,6 +546,9 @@ bool oqgraph3::cursor::operator!=(const cursor& x) const
 {
   return record_position() != x._position;
 }
+
+::THD* oqgraph3::graph::get_table_thd() { return _table->in_use; }
+void oqgraph3::graph::set_table_thd(::THD* thd) { _table->in_use = thd; }
 
 oqgraph3::graph::graph(
     ::TABLE* table,

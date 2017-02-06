@@ -39,9 +39,12 @@ struct inuse_relaylog;
      rpl_parallel_entry::count_committing_event_groups has reached
      gco->next_gco->wait_count.
 
-   - When gco->wait_count is reached for a worker and the wait completes,
-     the worker frees gco->prev_gco; at this point it is guaranteed not to
-     be needed any longer.
+   - The gco lives until all its event groups have completed their commit.
+     This is detected by rpl_parallel_entry::last_committed_sub_id being
+     greater than or equal gco->last_sub_id. Once this happens, the gco is
+     freed. Note that since update of last_committed_sub_id can happen
+     out-of-order, the thread that frees a given gco can be for any later
+     event group, not necessarily an event group from the gco being freed.
 */
 struct group_commit_orderer {
   /* Wakeup condition, used with rpl_parallel_entry::LOCK_parallel_entry. */
@@ -49,7 +52,40 @@ struct group_commit_orderer {
   uint64 wait_count;
   group_commit_orderer *prev_gco;
   group_commit_orderer *next_gco;
+  /*
+    The sub_id of last event group in the previous GCO.
+    Only valid if prev_gco != NULL.
+  */
+  uint64 prior_sub_id;
+  /*
+    The sub_id of the last event group in this GCO. Only valid when next_gco
+    is non-NULL.
+  */
+  uint64 last_sub_id;
+  /*
+    This flag is set when this GCO has been installed into the next_gco pointer
+    of the previous GCO.
+  */
   bool installed;
+
+  /*
+    This flag is set for a GCO in which we have event groups with multiple
+    different commit_id values from the master. This happens when we
+    optimistically try to execute in parallel transactions not known to be
+    conflict-free.
+
+    When this flag is set, in case of DDL we need to start a new GCO regardless
+    of current commit_id, as DDL is not safe to speculatively apply in parallel
+    with prior event groups.
+  */
+  static const uint8 MULTI_BATCH = 0x01;
+  /*
+    This flag is set for a GCO that contains DDL. If set, it forces a switch to
+    a new GCO upon seeing a new commit_id, as DDL is not safe to speculatively
+    replicate in parallel with subsequent transactions.
+  */
+  static const uint8 FORCE_SWITCH = 0x02;
+  uint8 flags;
 };
 
 
@@ -57,9 +93,11 @@ struct rpl_parallel_thread {
   bool delay_start;
   bool running;
   bool stop;
+  bool pause_for_ftwrl;
   mysql_mutex_t LOCK_rpl_thread;
   mysql_cond_t COND_rpl_thread;
   mysql_cond_t COND_rpl_thread_queue;
+  mysql_cond_t COND_rpl_thread_stop;
   struct rpl_parallel_thread *next;             /* For free list. */
   struct rpl_parallel_thread_pool *pool;
   THD *thd;
@@ -96,9 +134,28 @@ struct rpl_parallel_thread {
     size_t event_size;
   } *event_queue, *last_in_queue;
   uint64 queued_size;
+  /* These free lists are protected by LOCK_rpl_thread. */
   queued_event *qev_free_list;
   rpl_group_info *rgi_free_list;
   group_commit_orderer *gco_free_list;
+  /*
+    These free lists are local to the thread, so need not be protected by any
+    lock. They are moved to the global free lists in batches in the function
+    batch_free(), to reduce LOCK_rpl_thread contention.
+
+    The lists are not NULL-terminated (as we do not need to traverse them).
+    Instead, if they are non-NULL, the loc_XXX_last_ptr_ptr points to the
+    `next' pointer of the last element, which is used to link into the front
+    of the global freelists.
+  */
+  queued_event *loc_qev_list, **loc_qev_last_ptr_ptr;
+  size_t loc_qev_size;
+  uint64 qev_free_pending;
+  rpl_group_info *loc_rgi_list, **loc_rgi_last_ptr_ptr;
+  group_commit_orderer *loc_gco_list, **loc_gco_last_ptr_ptr;
+  /* These keep track of batch update of inuse_relaylog refcounts. */
+  inuse_relaylog *accumulated_ir_last;
+  uint64 accumulated_ir_count;
 
   void enqueue(queued_event *qev)
   {
@@ -127,23 +184,58 @@ struct rpl_parallel_thread {
   queued_event *retry_get_qev(Log_event *ev, queued_event *orig_qev,
                               const char *relay_log_name,
                               ulonglong event_pos, ulonglong event_size);
+  /*
+    Put a qev on the local free list, to be later released to the global free
+    list by batch_free().
+  */
+  void loc_free_qev(queued_event *qev);
+  /*
+    Release an rgi immediately to the global free list. Requires holding the
+    LOCK_rpl_thread mutex.
+  */
   void free_qev(queued_event *qev);
   rpl_group_info *get_rgi(Relay_log_info *rli, Gtid_log_event *gtid_ev,
                           rpl_parallel_entry *e, ulonglong event_size);
+  /*
+    Put an gco on the local free list, to be later released to the global free
+    list by batch_free().
+  */
+  void loc_free_rgi(rpl_group_info *rgi);
+  /*
+    Release an rgi immediately to the global free list. Requires holding the
+    LOCK_rpl_thread mutex.
+  */
   void free_rgi(rpl_group_info *rgi);
-  group_commit_orderer *get_gco(uint64 wait_count, group_commit_orderer *prev);
-  void free_gco(group_commit_orderer *gco);
+  group_commit_orderer *get_gco(uint64 wait_count, group_commit_orderer *prev,
+                                uint64 first_sub_id);
+  /*
+    Put a gco on the local free list, to be later released to the global free
+    list by batch_free().
+  */
+  void loc_free_gco(group_commit_orderer *gco);
+  /*
+    Move all local free lists to the global ones. Requires holding
+    LOCK_rpl_thread.
+  */
+  void batch_free();
+  /* Update inuse_relaylog refcounts with what we have accumulated so far. */
+  void inuse_relaylog_refcount_update();
 };
 
 
 struct rpl_parallel_thread_pool {
-  uint32 count;
   struct rpl_parallel_thread **threads;
   struct rpl_parallel_thread *free_list;
   mysql_mutex_t LOCK_rpl_thread_pool;
   mysql_cond_t COND_rpl_thread_pool;
-  bool changing;
+  uint32 count;
   bool inited;
+  /*
+    While FTWRL runs, this counter is incremented to make SQL thread or
+    STOP/START slave not try to start new activity while that operation
+    is in progress.
+  */
+  bool busy;
 
   rpl_parallel_thread_pool();
   int init(uint32 size);
@@ -158,6 +250,12 @@ struct rpl_parallel_entry {
   mysql_mutex_t LOCK_parallel_entry;
   mysql_cond_t COND_parallel_entry;
   uint32 domain_id;
+  /*
+    Incremented by wait_for_workers_idle() and rpl_pause_for_ftwrl() to show
+    that they are waiting, so that finish_event_group knows to signal them
+    when last_committed_sub_id is increased.
+  */
+  uint32 need_sub_id_signal;
   uint64 last_commit_id;
   bool active;
   /*
@@ -206,15 +304,30 @@ struct rpl_parallel_entry {
     queued for execution by a worker thread.
   */
   uint64 current_sub_id;
+  /*
+    The largest sub_id that has started its transaction. Protected by
+    LOCK_parallel_entry.
+
+    (Transactions can start out-of-order, so this value signifies that no
+    transactions with larger sub_id have started, but not necessarily that all
+    transactions with smaller sub_id have started).
+  */
+  uint64 largest_started_sub_id;
   rpl_group_info *current_group_info;
   /*
     If we get an error in some event group, we set the sub_id of that event
     group here. Then later event groups (with higher sub_id) can know not to
     try to start (event groups that already started will be rolled back when
     wait_for_prior_commit() returns error).
-    The value is ULONGLONG_MAX when no error occured.
+    The value is ULONGLONG_MAX when no error occurred.
   */
   uint64 stop_on_error_sub_id;
+  /*
+    During FLUSH TABLES WITH READ LOCK, transactions with sub_id larger than
+    this value must not start, but wait until the global read lock is released.
+    The value is set to ULONGLONG_MAX when no FTWRL is pending.
+  */
+  uint64 pause_sub_id;
   /* Total count of event groups queued so far. */
   uint64 count_queued_event_groups;
   /*
@@ -252,8 +365,10 @@ struct rpl_parallel {
 extern struct rpl_parallel_thread_pool global_rpl_thread_pool;
 
 
-extern int rpl_parallel_change_thread_count(rpl_parallel_thread_pool *pool,
-                                            uint32 new_count,
-                                            bool skip_check= false);
+extern int rpl_parallel_activate_pool(rpl_parallel_thread_pool *pool);
+extern int rpl_parallel_inactivate_pool(rpl_parallel_thread_pool *pool);
+extern bool process_gtid_for_restart_pos(Relay_log_info *rli, rpl_gtid *gtid);
+extern int rpl_pause_for_ftwrl(THD *thd);
+extern void rpl_unpause_after_ftwrl(THD *thd);
 
 #endif  /* RPL_PARALLEL_H */

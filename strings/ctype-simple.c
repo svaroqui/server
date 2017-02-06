@@ -71,14 +71,14 @@ size_t my_strnxfrmlen_simple(CHARSET_INFO *cs, size_t len)
 */
 
 
-size_t my_strnxfrm_simple(CHARSET_INFO * cs, 
-                          uchar *dst, size_t dstlen, uint nweights,
-                          const uchar *src, size_t srclen, uint flags)
+size_t my_strnxfrm_simple_internal(CHARSET_INFO * cs,
+                                   uchar *dst, size_t dstlen, uint *nweights,
+                                   const uchar *src, size_t srclen)
 {
   const uchar *map= cs->sort_order;
   uchar *d0= dst;
   uint frmlen;
-  if ((frmlen= MY_MIN(dstlen, nweights)) > srclen)
+  if ((frmlen= MY_MIN(dstlen, *nweights)) > srclen)
     frmlen= srclen;
   if (dst != src)
   {
@@ -92,8 +92,32 @@ size_t my_strnxfrm_simple(CHARSET_INFO * cs,
     for (end= dst + frmlen; dst < end; dst++)
       *dst= map[(uchar) *dst];
   }
+  *nweights-= frmlen;
+  return dst - d0;
+}
+
+
+size_t my_strnxfrm_simple(CHARSET_INFO * cs,
+                          uchar *dst, size_t dstlen, uint nweights,
+                          const uchar *src, size_t srclen, uint flags)
+{
+  uchar *d0= dst;
+  dst= d0 + my_strnxfrm_simple_internal(cs, dst, dstlen, &nweights,
+                                        src, srclen);
   return my_strxfrm_pad_desc_and_reverse(cs, d0, dst, d0 + dstlen,
-                                         nweights - frmlen, flags, 0);
+                                         nweights, flags, 0);
+}
+
+
+size_t my_strnxfrm_simple_nopad(CHARSET_INFO * cs,
+                                uchar *dst, size_t dstlen, uint nweights,
+                                const uchar *src, size_t srclen, uint flags)
+{
+  uchar *d0= dst;
+  dst= d0 + my_strnxfrm_simple_internal(cs, dst, dstlen, &nweights,
+                                        src, srclen);
+  return my_strxfrm_pad_desc_and_reverse_nopad(cs, d0, dst, d0 + dstlen,
+                                               nweights, flags, 0);
 }
 
 
@@ -128,9 +152,6 @@ int my_strnncoll_simple(CHARSET_INFO * cs, const uchar *s, size_t slen,
     a_length		Length of 'a'
     b			Second string to compare
     b_length		Length of 'b'
-    diff_if_only_endspace_difference
-		        Set to 1 if the strings should be regarded as different
-                        if they only difference in end space
 
   IMPLEMENTATION
     If one string is shorter as the other, then we space extend the other
@@ -149,16 +170,11 @@ int my_strnncoll_simple(CHARSET_INFO * cs, const uchar *s, size_t slen,
 */
 
 int my_strnncollsp_simple(CHARSET_INFO * cs, const uchar *a, size_t a_length, 
-			  const uchar *b, size_t b_length,
-                          my_bool diff_if_only_endspace_difference)
+			  const uchar *b, size_t b_length)
 {
   const uchar *map= cs->sort_order, *end;
   size_t length;
   int res;
-
-#ifndef VARCHAR_WITH_DIFF_ENDSPACE_ARE_DIFFERENT_FOR_UNIQUE
-  diff_if_only_endspace_difference= 0;
-#endif
 
   end= a + (length= MY_MIN(a_length, b_length));
   while (a < end)
@@ -170,8 +186,6 @@ int my_strnncollsp_simple(CHARSET_INFO * cs, const uchar *a, size_t a_length,
   if (a_length != b_length)
   {
     int swap= 1;
-    if (diff_if_only_endspace_difference)
-      res= 1;                                   /* Assume 'a' is bigger */
     /*
       Check the next not space character of the longer key. If it's < ' ',
       then it's smaller than the other key.
@@ -191,6 +205,14 @@ int my_strnncollsp_simple(CHARSET_INFO * cs, const uchar *a, size_t a_length,
     }
   }
   return res;
+}
+
+
+int my_strnncollsp_simple_nopad(CHARSET_INFO * cs,
+                                const uchar *a, size_t a_length,
+                                const uchar *b, size_t b_length)
+{
+  return my_strnncoll_simple(cs, a, a_length, b, b_length, FALSE);
 }
 
 
@@ -248,6 +270,13 @@ int my_strcasecmp_8bit(CHARSET_INFO * cs,const char *s, const char *t)
 }
 
 
+int my_charlen_8bit(CHARSET_INFO *cs __attribute__((unused)),
+                    const uchar *str, const uchar *end)
+{
+  return str >= end ? MY_CS_TOOSMALL : 1;
+}
+
+
 int my_mb_wc_8bit(CHARSET_INFO *cs,my_wc_t *wc,
 		  const uchar *str,
 		  const uchar *end __attribute__((unused)))
@@ -300,13 +329,28 @@ size_t my_snprintf_8bit(CHARSET_INFO *cs  __attribute__((unused)),
 }
 
 
+void my_hash_sort_simple_nopad(CHARSET_INFO *cs,
+			       const uchar *key, size_t len,
+			       ulong *nr1, ulong *nr2)
+{
+  register const uchar *sort_order=cs->sort_order;
+  const uchar *end= key + len;
+  register ulong m1= *nr1, m2= *nr2;
+  for (; key < (uchar*) end ; key++)
+  {
+    MY_HASH_ADD(m1, m2, (uint) sort_order[(uint) *key]);
+  }
+  *nr1= m1;
+  *nr2= m2;
+}
+
+
 void my_hash_sort_simple(CHARSET_INFO *cs,
-			 const uchar *key, size_t len,
-			 ulong *nr1, ulong *nr2)
+                         const uchar *key, size_t len,
+                         ulong *nr1, ulong *nr2)
 {
   register const uchar *sort_order=cs->sort_order;
   const uchar *end;
-  register ulong m1= *nr1, m2= *nr2;
   uint16 space_weight= sort_order[' '];
 
   /*
@@ -341,13 +385,7 @@ void my_hash_sort_simple(CHARSET_INFO *cs,
       break;
     }
   }
-
-  for (; key < (uchar*) end ; key++)
-  {
-    MY_HASH_ADD(m1, m2, (uint) sort_order[(uint) *key]);
-  }
-  *nr1= m1;
-  *nr2= m2;
+  my_hash_sort_simple_nopad(cs, key, end - key, nr1, nr2);
 }
 
 
@@ -936,9 +974,14 @@ int my_wildcmp_8bit_impl(CHARSET_INFO *cs,
       cmp=likeconv(cs,cmp);
       do
       {
+        /*
+          Find the next character in the subject string equal to 'cmp', then
+          check recursively my_wildcmp_8bit_impl() for the pattern remainder.
+        */
 	while (str != str_end && (uchar) likeconv(cs,*str) != cmp)
 	  str++;
-	if (str++ == str_end) return(-1);
+	if (str++ == str_end)
+	  return(-1); /* 'cmp' was not found in the subject string */
 	{
 	  int tmp=my_wildcmp_8bit_impl(cs,str,str_end,
                                        wildstr,wildend,escape,w_one,
@@ -946,7 +989,13 @@ int my_wildcmp_8bit_impl(CHARSET_INFO *cs,
 	  if (tmp <= 0)
 	    return(tmp);
 	}
-      } while (str != str_end && wildstr[0] != w_many);
+        /*
+          The recursion call did not match. But it returned 1, which means
+          the pattern remainder has some non-special characters.
+          Continue, there is a chance that we'll find another 'cmp'
+          at a different position in the subject string.
+        */
+      } while (str != str_end);
       return(-1);
     }
   }
@@ -1051,6 +1100,13 @@ size_t my_scan_8bit(CHARSET_INFO *cs, const char *str, const char *end, int sq)
         break;
     }
     return (size_t) (str - str0);
+  case MY_SEQ_NONSPACES:
+    for ( ; str < end ; str++)
+    {
+      if (my_isspace(cs, *str))
+        break;
+    }
+    return (size_t) (str - str0);
   default:
     return 0;
   }
@@ -1087,13 +1143,35 @@ size_t my_charpos_8bit(CHARSET_INFO *cs __attribute__((unused)),
 }
 
 
-size_t my_well_formed_len_8bit(CHARSET_INFO *cs __attribute__((unused)),
-                               const char *start, const char *end,
-                               size_t nchars, int *error)
+size_t
+my_well_formed_char_length_8bit(CHARSET_INFO *cs __attribute__((unused)),
+                                const char *start, const char *end,
+                                size_t nchars, MY_STRCOPY_STATUS *status)
 {
-  size_t nbytes= (size_t) (end-start);
-  *error= 0;
-  return MY_MIN(nbytes, nchars);
+  size_t nbytes= (size_t) (end - start);
+  size_t res= MY_MIN(nbytes, nchars);
+  status->m_well_formed_error_pos= NULL;
+  status->m_source_end_pos= start + res;
+  return res;
+}
+
+
+/*
+  Copy a 8-bit string. Not more than "nchars" character are copied.
+*/
+size_t
+my_copy_8bit(CHARSET_INFO *cs __attribute__((unused)),
+             char *dst, size_t dst_length,
+             const char *src, size_t src_length,
+             size_t nchars, MY_STRCOPY_STATUS *status)
+{
+  set_if_smaller(src_length, dst_length);
+  set_if_smaller(src_length, nchars);
+  if (src_length)
+    memmove(dst, src, src_length);
+  status->m_source_end_pos= src + src_length;
+  status->m_well_formed_error_pos= NULL;   
+  return src_length;
 }
 
 
@@ -1253,7 +1331,28 @@ create_fromuni(struct charset_info_st *cs,
       if (wc >= idx[i].uidx.from && wc <= idx[i].uidx.to && wc)
       {
         int ofs= wc - idx[i].uidx.from;
-        tab[ofs]= ch;
+        if (!tab[ofs] || tab[ofs] > 0x7F) /* Prefer ASCII*/
+        {
+          /*
+            Some character sets can have double encoding. For example,
+            in ARMSCII8, the following characters are encoded twice:
+
+            Encoding#1 Encoding#2 Unicode Character Name
+            ---------- ---------- ------- --------------
+            0x27       0xFF       U+0027  APOSTROPHE
+            0x28       0xA5       U+0028  LEFT PARENTHESIS
+            0x29       0xA4       U+0029  RIGHT PARENTHESIS
+            0x2C       0xAB       U+002C  COMMA
+            0x2D       0xAC       U+002D  HYPHEN-MINUS
+            0x2E       0xA9       U+002E  FULL STOP
+
+            That is, both 0x27 and 0xFF convert to Unicode U+0027.
+            When converting back from Unicode to ARMSCII,
+            we prefer the ASCII range, that is we want U+0027
+            to convert to 0x27 rather than to 0xFF.
+          */
+          tab[ofs]= ch;
+        }
       }
     }
   }
@@ -1272,12 +1371,85 @@ create_fromuni(struct charset_info_st *cs,
   return FALSE;
 }
 
+
+/*
+  Detect if a character set is 8bit,
+  and it is pure ascii, i.e. doesn't have
+  characters outside U+0000..U+007F
+  This functions is shared between "conf_to_src"
+  and dynamic charsets loader in "mysqld".
+*/
+static my_bool
+my_charset_is_8bit_pure_ascii(CHARSET_INFO *cs)
+{
+  size_t code;
+  if (!cs->tab_to_uni)
+    return 0;
+  for (code= 0; code < 256; code++)
+  {
+    if (cs->tab_to_uni[code] > 0x7F)
+      return 0;
+  }
+  return 1;
+}
+
+
+/*
+  Shared function between conf_to_src and mysys.
+  Check if a 8bit character set is compatible with
+  ascii on the range 0x00..0x7F.
+*/
+static my_bool
+my_charset_is_ascii_compatible(CHARSET_INFO *cs)
+{
+  uint i;
+  if (!cs->tab_to_uni)
+    return 1;
+  for (i= 0; i < 128; i++)
+  {
+    if (cs->tab_to_uni[i] != i)
+      return 0;
+  }
+  return 1;
+}
+
+
+uint my_8bit_charset_flags_from_data(CHARSET_INFO *cs)
+{
+  uint flags= 0;
+  if (my_charset_is_8bit_pure_ascii(cs))
+    flags|= MY_CS_PUREASCII;
+  if (!my_charset_is_ascii_compatible(cs))
+    flags|= MY_CS_NONASCII;
+  return flags;
+}
+
+
+/*
+  Check if case sensitive sort order: A < a < B.
+  We need MY_CS_FLAG for regex library, and for
+  case sensitivity flag for 5.0 client protocol,
+  to support isCaseSensitive() method in JDBC driver
+*/
+uint my_8bit_collation_flags_from_data(CHARSET_INFO *cs)
+{
+  uint flags= 0;
+  if (cs->sort_order && cs->sort_order['A'] < cs->sort_order['a'] &&
+                        cs->sort_order['a'] < cs->sort_order['B'])
+    flags|= MY_CS_CSSORT;
+  return flags;
+}
+
+
 static my_bool
 my_cset_init_8bit(struct charset_info_st *cs, MY_CHARSET_LOADER *loader)
 {
+  cs->state|= my_8bit_charset_flags_from_data(cs);
   cs->caseup_multiply= 1;
   cs->casedn_multiply= 1;
   cs->pad_char= ' ';
+  if (!cs->to_lower || !cs->to_upper || !cs->ctype || !cs->tab_to_uni)
+    return TRUE;
   return create_fromuni(cs, loader);
 }
 
@@ -1303,6 +1475,9 @@ static void set_max_sort_char(struct charset_info_st *cs)
 static my_bool my_coll_init_simple(struct charset_info_st *cs,
                                    MY_CHARSET_LOADER *loader __attribute__((unused)))
 {
+  if (!cs->sort_order)
+    return TRUE;
+  cs->state|= my_8bit_collation_flags_from_data(cs);
   set_max_sort_char(cs);
   return FALSE;
 }
@@ -1548,7 +1723,10 @@ exp:    /* [ E [ <sign> ] <unsigned integer> ] */
       if ((negative_exp= (*str == '-')) || *str=='+')
       {
         if (++str == end)
+        {
+          str-= 2; /* 'e-' or 'e+' not followed by digits */
           goto ret_sign;
+        }
       }
       for (exponent= 0 ;
            str < end && (ch= (uchar) (*str - '0')) < 10;
@@ -1558,6 +1736,8 @@ exp:    /* [ E [ <sign> ] <unsigned integer> ] */
       }
       shift+= negative_exp ? -exponent : exponent;
     }
+    else
+      str--; /* 'e' not followed by digits */
   }
   
   if (shift == 0) /* No shift, check addon digit */
@@ -1847,14 +2027,33 @@ my_strxfrm_pad_desc_and_reverse(CHARSET_INFO *cs,
 }
 
 
+size_t
+my_strxfrm_pad_desc_and_reverse_nopad(CHARSET_INFO *cs,
+                                      uchar *str, uchar *frmend, uchar *strend,
+                                      uint nweights, uint flags, uint level)
+{
+  if (nweights && frmend < strend && (flags & MY_STRXFRM_PAD_WITH_SPACE))
+  {
+    uint fill_length= MY_MIN((uint) (strend - frmend), nweights * cs->mbminlen);
+    memset(frmend, 0x00, fill_length);
+    frmend+= fill_length;
+  }
+  my_strxfrm_desc_and_reverse(str, frmend, flags, level);
+  if ((flags & MY_STRXFRM_PAD_TO_MAXLEN) && frmend < strend)
+  {
+    uint fill_length= strend - frmend;
+    memset(frmend, 0x00, fill_length);
+    frmend= strend;
+  }
+  return frmend - str;
+}
+
+
 MY_CHARSET_HANDLER my_charset_8bit_handler=
 {
     my_cset_init_8bit,
-    NULL,			/* ismbchar      */
-    my_mbcharlen_8bit,		/* mbcharlen     */
     my_numchars_8bit,
     my_charpos_8bit,
-    my_well_formed_len_8bit,
     my_lengthsp_8bit,
     my_numcells_8bit,
     my_mb_wc_8bit,
@@ -1875,7 +2074,11 @@ MY_CHARSET_HANDLER my_charset_8bit_handler=
     my_strntod_8bit,
     my_strtoll10_8bit,
     my_strntoull10rnd_8bit,
-    my_scan_8bit
+    my_scan_8bit,
+    my_charlen_8bit,
+    my_well_formed_char_length_8bit,
+    my_copy_8bit,
+    my_wc_mb_bin, /* native_to_mb */
 };
 
 MY_COLLATION_HANDLER my_collation_8bit_simple_ci_handler =
@@ -1890,5 +2093,21 @@ MY_COLLATION_HANDLER my_collation_8bit_simple_ci_handler =
     my_strcasecmp_8bit,
     my_instr_simple,
     my_hash_sort_simple,
+    my_propagate_simple
+};
+
+
+MY_COLLATION_HANDLER my_collation_8bit_simple_nopad_ci_handler =
+{
+    my_coll_init_simple,	/* init */
+    my_strnncoll_simple,
+    my_strnncollsp_simple_nopad,
+    my_strnxfrm_simple_nopad,
+    my_strnxfrmlen_simple,
+    my_like_range_simple,
+    my_wildcmp_8bit,
+    my_strcasecmp_8bit,
+    my_instr_simple,
+    my_hash_sort_simple_nopad,
     my_propagate_simple
 };

@@ -108,23 +108,19 @@ let $select = SELECT * FROM information_schema.views
 WHERE table_schema = 'db_datadict' ORDER BY table_name;
 eval $select;
 
---echo # Establish connection testuser1 (user=testuser1)
 --replace_result $MASTER_MYPORT MYSQL_PORT $MASTER_MYSOCK MYSQL_SOCK
 connect (testuser1, localhost, testuser1, , test);
 eval $select;
 
---echo # Establish connection testuser2 (user=testuser2)
 --replace_result $MASTER_MYPORT MYSQL_PORT $MASTER_MYSOCK MYSQL_SOCK
 connect (testuser2, localhost, testuser2, , test);
 eval $select;
 
---echo # Establish connection test_no_views (user=test_no_views)
 --replace_result $MASTER_MYPORT MYSQL_PORT $MASTER_MYSOCK MYSQL_SOCK
 connect (test_no_views, localhost, test_no_views, , test);
 eval $select;
 
 # Cleanup
---echo # Switch to connection default and close all other connections
 connection default;
 disconnect testuser1;
 disconnect testuser2;
@@ -165,8 +161,13 @@ CREATE USER 'testuser1'@'localhost';
 SELECT * FROM information_schema.views
 WHERE table_name LIKE 't1_%';
 CREATE VIEW test.t1_view AS SELECT DISTINCT f1 FROM test.t1_table;
+CREATE ALGORITHM=MERGE VIEW test.t1_view1 AS SELECT f1 FROM test.t1_table;
+CREATE ALGORITHM=TEMPTABLE VIEW test.t1_view2 AS SELECT f1 FROM test.t1_table;
 SELECT * FROM information_schema.views
 WHERE table_name LIKE 't1_%';
+DROP VIEW test.t1_view1;
+DROP VIEW test.t1_view2;
+
 #
 # Check modification of DEFINER, SECURITY_TYPE, IS_UPDATABLE, VIEW_DEFINITION,
 # CHECK_OPTION

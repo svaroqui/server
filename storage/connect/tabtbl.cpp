@@ -5,7 +5,7 @@
 /*                                                                     */
 /* COPYRIGHT:                                                          */
 /* ----------                                                          */
-/*  (C) Copyright to PlugDB Software Development          2008-2014    */
+/*  (C) Copyright to PlugDB Software Development          2008-2016    */
 /*  Author: Olivier BERTRAND                                           */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
@@ -39,7 +39,7 @@
 //#include "sql_base.h"
 #include "my_global.h"
 #include "table.h"       // MySQL table definitions
-#if defined(WIN32)
+#if defined(__WIN__)
 #include <stdlib.h>
 #include <stdio.h>
 #if defined(__BORLANDC__)
@@ -70,23 +70,18 @@
 #include "tabcol.h"
 #include "tabdos.h"      // TDBDOS and DOSCOL class dcls
 #include "tabtbl.h"
-#if defined(MYSQL_SUPPORT)
 #include "tabmysql.h"
-#endif   // MYSQL_SUPPORT
 #include "ha_connect.h"
-#include "mycat.h"       // For GetHandler
 
-#if defined(WIN32)
+#if defined(__WIN__)
 #if defined(__BORLANDC__)
 #define SYSEXIT void _USERENTRY
 #else
 #define SYSEXIT void
 #endif
-#else   // !WIN32
+#else   // !__WIN__
 #define SYSEXIT void *
-#endif  // !WIN32
-
-extern "C" int trace;
+#endif  // !__WIN__
 
 /* ---------------------------- Class TBLDEF ---------------------------- */
 
@@ -106,7 +101,7 @@ TBLDEF::TBLDEF(void)
 /**************************************************************************/
 /*  DefineAM: define specific AM block values from XDB file.              */
 /**************************************************************************/
-bool TBLDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
+bool TBLDEF::DefineAM(PGLOBAL g, LPCSTR, int)
   {
   char   *tablist, *dbname, *def = NULL;
 
@@ -135,10 +130,10 @@ bool TBLDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
 
       // Allocate the TBLIST block for that table
       tbl = new(g) XTAB(pn, def);
-      tbl->SetQualifier(pdb);
+      tbl->SetSchema(pdb);
       
       if (trace)
-        htrc("TBL: Name=%s db=%s\n", tbl->GetName(), tbl->GetQualifier());
+        htrc("TBL: Name=%s db=%s\n", tbl->GetName(), tbl->GetSchema());
 
       // Link the blocks
       if (Tablep)
@@ -166,7 +161,7 @@ bool TBLDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
 /***********************************************************************/
 /*  GetTable: makes a new Table Description Block.                     */
 /***********************************************************************/
-PTDB TBLDEF::GetTable(PGLOBAL g, MODE m)
+PTDB TBLDEF::GetTable(PGLOBAL g, MODE)
   {
   if (Catfunc == FNC_COL)
     return new(g) TDBTBC(this);
@@ -207,7 +202,7 @@ PCOL TDBTBL::MakeCol(PGLOBAL g, PCOLDEF cdp, PCOL cprec, int n)
 /***********************************************************************/
 /*  InsertSpecialColumn: Put a special column ahead of the column list.*/
 /***********************************************************************/
-PCOL TDBTBL::InsertSpecialColumn(PGLOBAL g, PCOL scp)
+PCOL TDBTBL::InsertSpecialColumn(PCOL scp)
   {
   PCOL colp;
 
@@ -268,7 +263,7 @@ bool TDBTBL::InitTableList(PGLOBAL g)
       // Real initialization will be done later.
       for (colp = Columns; colp; colp = colp->GetNext())
         if (!colp->IsSpecial())
-          if (((PPRXCOL)colp)->Init(g) && !Accept)
+          if (((PPRXCOL)colp)->Init(g, NULL) && !Accept)
             return TRUE;
 
       if (Tablist)
@@ -354,7 +349,9 @@ bool TDBTBL::TestFil(PGLOBAL g, PCFIL filp, PTABLE tabp)
 /***********************************************************************/
 int TDBTBL::Cardinality(PGLOBAL g)
   {
-  if (Cardinal < 0) {
+  if (!g)
+    return 0;                 // Cannot make the table list
+  else if (Cardinal < 0) {
     int tsz;
 
     if (!Tablist && InitTableList(g))
@@ -470,7 +467,7 @@ bool TDBTBL::OpenDB(PGLOBAL g)
     for (PCOL cp = Columns; cp; cp = cp->GetNext())
       if (cp->GetAmType() == TYPE_AM_TABID)
         cp->COLBLK::Reset();
-      else if (((PPRXCOL)cp)->Init(g) && !Accept)
+      else if (((PPRXCOL)cp)->Init(g, NULL) && !Accept)
         return TRUE;
         
     if (trace)
@@ -525,7 +522,7 @@ int TDBTBL::ReadDB(PGLOBAL g)
           if (cp->GetAmType() == TYPE_AM_TABID ||
               cp->GetAmType() == TYPE_AM_SRVID)
             cp->COLBLK::Reset();
-          else if (((PPRXCOL)cp)->Init(g) && !Accept)
+          else if (((PPRXCOL)cp)->Init(g, NULL) && !Accept)
             return RC_FX;
 
         if (trace)
@@ -551,7 +548,7 @@ int TDBTBL::ReadDB(PGLOBAL g)
 /***********************************************************************/
 /*  ReadColumn:                                                        */
 /***********************************************************************/
-void TBTBLK::ReadColumn(PGLOBAL g)
+void TBTBLK::ReadColumn(PGLOBAL)
   {
   if (trace)
     htrc("TBT ReadColumn: name=%s\n", Name);
@@ -571,6 +568,9 @@ pthread_handler_t ThreadOpen(void *p)
 
   if (!my_thread_init()) {
     set_current_thd(cmp->Thd);
+
+		if (trace)
+			htrc("ThreadOpen: Thd=%d\n", cmp->Thd);
 
     // Try to open the connection
     if (!cmp->Tap->GetTo_Tdb()->OpenDB(cmp->G)) {
@@ -607,10 +607,15 @@ void TDBTBM::ResetDB(void)
     if (colp->GetAmType() == TYPE_AM_TABID)
       colp->COLBLK::Reset();
 
+	// Local tables
   for (PTABLE tabp = Tablist; tabp; tabp = tabp->GetNext())
     ((PTDBASE)tabp->GetTo_Tdb())->ResetDB();
 
-  Tdbp = (PTDBASE)Tablist->GetTo_Tdb();
+	// Remote tables
+	for (PTBMT tp = Tmp; tp; tp = tp->Next)
+		((PTDBASE)tp->Tap->GetTo_Tdb())->ResetDB();
+
+  Tdbp = (Tablist) ? (PTDBASE)Tablist->GetTo_Tdb() : NULL;
   Crp = 0;
   } // end of ResetDB
 
@@ -682,7 +687,7 @@ bool TDBTBM::OpenDB(PGLOBAL g)
     /*  Table already open, replace it at its beginning.               */
     /*******************************************************************/
     ResetDB();
-    return Tdbp->OpenDB(g);  // Re-open fist table
+    return (Tdbp) ? Tdbp->OpenDB(g) : false;  // Re-open fist table
     } // endif use
 
 #if 0
@@ -718,7 +723,7 @@ bool TDBTBM::OpenDB(PGLOBAL g)
     for (PCOL cp = Columns; cp; cp = cp->GetNext())
       if (cp->GetAmType() == TYPE_AM_TABID)
         cp->COLBLK::Reset();
-      else if (((PPRXCOL)cp)->Init(g) && !Accept)
+      else if (((PPRXCOL)cp)->Init(g, NULL) && !Accept)
         return TRUE;
         
     if (trace)
@@ -809,7 +814,7 @@ int TDBTBM::ReadNextRemote(PGLOBAL g)
   for (PCOL cp = Columns; cp; cp = cp->GetNext())
     if (cp->GetAmType() == TYPE_AM_TABID)
       cp->COLBLK::Reset();
-    else if (((PPRXCOL)cp)->Init(g) && !Accept)
+    else if (((PPRXCOL)cp)->Init(g, NULL) && !Accept)
       return RC_FX;
 
   if (trace)

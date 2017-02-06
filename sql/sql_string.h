@@ -32,23 +32,96 @@ class String;
 typedef struct st_io_cache IO_CACHE;
 typedef struct st_mem_root MEM_ROOT;
 
+#include "pack.h"
 int sortcmp(const String *a,const String *b, CHARSET_INFO *cs);
 String *copy_if_not_alloced(String *a,String *b,uint32 arg_length);
 inline uint32 copy_and_convert(char *to, uint32 to_length,
-                               const CHARSET_INFO *to_cs,
+                               CHARSET_INFO *to_cs,
                                const char *from, uint32 from_length,
-                               const CHARSET_INFO *from_cs, uint *errors)
+                               CHARSET_INFO *from_cs, uint *errors)
 {
   return my_convert(to, to_length, to_cs, from, from_length, from_cs, errors);
 }
-uint32 well_formed_copy_nchars(CHARSET_INFO *to_cs,
-                               char *to, uint to_length,
-                               CHARSET_INFO *from_cs,
-                               const char *from, uint from_length,
-                               uint nchars,
-                               const char **well_formed_error_pos,
-                               const char **cannot_convert_error_pos,
-                               const char **from_end_pos);
+
+
+class String_copy_status: protected MY_STRCOPY_STATUS
+{
+public:
+  const char *source_end_pos() const
+  { return m_source_end_pos; }
+  const char *well_formed_error_pos() const
+  { return m_well_formed_error_pos; }
+};
+
+
+class Well_formed_prefix_status: public String_copy_status
+{
+public:
+  Well_formed_prefix_status(CHARSET_INFO *cs,
+                            const char *str, const char *end, size_t nchars)
+  { cs->cset->well_formed_char_length(cs, str, end, nchars, this); }
+};
+
+
+class Well_formed_prefix: public Well_formed_prefix_status
+{
+  const char *m_str; // The beginning of the string
+public:
+  Well_formed_prefix(CHARSET_INFO *cs, const char *str, const char *end,
+                     size_t nchars)
+   :Well_formed_prefix_status(cs, str, end, nchars), m_str(str)
+  { }
+  Well_formed_prefix(CHARSET_INFO *cs, const char *str, size_t length,
+                     size_t nchars)
+   :Well_formed_prefix_status(cs, str, str + length, nchars), m_str(str)
+  { }
+  Well_formed_prefix(CHARSET_INFO *cs, const char *str, size_t length)
+   :Well_formed_prefix_status(cs, str, str + length, length), m_str(str)
+  { }
+  size_t length() const { return m_source_end_pos - m_str; }
+};
+
+
+class String_copier: public String_copy_status,
+                     protected MY_STRCONV_STATUS
+{
+public:
+  const char *cannot_convert_error_pos() const
+  { return m_cannot_convert_error_pos; }
+  const char *most_important_error_pos() const
+  {
+    return well_formed_error_pos() ? well_formed_error_pos() :
+                                     cannot_convert_error_pos();
+  }
+  /*
+    Convert a string between character sets.
+    "dstcs" and "srccs" cannot be &my_charset_bin.
+  */
+  uint convert_fix(CHARSET_INFO *dstcs, char *dst, uint dst_length,
+                   CHARSET_INFO *srccs, const char *src, uint src_length,
+                   uint nchars)
+  {
+    return my_convert_fix(dstcs, dst, dst_length,
+                          srccs, src, src_length, nchars, this, this);
+  }
+  /*
+     Copy a string. Fix bad bytes/characters to '?'.
+  */
+  uint well_formed_copy(CHARSET_INFO *to_cs, char *to, uint to_length,
+                        CHARSET_INFO *from_cs, const char *from,
+                        uint from_length, uint nchars);
+  // Same as above, but without the "nchars" limit.
+  uint well_formed_copy(CHARSET_INFO *to_cs, char *to, uint to_length,
+                        CHARSET_INFO *from_cs, const char *from,
+                        uint from_length)
+  {
+    return well_formed_copy(to_cs, to, to_length,
+                            from_cs, from, from_length,
+                            from_length /* No limit on "nchars"*/);
+  }
+};
+
+
 size_t my_copy_with_hex_escaping(CHARSET_INFO *cs,
                                  char *dst, size_t dstlen,
                                  const char *src, size_t srclen);
@@ -136,6 +209,7 @@ public:
   inline bool is_empty() const { return (str_length == 0); }
   inline void mark_as_const() { Alloced_length= 0;}
   inline const char *ptr() const { return Ptr; }
+  inline const char *end() const { return Ptr + str_length; }
   inline char *c_ptr()
   {
     DBUG_ASSERT(!alloced || !Ptr || !Alloced_length || 
@@ -161,13 +235,13 @@ public:
   }
   LEX_STRING lex_string() const
   {
-    LEX_STRING lex_string = { (char*) ptr(), length() };
-    return lex_string;
+    LEX_STRING str = { (char*) ptr(), length() };
+    return str;
   }
   LEX_CSTRING lex_cstring() const
   {
-    LEX_CSTRING lex_cstring = { ptr(), length() };
-    return lex_cstring;
+    LEX_CSTRING skr = { ptr(), length() };
+    return skr;
   }
 
   void set(String &str,uint32 offset,uint32 arg_length)
@@ -219,16 +293,25 @@ public:
   bool set(ulonglong num, CHARSET_INFO *cs) { return set_int((longlong)num, true, cs); }
   bool set_real(double num,uint decimals, CHARSET_INFO *cs);
 
-  /* Move handling of buffer from some other object to String */
-  void reassociate(char *ptr, uint32 length, uint32 alloced_length,
-                   CHARSET_INFO *cs)
+  /* Take over handling of buffer from some other object */
+  void reset(char *ptr_arg, uint32 length_arg, uint32 alloced_length_arg,
+             CHARSET_INFO *cs)
   { 
     free();
-    Ptr= ptr;
-    str_length= length;
-    Alloced_length= alloced_length;
+    Ptr= ptr_arg;
+    str_length= length_arg;
+    Alloced_length= alloced_length_arg;
     str_charset= cs;
-    alloced= ptr != 0;
+    alloced= ptr_arg != 0;
+  }
+
+  /* Forget about the buffer, let some other object handle it */
+  char *release()
+  {
+    char *old= Ptr;
+    Ptr=0; str_length= Alloced_length= extra_alloc= 0;
+    alloced= thread_specific= 0;
+    return old;
   }
 
   /*
@@ -255,7 +338,9 @@ public:
   */
   inline void chop()
   {
-    Ptr[str_length--]= '\0'; 
+    str_length--;
+    Ptr[str_length]= '\0';
+    DBUG_ASSERT(strlen(Ptr) == str_length);
   }
 
   inline void free()
@@ -310,7 +395,9 @@ public:
     if (ALIGN_SIZE(arg_length+1) < Alloced_length)
     {
       char *new_ptr;
-      if (!(new_ptr=(char*) my_realloc(Ptr,arg_length,MYF(0))))
+      if (!(new_ptr=(char*)
+            my_realloc(Ptr, arg_length,MYF((thread_specific ?
+                                            MY_THREAD_SPECIFIC : 0)))))
       {
 	Alloced_length = 0;
 	real_alloc(arg_length);
@@ -357,6 +444,17 @@ public:
   {
     return copy(str->ptr(), str->length(), str->charset(), tocs, errors);
   }
+  bool copy(CHARSET_INFO *tocs,
+            CHARSET_INFO *fromcs, const char *src, uint32 src_length,
+            uint32 nchars, String_copier *copier)
+  {
+    if (alloc(tocs->mbmaxlen * src_length))
+      return true;
+    str_length= copier->well_formed_copy(tocs, Ptr, Alloced_length,
+                                         fromcs, src, src_length, nchars);
+    str_charset= tocs;
+    return false;
+  }
   void move(String &s)
   {
     free();
@@ -368,10 +466,8 @@ public:
   }
   bool append(const String &s);
   bool append(const char *s);
-  bool append(const LEX_STRING *ls)
-  {
-    return append(ls->str, ls->length);
-  }
+  bool append(const LEX_STRING *ls) { return append(ls->str, ls->length); }
+  bool append(const LEX_CSTRING *ls) { return append(ls->str, ls->length); }
   bool append(const char *s, uint32 arg_length);
   bool append(const char *s, uint32 arg_length, CHARSET_INFO *cs);
   bool append_ulonglong(ulonglong val);
@@ -399,13 +495,17 @@ public:
   }
   bool append_hex(const char *src, uint32 srclen)
   {
-    for (const char *end= src + srclen ; src != end ; src++)
+    for (const char *src_end= src + srclen ; src != src_end ; src++)
     {
       if (append(_dig_vec_lower[((uchar) *src) >> 4]) ||
           append(_dig_vec_lower[((uchar) *src) & 0x0F]))
         return true;
     }
     return false;
+  }
+  bool append_hex(const uchar *src, uint32 srclen)
+  {
+    return append_hex((const char*)src, srclen);
   }
   bool fill(uint32 max_length,char fill);
   void strip_sp();
@@ -430,6 +530,11 @@ public:
   void q_append(const char c)
   {
     Ptr[str_length++] = c;
+  }
+  void q_append2b(const uint32 n)
+  {
+    int2store(Ptr + str_length, n);
+    str_length += 2;
   }
   void q_append(const uint32 n)
   {
@@ -479,6 +584,12 @@ public:
     qs_append((ulonglong)i);
   }
   void qs_append(ulonglong i);
+  void qs_append(longlong i, int radix)
+  {
+    char *buff= Ptr + str_length;
+    char *end= ll2str(i, buff, radix, 0);
+    str_length+= (int) (end-buff);
+  }
 
   /* Inline (general) functions used by the protocol functions */
 
@@ -495,6 +606,7 @@ public:
     return Ptr+ old_length;			/* Area to use */
   }
 
+
   inline bool append(const char *s, uint32 arg_length, uint32 step_alloc)
   {
     uint32 new_length= arg_length + str_length;
@@ -504,7 +616,15 @@ public:
     str_length+= arg_length;
     return FALSE;
   }
-  void print(String *print) const;
+  void print(String *to) const;
+  void print_with_conversion(String *to, CHARSET_INFO *cs) const;
+  void print(String *to, CHARSET_INFO *cs) const
+  {
+    if (my_charset_same(charset(), cs))
+      print(to);
+    else
+      print_with_conversion(to, cs);
+  }
 
   bool append_for_single_quote(const char *st, uint len);
   bool append_for_single_quote(const String *s)
@@ -525,9 +645,7 @@ public:
   }
   uint well_formed_length() const
   {
-    int dummy_error;
-    return charset()->cset->well_formed_len(charset(), ptr(), ptr() + length(),
-                                            length(), &dummy_error);
+    return (uint) Well_formed_prefix(charset(), ptr(), length()).length();
   }
   bool is_ascii() const
   {
@@ -535,7 +653,7 @@ public:
       return TRUE;
     if (charset()->mbminlen > 1)
       return FALSE;
-    for (const char *c= ptr(), *end= c + length(); c < end; c++)
+    for (const char *c= ptr(), *c_end= c + length(); c < c_end; c++)
     {
       if (!my_isascii(*c))
         return FALSE;
@@ -550,6 +668,19 @@ public:
   bool eq(const String *other, CHARSET_INFO *cs) const
   {
     return !sortcmp(this, other, cs);
+  }
+  void q_net_store_length(ulonglong length)
+  {
+    DBUG_ASSERT(Alloced_length >= (str_length + net_length_size(length)));
+    char *pos= (char *) net_store_length((uchar *)(Ptr + str_length), length);
+    str_length= pos - Ptr;
+  }
+  void q_net_store_data(const uchar *from, size_t length)
+  {
+    DBUG_ASSERT(Alloced_length >= (str_length + length +
+                                   net_length_size(length)));
+    q_net_store_length(length);
+    q_append((const char *)from, length);
   }
 };
 
@@ -573,14 +704,14 @@ class StringBuffer : public String
 
 public:
   StringBuffer() : String(buff, buff_sz, &my_charset_bin) { length(0); }
-  explicit StringBuffer(const CHARSET_INFO *cs) : String(buff, buff_sz, cs)
+  explicit StringBuffer(CHARSET_INFO *cs) : String(buff, buff_sz, cs)
   {
     length(0);
   }
-  StringBuffer(const char *str, size_t length, const CHARSET_INFO *cs)
+  StringBuffer(const char *str, size_t length_arg, CHARSET_INFO *cs)
     : String(buff, buff_sz, cs)
   {
-    set(str, length, cs);
+    set(str, length_arg, cs);
   }
 };
 

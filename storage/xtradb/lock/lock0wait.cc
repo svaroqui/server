@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -283,10 +284,6 @@ lock_wait_suspend_thread(
 		}
 	}
 
-	/* Wake the lock timeout monitor thread, if it is suspended */
-
-	os_event_set(lock_sys->timeout_event);
-
 	lock_wait_mutex_exit();
 	trx_mutex_exit(trx);
 
@@ -400,7 +397,9 @@ lock_wait_suspend_thread(
 	if (lock_wait_timeout < 100000000
 	    && wait_time > (double) lock_wait_timeout) {
 #ifdef WITH_WSREP
-                if (!wsrep_is_BF_lock_timeout(trx)) {
+                if (!wsrep_on(trx->mysql_thd) ||
+                    (!wsrep_is_BF_lock_timeout(trx) &&
+                     trx->error_state != DB_DEADLOCK)) {
 #endif /* WITH_WSREP */
 
 		trx->error_state = DB_LOCK_WAIT_TIMEOUT;
@@ -512,11 +511,7 @@ A thread which wakes up threads whose lock wait may have lasted too long.
 @return	a dummy parameter */
 extern "C" UNIV_INTERN
 os_thread_ret_t
-DECLARE_THREAD(lock_wait_timeout_thread)(
-/*=====================================*/
-	void*	arg __attribute__((unused)))
-			/* in: a dummy parameter required by
-			os_thread_create */
+DECLARE_THREAD(lock_wait_timeout_thread)(void*)
 {
 	ib_int64_t	sig_count = 0;
 	os_event_t	event = lock_sys->timeout_event;
@@ -526,8 +521,6 @@ DECLARE_THREAD(lock_wait_timeout_thread)(
 #ifdef UNIV_PFS_THREAD
 	pfs_register_thread(srv_lock_timeout_thread_key);
 #endif /* UNIV_PFS_THREAD */
-
-	lock_sys->timeout_thread_active = true;
 
 	do {
 		srv_slot_t*	slot;

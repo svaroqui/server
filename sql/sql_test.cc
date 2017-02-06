@@ -16,7 +16,7 @@
 
 /* Write some debug info */
 
-
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_test.h"
@@ -73,43 +73,45 @@ print_where(COND *cond,const char *info, enum_query_type query_type)
   DBUG_UNLOCK_FILE;
 }
 
+#ifdef EXTRA_DEBUG
 	/* This is for debugging purposes */
+static my_bool print_cached_tables_callback(TDC_element *element,
+                                            void *arg __attribute__((unused)))
+{
+  TABLE *entry;
+
+  mysql_mutex_lock(&element->LOCK_table_share);
+  All_share_tables_list::Iterator it(element->all_tables);
+  while ((entry= it++))
+  {
+    THD *in_use= entry->in_use;
+    printf("%-14.14s %-32s%6ld%8ld%6d  %s\n",
+           entry->s->db.str, entry->s->table_name.str, element->version,
+           in_use ? (long) in_use->thread_id : (long) 0,
+           entry->db_stat ? 1 : 0,
+           in_use ? lock_descriptions[(int)entry->reginfo.lock_type] :
+                    "Not in use");
+  }
+  mysql_mutex_unlock(&element->LOCK_table_share);
+  return FALSE;
+}
 
 
 static void print_cached_tables(void)
 {
-  TABLE_SHARE *share;
-  TABLE *entry;
-  TDC_iterator tdc_it;
-
   compile_time_assert(TL_WRITE_ONLY+1 == array_elements(lock_descriptions));
 
   /* purecov: begin tested */
   puts("DB             Table                            Version  Thread  Open  Lock");
 
-  tdc_it.init();
-  while ((share= tdc_it.next()))
-  {
-    mysql_mutex_lock(&share->tdc.LOCK_table_share);
-    TABLE_SHARE::All_share_tables_list::Iterator it(share->tdc.all_tables);
-    while ((entry= it++))
-    {
-      THD *in_use= entry->in_use;
-      printf("%-14.14s %-32s%6ld%8ld%6d  %s\n",
-             entry->s->db.str, entry->s->table_name.str, entry->s->tdc.version,
-             in_use ? in_use->thread_id : 0,
-             entry->db_stat ? 1 : 0,
-             in_use ? lock_descriptions[(int)entry->reginfo.lock_type] :
-                      "Not in use");
-    }
-    mysql_mutex_unlock(&share->tdc.LOCK_table_share);
-  }
-  tdc_it.deinit();
+  tdc_iterate(0, (my_hash_walk_action) print_cached_tables_callback, NULL, true);
+
   printf("\nCurrent refresh version: %ld\n", tdc_refresh_version());
   fflush(stdout);
   /* purecov: end */
   return;
 }
+#endif
 
 
 void TEST_filesort(SORT_FIELD *sortorder,uint s_length)
@@ -220,9 +222,9 @@ TEST_join(JOIN *join)
 }
 
 
-#define FT_KEYPART   (MAX_REF_PARTS+10)
+#define FT_KEYPART   (MAX_FIELDS+10)
 
-void print_keyuse(KEYUSE *keyuse)
+static void print_keyuse(KEYUSE *keyuse)
 {
   char buff[256];
   char buf2[64]; 
@@ -240,14 +242,11 @@ void print_keyuse(KEYUSE *keyuse)
   else
     fieldname= key_info->key_part[keyuse->keypart].field->field_name;
   ll2str(keyuse->used_tables, buf2, 16, 0); 
-  DBUG_LOCK_FILE;
   fprintf(DBUG_FILE, "KEYUSE: %s.%s=%s  optimize: %u  used_tables: %s "
           "ref_table_rows: %lu  keypart_map: %0lx\n",
           keyuse->table->alias.c_ptr(), fieldname, str.ptr(),
           (uint) keyuse->optimize, buf2, (ulong) keyuse->ref_table_rows, 
           (ulong) keyuse->keypart_map);
-  DBUG_UNLOCK_FILE;
-  //key_part_map keypart_map; --?? there can be several? 
 }
 
 
@@ -256,9 +255,9 @@ void print_keyuse_array(DYNAMIC_ARRAY *keyuse_array)
 {
   DBUG_LOCK_FILE;
   fprintf(DBUG_FILE, "KEYUSE array (%d elements)\n", keyuse_array->elements);
-  DBUG_UNLOCK_FILE;
   for(uint i=0; i < keyuse_array->elements; i++)
     print_keyuse((KEYUSE*)dynamic_array_ptr(keyuse_array, i));
+  DBUG_UNLOCK_FILE;
 }
 
 
@@ -561,15 +560,17 @@ void mysql_print_status()
 {
   char current_dir[FN_REFLEN];
   STATUS_VAR tmp;
+  uint count;
 
-  calc_sum_of_all_status(&tmp);
+  count= calc_sum_of_all_status(&tmp);
   printf("\nStatus information:\n\n");
   (void) my_getwd(current_dir, sizeof(current_dir),MYF(0));
   printf("Current dir: %s\n", current_dir);
-  printf("Running threads: %d  Stack size: %ld\n", thread_count,
+  printf("Running threads: %d  Cached threads: %lu  Stack size: %ld\n",
+         count, cached_thread_count,
 	 (long) my_thread_stack_size);
+#ifdef EXTRA_DEBUG
   thr_print_locks();				// Write some debug info
-#ifndef DBUG_OFF
   print_cached_tables();
 #endif
   /* Print key cache status */
@@ -614,29 +615,35 @@ Next alarm time: %lu\n",
   display_table_locks();
 #ifdef HAVE_MALLINFO
   struct mallinfo info= mallinfo();
+  char llbuff[10][22];
   printf("\nMemory status:\n\
-Non-mmapped space allocated from system: %d\n\
-Number of free chunks:			 %d\n\
-Number of fastbin blocks:		 %d\n\
-Number of mmapped regions:		 %d\n\
-Space in mmapped regions:		 %d\n\
-Maximum total allocated space:		 %d\n\
-Space available in freed fastbin blocks: %d\n\
-Total allocated space:			 %d\n\
-Total free space:			 %d\n\
-Top-most, releasable space:		 %d\n\
-Estimated memory (with thread stack):    %ld\n",
-	 (int) info.arena	,
-	 (int) info.ordblks,
-	 (int) info.smblks,
-	 (int) info.hblks,
-	 (int) info.hblkhd,
-	 (int) info.usmblks,
-	 (int) info.fsmblks,
-	 (int) info.uordblks,
-	 (int) info.fordblks,
-	 (int) info.keepcost,
-	 (long) (thread_count * my_thread_stack_size + info.hblkhd + info.arena));
+Non-mmapped space allocated from system: %s\n\
+Number of free chunks:                   %lu\n\
+Number of fastbin blocks:                %lu\n\
+Number of mmapped regions:               %lu\n\
+Space in mmapped regions:                %s\n\
+Maximum total allocated space:           %s\n\
+Space available in freed fastbin blocks: %s\n\
+Total allocated space:                   %s\n\
+Total free space:                        %s\n\
+Top-most, releasable space:              %s\n\
+Estimated memory (with thread stack):    %s\n\
+Global memory allocated by server:       %s\n\
+Memory allocated by threads:             %s\n",
+	 llstr(info.arena,   llbuff[0]),
+	 (ulong) info.ordblks,
+	 (ulong) info.smblks,
+	 (ulong) info.hblks,
+	 llstr(info.hblkhd,   llbuff[1]),
+	 llstr(info.usmblks,  llbuff[2]),
+	 llstr(info.fsmblks,  llbuff[3]),
+	 llstr(info.uordblks, llbuff[4]),
+	 llstr(info.fordblks, llbuff[5]),
+	 llstr(info.keepcost, llbuff[6]),
+	 llstr((count + cached_thread_count)* my_thread_stack_size + info.hblkhd + info.arena, llbuff[7]),
+         llstr(tmp.global_memory_used, llbuff[8]),
+         llstr(tmp.local_memory_used, llbuff[9]));
+
 #endif
 
 #ifdef HAVE_EVENT_SCHEDULER

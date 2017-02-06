@@ -655,7 +655,7 @@ insert into t1 values (1);
 flush tables;
 # Open t2 and (implicitly) t1.
 select * from t2;
-# Truncate t1, wich was not recognized as open without the bugfix.
+# Truncate t1, which was not recognized as open without the bugfix.
 # After fix for Bug#8306 and before fix for Bug#26379,
 # it should fail with a table-in-use error message, otherwise succeed.
 truncate table t1;
@@ -1678,6 +1678,7 @@ CREATE TABLE t1(a int);
 CREATE TABLE t2(a int);
 CREATE TABLE t3(a int) ENGINE = MERGE UNION(t1, t2);
 CREATE TRIGGER tr1 AFTER INSERT ON t3 FOR EACH ROW CALL foo();
+--replace_column 7 #
 SHOW CREATE TRIGGER tr1;
 DROP TRIGGER tr1;
 DROP TABLE t1, t2, t3;
@@ -1895,13 +1896,14 @@ DROP TABLE t1;
 --disable_warnings
 drop table if exists t_parent;
 --enable_warnings
-set @save_table_definition_cache=@@global.table_definition_cache;
+set @save_table_open_cache=@@global.table_open_cache;
 --echo #
---echo # Set @@global.table_definition_cache to minimum
+--echo # Set @@global.table_open_cache to minimum
 --echo #
-set @@global.table_definition_cache=400;
+set @@global.table_open_cache=400;
+select @@table_open_cache;
 set @a=null;
-let $1 = 400;
+let $1 = `select @@table_open_cache;`;
 --echo #
 --echo # Create 400 merge children
 --echo #
@@ -1935,7 +1937,7 @@ deallocate prepare stmt;
 --echo #
 --echo # Cleanup
 --echo #
-let $1 = 400;
+let $1 = `select @@table_open_cache;`;
 --disable_query_log
 while ($1)
 {
@@ -1944,7 +1946,7 @@ while ($1)
 }
 --enable_query_log
 drop table t_parent;
-set @@global.table_definition_cache=@save_table_definition_cache;
+set @@global.table_open_cache=@save_table_open_cache;
 
 #
 # WL#4144 - Lock MERGE engine children
@@ -2584,7 +2586,6 @@ DROP TABLE t1, t2, t3, t4, m1, m2;
 --disable_warnings
 DROP TABLE IF EXISTS t1, t2, t3;
 --enable_warnings
---echo # Connection con1.
 connect (con1,localhost,root,,);
 CREATE TABLE t1 (c1 int);
 CREATE TABLE t2 (c1 int);
@@ -2593,12 +2594,10 @@ START TRANSACTION;
 --error ER_ILLEGAL_HA
 HANDLER t3 OPEN;
 DROP TABLE t1, t2, t3;
---echo # Connection default.
 connection default;
---echo # Disconnecting con1, all mdl_tickets must have been released.
+--echo # all mdl_tickets must have been released.
 disconnect con1;
 --echo # The bug-specific case.
---echo # Connection con1.
 connect (con1,localhost,root,,);
 CREATE TABLE t1 (c1 int);
 CREATE TABLE t2 (c1 int);
@@ -2608,9 +2607,8 @@ START TRANSACTION;
 --error ER_WRONG_MRG_TABLE
 HANDLER t3 OPEN;
 DROP TABLE t1, t3;
---echo # Connection default.
 connection default;
---echo # Disconnecting con1, all mdl_tickets must have been released.
+--echo # all mdl_tickets must have been released.
 disconnect con1;
 
 --echo #
@@ -2878,6 +2876,19 @@ repair table m1;
 --echo # Clean-up.
 drop tables m1, t1, t4;
 drop view t3;
+
+
+--echo #
+--echo # MDEV-10424 - Assertion `ticket == __null' failed in
+--echo #              MDL_request::set_type
+--echo #
+CREATE TABLE t1 (f1 INT) ENGINE=MyISAM;
+CREATE TABLE tmerge (f1 INT) ENGINE=MERGE UNION=(t1);
+PREPARE stmt FROM "ANALYZE TABLE tmerge, t1";
+EXECUTE stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+DROP TABLE t1, tmerge;
 
 
 --echo End of 5.5 tests

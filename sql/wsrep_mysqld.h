@@ -1,4 +1,4 @@
-/* Copyright 2008-2013 Codership Oy <http://www.codership.com>
+/* Copyright 2008-2015 Codership Oy <http://www.codership.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -50,6 +50,7 @@ struct wsrep_thd_shadow {
   ulong                tx_isolation;
   char                 *db;
   size_t               db_length;
+  my_hrtime_t          user_time;
 };
 
 // Global wsrep parameters
@@ -77,9 +78,7 @@ extern ulong       wsrep_max_ws_rows;
 extern const char* wsrep_notify_cmd;
 extern long        wsrep_max_protocol_version;
 extern ulong       wsrep_forced_binlog_format;
-extern ulong       wsrep_OSU_method_options;
 extern my_bool     wsrep_desync;
-extern my_bool     wsrep_recovery;
 extern my_bool     wsrep_replicate_myisam;
 extern ulong       wsrep_mysql_replication_bundle;
 extern my_bool     wsrep_restart_slave;
@@ -88,8 +87,15 @@ extern my_bool     wsrep_slave_FK_checks;
 extern my_bool     wsrep_slave_UK_checks;
 extern ulong       wsrep_running_threads;
 extern bool        wsrep_new_cluster;
+extern bool        wsrep_gtid_mode;
+extern uint32      wsrep_gtid_domain_id;
 
-enum enum_wsrep_OSU_method { WSREP_OSU_TOI, WSREP_OSU_RSU };
+enum enum_wsrep_OSU_method {
+    WSREP_OSU_TOI,
+    WSREP_OSU_RSU,
+    WSREP_OSU_NONE,
+};
+
 enum enum_wsrep_sync_wait {
     WSREP_SYNC_WAIT_NONE = 0x0,
     // show, select, begin
@@ -112,9 +118,16 @@ extern const char* wsrep_provider_name;
 extern const char* wsrep_provider_version;
 extern const char* wsrep_provider_vendor;
 
-int  wsrep_show_status(THD *thd, SHOW_VAR *var, char *buff);
+int  wsrep_show_status(THD *thd, SHOW_VAR *var, char *buff,
+                       enum enum_var_type scope);
 int  wsrep_init();
 void wsrep_deinit(bool free_options);
+
+/* Initialize wsrep thread LOCKs and CONDs */
+void wsrep_thr_init();
+/* Destroy wsrep thread LOCKs and CONDs */
+void wsrep_thr_deinit();
+
 void wsrep_recover();
 bool wsrep_before_SE(); // initialize wsrep before storage
                         // engines (true) or after (false)
@@ -138,7 +151,6 @@ extern "C" query_id_t wsrep_thd_query_id(THD *thd);
 extern "C" query_id_t wsrep_thd_wsrep_last_query_id(THD *thd);
 extern "C" void wsrep_thd_set_wsrep_last_query_id(THD *thd, query_id_t id);
 
-
 extern void wsrep_close_client_connections(my_bool wait_to_end);
 extern int  wsrep_wait_committing_connections_close(int wait_time);
 extern void wsrep_close_applier(THD *thd);
@@ -149,19 +161,24 @@ extern void wsrep_kill_mysql(THD *thd);
 /* new defines */
 extern void wsrep_stop_replication(THD *thd);
 extern bool wsrep_start_replication();
+extern bool wsrep_must_sync_wait(THD* thd, uint mask = WSREP_SYNC_WAIT_BEFORE_READ);
 extern bool wsrep_sync_wait(THD* thd, uint mask = WSREP_SYNC_WAIT_BEFORE_READ);
 extern int  wsrep_check_opts();
 extern void wsrep_prepend_PATH (const char* path);
-/* some inline functions are defined in wsrep_mysqld_inl.h */
 
 /* Other global variables */
 extern wsrep_seqno_t wsrep_locked_seqno;
 
-#define WSREP_ON \
+#define WSREP_ON                         \
   (global_system_variables.wsrep_on)
 
+#define WSREP_ON_NEW                     \
+  ((global_system_variables.wsrep_on) && \
+   wsrep_provider                     && \
+   strcmp(wsrep_provider, WSREP_NONE))
+
 #define WSREP(thd) \
-  (WSREP_ON && (thd && thd->variables.wsrep_on))
+  (WSREP_ON && thd->variables.wsrep_on)
 
 #define WSREP_CLIENT(thd) \
     (WSREP(thd) && thd->wsrep_client_thread)
@@ -232,6 +249,7 @@ extern mysql_mutex_t LOCK_wsrep_replaying;
 extern mysql_cond_t  COND_wsrep_replaying;
 extern mysql_mutex_t LOCK_wsrep_slave_threads;
 extern mysql_mutex_t LOCK_wsrep_desync;
+extern mysql_mutex_t LOCK_wsrep_config_state;
 extern wsrep_aborting_thd_t wsrep_aborting_thd;
 extern my_bool       wsrep_emulate_bin_log;
 extern int           wsrep_to_isolation;
@@ -258,6 +276,8 @@ extern PSI_mutex_key key_LOCK_wsrep_replaying;
 extern PSI_cond_key  key_COND_wsrep_replaying;
 extern PSI_mutex_key key_LOCK_wsrep_slave_threads;
 extern PSI_mutex_key key_LOCK_wsrep_desync;
+
+extern PSI_file_key key_file_wsrep_gra_log;
 #endif /* HAVE_PSI_INTERFACE */
 struct TABLE_LIST;
 int wsrep_to_isolation_begin(THD *thd, char *db_, char *table_,
@@ -266,22 +286,12 @@ void wsrep_to_isolation_end(THD *thd);
 void wsrep_cleanup_transaction(THD *thd);
 int wsrep_to_buf_helper(
   THD* thd, const char *query, uint query_len, uchar** buf, size_t* buf_len);
-int wsrep_create_sp(THD *thd, uchar** buf, size_t* buf_len);
-int wsrep_create_trigger_query(THD *thd, uchar** buf, size_t* buf_len);
 int wsrep_create_event_query(THD *thd, uchar** buf, size_t* buf_len);
-int wsrep_alter_event_query(THD *thd, uchar** buf, size_t* buf_len);
-
-struct xid_t;
-void wsrep_get_SE_checkpoint(xid_t*);
-void wsrep_set_SE_checkpoint(xid_t*);
-void wsrep_init_sidno(const wsrep_uuid_t&);
-void wsrep_xid_init(xid_t*, const wsrep_uuid_t*, wsrep_seqno_t);
-const wsrep_uuid_t* wsrep_xid_uuid(const xid_t*);
-wsrep_seqno_t wsrep_xid_seqno(const xid_t*);
 
 extern bool
 wsrep_grant_mdl_exception(MDL_context *requestor_ctx,
-                           MDL_ticket *ticket);
+                          MDL_ticket *ticket,
+                          const MDL_key *key);
 IO_CACHE * get_trans_log(THD * thd);
 bool wsrep_trans_cache_is_empty(THD *thd);
 void thd_binlog_flush_pending_rows_event(THD *thd, bool stmt_end);
@@ -297,14 +307,14 @@ void wsrep_close_applier_threads(int count);
 void wsrep_wait_appliers_close(THD *thd);
 void wsrep_kill_mysql(THD *thd);
 void wsrep_close_threads(THD *thd);
-int wsrep_create_sp(THD *thd, uchar** buf, size_t* buf_len);
 void wsrep_copy_query(THD *thd);
 bool wsrep_is_show_query(enum enum_sql_command command);
 void wsrep_replay_transaction(THD *thd);
 bool wsrep_create_like_table(THD* thd, TABLE_LIST* table,
                              TABLE_LIST* src_table,
 	                     HA_CREATE_INFO *create_info);
-int wsrep_create_trigger_query(THD *thd, uchar** buf, size_t* buf_len);
+bool wsrep_node_is_donor();
+bool wsrep_node_is_synced();
 
 #else /* WITH_WSREP */
 
@@ -313,14 +323,15 @@ int wsrep_create_trigger_query(THD *thd, uchar** buf, size_t* buf_len);
 #define WSREP_EMULATE_BINLOG(thd) (0)
 #define WSREP_CLIENT(thd) (0)
 #define WSREP_FORMAT(my_format) ((ulong)my_format)
+#define WSREP_PROVIDER_EXISTS (0)
 #define wsrep_emulate_bin_log (0)
 #define wsrep_xid_seqno(X) (0)
 #define wsrep_to_isolation (0)
-#define wsrep_recovery (0)
 #define wsrep_init() (1)
 #define wsrep_prepend_PATH(X)
 #define wsrep_before_SE() (0)
 #define wsrep_init_startup(X)
+#define wsrep_must_sync_wait(...) (0)
 #define wsrep_sync_wait(...) (0)
 #define wsrep_to_isolation_begin(...) (0)
 #define wsrep_register_hton(...) do { } while(0)
@@ -331,6 +342,9 @@ int wsrep_create_trigger_query(THD *thd, uchar** buf, size_t* buf_len);
 #define wsrep_recover() do { } while(0)
 #define wsrep_slave_threads (1)
 #define wsrep_replicate_myisam (0)
+#define wsrep_thr_init() do {} while(0)
+#define wsrep_thr_deinit() do {} while(0)
+#define wsrep_running_threads (0)
 
 #endif /* WITH_WSREP */
 #endif /* WSREP_MYSQLD_H */

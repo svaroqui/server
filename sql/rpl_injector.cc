@@ -13,8 +13,8 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h" 
-#include "unireg.h"                             // REQUIRED by later includes
 #include "rpl_injector.h"
 #include "transaction.h"
 #include "sql_parse.h"                          // begin_trans, end_trans, COMMIT
@@ -116,62 +116,6 @@ int injector::transaction::use_table(server_id_type sid, table tbl)
   DBUG_RETURN(error);
 }
 
-
-int injector::transaction::write_row (server_id_type sid, table tbl, 
-				      MY_BITMAP const* cols, size_t colcnt,
-				      record_type record)
-{
-   DBUG_ENTER("injector::transaction::write_row(...)");
-
-   int error= check_state(ROW_STATE);
-   if (error)
-     DBUG_RETURN(error);
-
-   server_id_type save_id= m_thd->variables.server_id;
-   m_thd->set_server_id(sid);
-   error= m_thd->binlog_write_row(tbl.get_table(), tbl.is_transactional(), 
-                                  cols, colcnt, record);
-   m_thd->set_server_id(save_id);
-   DBUG_RETURN(error);
-}
-
-
-int injector::transaction::delete_row(server_id_type sid, table tbl,
-				      MY_BITMAP const* cols, size_t colcnt,
-				      record_type record)
-{
-   DBUG_ENTER("injector::transaction::delete_row(...)");
-
-   int error= check_state(ROW_STATE);
-   if (error)
-     DBUG_RETURN(error);
-
-   server_id_type save_id= m_thd->variables.server_id;
-   m_thd->set_server_id(sid);
-   error= m_thd->binlog_delete_row(tbl.get_table(), tbl.is_transactional(), 
-                                   cols, colcnt, record);
-   m_thd->set_server_id(save_id);
-   DBUG_RETURN(error);
-}
-
-
-int injector::transaction::update_row(server_id_type sid, table tbl, 
-				      MY_BITMAP const* cols, size_t colcnt,
-				      record_type before, record_type after)
-{
-   DBUG_ENTER("injector::transaction::update_row(...)");
-
-   int error= check_state(ROW_STATE);
-   if (error)
-     DBUG_RETURN(error);
-
-   server_id_type save_id= m_thd->variables.server_id;
-   m_thd->set_server_id(sid);
-   error= m_thd->binlog_update_row(tbl.get_table(), tbl.is_transactional(),
-                                   cols, colcnt, before, after);
-   m_thd->set_server_id(save_id);
-   DBUG_RETURN(error);
-}
 
 
 injector::transaction::binlog_pos injector::transaction::start_pos() const

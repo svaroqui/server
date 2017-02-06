@@ -1,8 +1,8 @@
 /*****************************************************************************
 
-Copyright (c) 1994, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1994, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 Copyright (c) 2008, Google Inc.
-Copyright (c) 2013, 2014 SkySQL Ab.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -45,10 +45,10 @@ Created 1/20/1994 Heikki Tuuri
 
 #define INNODB_VERSION_MAJOR	5
 #define INNODB_VERSION_MINOR	6
-#define INNODB_VERSION_BUGFIX	20
+#define INNODB_VERSION_BUGFIX	34
 
 #ifndef PERCONA_INNODB_VERSION
-#define PERCONA_INNODB_VERSION 68.0
+#define PERCONA_INNODB_VERSION 79.1
 #endif
 
 /* Enable UNIV_LOG_ARCHIVE in XtraDB */
@@ -122,6 +122,10 @@ if we are compiling on Windows. */
 #  include <sched.h>
 # endif
 
+# ifdef HAVE_MALLOC_H
+#  include <malloc.h>
+# endif
+
 /* We only try to do explicit inlining of functions with gcc and
 Sun Studio */
 
@@ -180,7 +184,7 @@ command. Not tested on Windows. */
 #define UNIV_COMPILE_TEST_FUNCS
 */
 
-#if defined(HAVE_valgrind)&& defined(HAVE_VALGRIND_MEMCHECK_H)
+#if defined HAVE_valgrind && defined HAVE_VALGRIND
 # define UNIV_DEBUG_VALGRIND
 #endif
 #if 0
@@ -257,8 +261,9 @@ operations (very slow); also UNIV_DEBUG must be defined */
 that are only referenced from within InnoDB, not from MySQL. We disable the
 GCC visibility directive on all Sun operating systems because there is no
 easy way to get it to work. See http://bugs.mysql.com/bug.php?id=52263. */
+#define MY_ATTRIBUTE __attribute__
 #if defined(__GNUC__) && (__GNUC__ >= 4) && !defined(sun) || defined(__INTEL_COMPILER)
-# define UNIV_INTERN __attribute__((visibility ("hidden")))
+# define UNIV_INTERN MY_ATTRIBUTE((visibility ("hidden")))
 #else
 # define UNIV_INTERN
 #endif
@@ -273,7 +278,7 @@ appears close together improving code locality of non-cold parts of
 program.  The paths leading to call of cold functions within code are
 marked as unlikely by the branch prediction mechanism.  optimize a
 rarely invoked function for size instead for speed. */
-# define UNIV_COLD __attribute__((cold))
+# define UNIV_COLD MY_ATTRIBUTE((cold))
 #else
 # define UNIV_COLD /* empty */
 #endif
@@ -371,6 +376,12 @@ typedef enum innodb_file_formats_enum innodb_file_formats_t;
 #define IF_BZIP2(A,B) B
 #endif
 
+#ifdef HAVE_SNAPPY
+#define IF_SNAPPY(A,B) A
+#else
+#define IF_SNAPPY(A,B) B
+#endif
+
 /** The universal page size of the database */
 #define UNIV_PAGE_SIZE		((ulint) srv_page_size)
 
@@ -381,9 +392,7 @@ Note: This must never change! */
 /** log2 of largest compressed page size (1<<14 == 16384 bytes).
 A compressed page directory entry reserves 14 bits for the start offset
 and 2 bits for flags. This limits the uncompressed page size to 16k.
-Even though a 16k uncompressed page can theoretically be compressed
-into a larger compressed page, it is not a useful feature so we will
-limit both with this same constant. */
+*/
 #define UNIV_ZIP_SIZE_SHIFT_MAX		14
 
 /* Define the Min, Max, Default page sizes. */
@@ -493,6 +502,9 @@ typedef uint32_t ib_uint32_t;
 
 # define IB_ID_FMT	UINT64PF
 
+/* Type used for all log sequence number storage and arithmetics */
+typedef	ib_uint64_t		lsn_t;
+
 #ifdef _WIN64
 typedef unsigned __int64	ulint;
 typedef __int64			lint;
@@ -567,12 +579,12 @@ number indicate that a field contains a reference to an externally
 stored part of the field in the tablespace. The length field then
 contains the sum of the following flag and the locally stored len. */
 
-#define UNIV_EXTERN_STORAGE_FIELD (UNIV_SQL_NULL - UNIV_PAGE_SIZE_MAX)
+#define UNIV_EXTERN_STORAGE_FIELD (UNIV_SQL_NULL - UNIV_PAGE_SIZE_DEF)
 
 #if defined(__GNUC__) && (__GNUC__ > 2) && ! defined(__INTEL_COMPILER)
 #define HAVE_GCC_GT_2
 /* Tell the compiler that variable/function is unused. */
-# define UNIV_UNUSED    __attribute__ ((unused))
+# define UNIV_UNUSED    MY_ATTRIBUTE ((unused))
 #else
 # define UNIV_UNUSED
 #endif /* CHECK FOR GCC VER_GT_2 */
@@ -634,6 +646,7 @@ Windows, so define a typedef for it and a macro to use at the end of such
 functions. */
 
 #ifdef __WIN__
+#define usleep(a) Sleep((a)/1000)
 typedef ulint os_thread_ret_t;
 #define OS_THREAD_DUMMY_RETURN return(0)
 #else

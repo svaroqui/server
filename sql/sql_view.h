@@ -2,7 +2,8 @@
 #define SQL_VIEW_INCLUDED
 
 /* -*- C++ -*- */
-/* Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2004, 2010, Oracle and/or its affiliates.
+   Copyright (c) 2015, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -34,8 +35,8 @@ bool create_view_precheck(THD *thd, TABLE_LIST *tables, TABLE_LIST *view,
 bool mysql_create_view(THD *thd, TABLE_LIST *view,
                        enum_view_create_mode mode);
 
-bool mysql_make_view(THD *thd, File_parser *parser, TABLE_LIST *table,
-                     uint flags);
+bool mysql_make_view(THD *thd, TABLE_SHARE *share, TABLE_LIST *table,
+                     bool open_view_no_parse);
 
 
 bool mysql_drop_view(THD *thd, TABLE_LIST *view, enum_drop_mode drop_mode);
@@ -45,15 +46,22 @@ bool check_key_in_view(THD *thd, TABLE_LIST * view);
 bool insert_view_fields(THD *thd, List<Item> *list, TABLE_LIST *view);
 
 int view_checksum(THD *thd, TABLE_LIST *view);
+int view_check(THD *thd, TABLE_LIST *view, HA_CHECK_OPT *check_opt);
+int view_repair(THD *thd, TABLE_LIST *view, HA_CHECK_OPT *check_opt);
 
 extern TYPELIB updatable_views_with_limit_typelib;
 
-bool check_duplicate_names(List<Item>& item_list, bool gen_unique_view_names);
+bool check_duplicate_names(THD *thd, List<Item>& item_list,
+                           bool gen_unique_view_names);
 bool mysql_rename_view(THD *thd, const char *new_db, const char *new_name,
                        TABLE_LIST *view);
+
+void make_valid_column_names(THD *thd, List<Item> &item_list);
 
 #define VIEW_ANY_ACL (SELECT_ACL | UPDATE_ACL | INSERT_ACL | DELETE_ACL)
 
 extern const LEX_STRING view_type;
+
+void make_valid_column_names(List<Item> &item_list);
 
 #endif /* SQL_VIEW_INCLUDED */

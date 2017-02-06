@@ -9,10 +9,13 @@ SET(fail_patterns
     FAIL_REGEX "unrecognized .*option"
     FAIL_REGEX "ignoring unknown option"
     FAIL_REGEX "warning:.*ignored"
+    FAIL_REGEX "warning:.*is valid for.*but not for"
+    FAIL_REGEX "warning:.*redefined"
     FAIL_REGEX "[Ww]arning: [Oo]ption"
     )
 
-MACRO (MY_CHECK_C_COMPILER_FLAG flag result)
+MACRO (MY_CHECK_C_COMPILER_FLAG flag)
+  STRING(REGEX REPLACE "[-,= +]" "_" result "have_C_${flag}")
   SET(SAVE_CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS}")
   SET(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} ${flag}")
   CHECK_C_SOURCE_COMPILES("int main(void) { return 0; }" ${result}
@@ -20,7 +23,8 @@ MACRO (MY_CHECK_C_COMPILER_FLAG flag result)
   SET(CMAKE_REQUIRED_FLAGS "${SAVE_CMAKE_REQUIRED_FLAGS}")
 ENDMACRO()
 
-MACRO (MY_CHECK_CXX_COMPILER_FLAG flag result)
+MACRO (MY_CHECK_CXX_COMPILER_FLAG flag)
+  STRING(REGEX REPLACE "[-,= +]" "_" result "have_CXX_${flag}")
   SET(SAVE_CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS}")
   SET(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} ${flag}")
   CHECK_CXX_SOURCE_COMPILES("int main(void) { return 0; }" ${result}
@@ -34,18 +38,19 @@ FUNCTION(MY_CHECK_AND_SET_COMPILER_FLAG flag)
   IF(WIN32)
     RETURN()
   ENDIF()
-  MY_CHECK_C_COMPILER_FLAG(${flag} HAVE_C_${flag})
-  MY_CHECK_CXX_COMPILER_FLAG(${flag} HAVE_CXX_${flag})
-  IF (HAVE_C_${flag} AND HAVE_CXX_${flag})
-    IF(ARGN)
-      FOREACH(type ${ARGN})
-        SET(CMAKE_C_FLAGS_${type} "${CMAKE_C_FLAGS_${type}} ${flag}" PARENT_SCOPE)
-        SET(CMAKE_CXX_FLAGS_${type} "${CMAKE_CXX_FLAGS_${type}} ${flag}" PARENT_SCOPE)
-      ENDFOREACH()
-    ELSE()
-      SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${flag}" PARENT_SCOPE)
-      SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${flag}" PARENT_SCOPE)
+  MY_CHECK_C_COMPILER_FLAG(${flag})
+  MY_CHECK_CXX_COMPILER_FLAG(${flag})
+  STRING(REGEX REPLACE "[-,= +]" "_" result "${flag}")
+  FOREACH(lang C CXX)
+    IF (have_${lang}_${result})
+      IF(ARGN)
+        FOREACH(type ${ARGN})
+          SET(CMAKE_${lang}_FLAGS_${type} "${CMAKE_${lang}_FLAGS_${type}} ${flag}" PARENT_SCOPE)
+        ENDFOREACH()
+      ELSE()
+        SET(CMAKE_${lang}_FLAGS "${CMAKE_${lang}_FLAGS} ${flag}" PARENT_SCOPE)
+      ENDIF()
     ENDIF()
-  ENDIF()
+  ENDFOREACH()
 ENDFUNCTION()
 

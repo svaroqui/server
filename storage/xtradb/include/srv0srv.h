@@ -1,9 +1,9 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2013, Oracle and/or its affiliates.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All rights reserved.
 Copyright (c) 2008, 2009, Google Inc.
 Copyright (c) 2009, Percona Inc.
-Copyright (c) 2013, 2014, SkySQL Ab.
+Copyright (c) 2013, 2017, MariaDB Corporation
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -107,8 +107,18 @@ struct srv_stats_t {
 	ulint_ctr_64_t          page_compression_saved;
 	/** Number of 512Byte TRIM by page compression */
 	ulint_ctr_64_t          page_compression_trim_sect512;
+	/** Number of 1K TRIM by page compression */
+	ulint_ctr_64_t          page_compression_trim_sect1024;
+	/** Number of 2K TRIM by page compression */
+	ulint_ctr_64_t          page_compression_trim_sect2048;
 	/** Number of 4K TRIM  by page compression */
 	ulint_ctr_64_t          page_compression_trim_sect4096;
+	/** Number of 8K TRIM by page compression */
+	ulint_ctr_64_t          page_compression_trim_sect8192;
+	/** Number of 16K TRIM by page compression */
+	ulint_ctr_64_t          page_compression_trim_sect16384;
+	/** Number of 32K TRIM by page compression */
+	ulint_ctr_64_t          page_compression_trim_sect32768;
 	/* Number of index pages written */
 	ulint_ctr_64_t          index_pages_written;
 	/* Number of non index pages written */
@@ -123,6 +133,10 @@ struct srv_stats_t {
         ulint_ctr_64_t          pages_page_decompressed;
 	/* Number of page compression errors */
 	ulint_ctr_64_t          pages_page_compression_error;
+	/* Number of pages encrypted */
+	ulint_ctr_64_t          pages_encrypted;
+   	/* Number of pages decrypted */
+	ulint_ctr_64_t          pages_decrypted;
 
 	/** Number of data read in total (in bytes) */
 	ulint_ctr_1_t		data_read;
@@ -148,9 +162,36 @@ struct srv_stats_t {
 	/** Number of rows inserted */
 	ulint_ctr_64_t		n_rows_inserted;
 
+	/** Number of system rows read. */
+	ulint_ctr_64_t		n_system_rows_read;
+
+	/** Number of system rows updated */
+	ulint_ctr_64_t		n_system_rows_updated;
+
+	/** Number of system rows deleted */
+	ulint_ctr_64_t		n_system_rows_deleted;
+
+	/** Number of system rows inserted */
+	ulint_ctr_64_t		n_system_rows_inserted;
+
+	/** Number of times secondary index lookup triggered cluster lookup */
+	ulint_ctr_64_t		n_sec_rec_cluster_reads;
+
+	/** Number of times prefix optimization avoided triggering cluster lookup */
+	ulint_ctr_64_t		n_sec_rec_cluster_reads_avoided;
+
+	/** Number of lock deadlocks */
 	ulint_ctr_1_t		lock_deadlock_count;
 
+	/** Number of lock waits that have been up to max time (i.e.) lock
+	wait timeout */
 	ulint_ctr_1_t		n_lock_max_wait_time;
+
+	/** Number of times page 0 is read from tablespace */
+	ulint_ctr_64_t		page0_read;
+
+	/** Number of encryption_get_latest_key_version calls */
+	ulint_ctr_64_t		n_key_requests;
 };
 
 extern const char*	srv_main_thread_op_info;
@@ -187,8 +228,10 @@ extern os_event_t	srv_checkpoint_completed_event;
 log tracking iteration */
 extern os_event_t	srv_redo_log_tracked_event;
 
-/** srv_redo_log_follow_thread spawn flag */
-extern bool srv_redo_log_thread_started;
+/** Whether the redo log tracker thread has been started. Does not take into
+account whether the tracking is currently enabled (see srv_track_changed_pages
+for that) */
+extern bool		srv_redo_log_thread_started;
 
 /* If the last data file is auto-extended, we add this many pages to it
 at a time */
@@ -228,6 +271,9 @@ extern char*	srv_arch_dir;
 recovery and open all tables in RO mode instead of RW mode. We don't
 sync the max trx id to disk either. */
 extern my_bool	srv_read_only_mode;
+/** Set if InnoDB operates in read-only mode or innodb-force-recovery
+is greater than SRV_FORCE_NO_TRX_UNDO. */
+extern my_bool	high_level_read_only;
 /** store to its own file each table created by an user; data
 dictionary tables are in the system tablespace 0 */
 extern my_bool	srv_file_per_table;
@@ -258,9 +304,7 @@ OS (provided we compiled Innobase with it in), otherwise we will
 use simulated aio we build below with threads.
 Currently we support native aio on windows and linux */
 extern my_bool	srv_use_native_aio;
-#ifdef __WIN__
-extern ibool	srv_use_native_conditions;
-#endif /* __WIN__ */
+extern my_bool	srv_numa_interleave;
 #endif /* !UNIV_HOTBACKUP */
 
 /* Use trim operation */
@@ -302,11 +346,17 @@ extern char**	srv_data_file_names;
 extern ulint*	srv_data_file_sizes;
 extern ulint*	srv_data_file_is_raw_partition;
 
+/** Whether the redo log tracking is currently enabled. Note that it is
+possible for the log tracker thread to be running and the tracking to be
+disabled */
 extern my_bool		srv_track_changed_pages;
 extern ulonglong	srv_max_bitmap_file_size;
 
 extern
 ulonglong       srv_max_changed_pages;
+
+extern uint	srv_n_fil_crypt_threads;
+extern uint	srv_n_fil_crypt_threads_started;
 
 extern ibool	srv_auto_extend_last_data_file;
 extern ulint	srv_last_file_size_max;
@@ -315,6 +365,10 @@ extern char*	srv_log_group_home_dir;
 extern ulong	srv_auto_extend_increment;
 
 extern ibool	srv_created_new_raw;
+
+/* Optimize prefix index queries to skip cluster index lookup when possible */
+/* Enables or disables this prefix optimization.  Disabled by default. */
+extern my_bool	srv_prefix_index_cluster_optimization;
 
 /** Maximum number of srv_n_log_files, or innodb_log_files_in_group */
 #define SRV_N_LOG_FILES_MAX 100
@@ -347,7 +401,6 @@ extern my_bool	srv_use_sys_malloc;
 extern ibool	srv_use_sys_malloc;
 #endif /* UNIV_HOTBACKUP */
 extern ulint	srv_buf_pool_size;	/*!< requested size in bytes */
-extern my_bool	srv_buf_pool_populate;	/*!< virtual page preallocation */
 extern ulint    srv_buf_pool_instances; /*!< requested number of buffer pool instances */
 extern ulong	srv_n_page_hash_locks;	/*!< number of locks to
 					protect buf_pool->page_hash */
@@ -357,6 +410,8 @@ extern ulong	srv_flush_neighbors;	/*!< whether or not to flush
 					neighbors of a block */
 extern ulint	srv_buf_pool_old_size;	/*!< previously requested size */
 extern ulint	srv_buf_pool_curr_size;	/*!< current size in bytes */
+extern ulong	srv_buf_pool_dump_pct;	/*!< dump that may % of each buffer
+					pool during BP dump */
 extern ulint	srv_mem_pool_size;
 extern ulint	srv_lock_table_size;
 
@@ -414,6 +469,8 @@ extern double	srv_defragment_fill_factor;
 extern uint	srv_defragment_frequency;
 extern ulonglong	srv_defragment_interval;
 
+extern ulong	srv_idle_flush_pct;
+
 /* Number of IO operations per second the server can do */
 extern ulong    srv_io_capacity;
 
@@ -434,8 +491,6 @@ extern ulong	srv_innodb_stats_method;
 
 #ifdef UNIV_LOG_ARCHIVE
 extern ibool		srv_log_archive_on;
-extern ibool		srv_archive_recovery;
-extern ib_uint64_t	srv_archive_recovery_limit_lsn;
 #endif /* UNIV_LOG_ARCHIVE */
 
 extern char*	srv_file_flush_method_str;
@@ -444,10 +499,10 @@ extern ulint	srv_win_file_flush_method;
 
 extern ulint	srv_max_n_open_files;
 
-extern ulong	srv_max_dirty_pages_pct;
-extern ulong	srv_max_dirty_pages_pct_lwm;
+extern double	srv_max_dirty_pages_pct;
+extern double	srv_max_dirty_pages_pct_lwm;
 
-extern ulong	srv_adaptive_flushing_lwm;
+extern double	srv_adaptive_flushing_lwm;
 extern ulong	srv_flushing_avg_loops;
 
 extern ulong	srv_force_recovery;
@@ -468,14 +523,15 @@ extern unsigned long long	srv_stats_transient_sample_pages;
 extern my_bool			srv_stats_persistent;
 extern unsigned long long	srv_stats_persistent_sample_pages;
 extern my_bool			srv_stats_auto_recalc;
+extern unsigned long long	srv_stats_modified_counter;
+extern my_bool			srv_stats_sample_traditional;
 
 extern ibool	srv_use_doublewrite_buf;
 extern ulong	srv_doublewrite_batch_size;
-extern ulong	srv_checksum_algorithm;
 
 extern ulong	srv_log_arch_expire_sec;
 
-extern ulong	srv_max_buf_pool_modified_pct;
+extern double	srv_max_buf_pool_modified_pct;
 extern ulong	srv_max_purge_lag;
 extern ulong	srv_max_purge_lag_delay;
 
@@ -520,14 +576,17 @@ extern ibool	srv_print_verbose_log;
 	"tables instead, see " REFMAN "innodb-i_s-tables.html"
 extern ibool	srv_print_innodb_table_monitor;
 
-extern ibool	srv_monitor_active;
-extern ibool	srv_error_monitor_active;
+extern bool	srv_monitor_active;
+extern bool	srv_error_monitor_active;
 
 /* TRUE during the lifetime of the buffer pool dump/load thread */
-extern ibool	srv_buf_dump_thread_active;
+extern bool	srv_buf_dump_thread_active;
 
 /* TRUE during the lifetime of the stats thread */
-extern ibool	srv_dict_stats_thread_active;
+extern bool	srv_dict_stats_thread_active;
+
+/* TRUE if enable log scrubbing */
+extern my_bool	srv_scrub_log;
 
 extern ulong	srv_n_spin_wait_rounds;
 extern ulong	srv_n_free_tickets_to_enter;
@@ -537,6 +596,9 @@ extern ibool	srv_priority_boost;
 
 extern ulint	srv_truncated_status_writes;
 extern ulint	srv_available_undo_logs;
+
+extern ulint	srv_column_compressed;
+extern ulint	srv_column_decompressed;
 
 extern	ulint	srv_mem_pool_size;
 extern	ulint	srv_lock_table_size;
@@ -561,9 +623,9 @@ extern my_bool	srv_ibuf_disable_background_merge;
 
 #ifdef UNIV_DEBUG
 extern my_bool	srv_purge_view_update_only_debug;
+extern uint	srv_sys_space_size_debug;
 #endif /* UNIV_DEBUG */
 
-extern ulint	srv_fatal_semaphore_wait_threshold;
 #define SRV_SEMAPHORE_WAIT_EXTENSION	7200
 extern ulint	srv_dml_needed_delay;
 extern long long	srv_kill_idle_transaction;
@@ -635,6 +697,9 @@ extern my_bool srv_print_all_deadlocks;
 
 extern my_bool	srv_cmp_per_index_enabled;
 
+/* is encryption enabled */
+extern ulong	srv_encrypt_tables;
+
 /** Status variables to be passed to MySQL */
 extern struct export_var_t export_vars;
 
@@ -647,6 +712,17 @@ extern my_bool srv_fake_changes_locks;
 
 /** Simulate compression failures. */
 extern uint srv_simulate_comp_failures;
+
+/** Fatal semaphore wait threshold = maximum number of seconds
+that semaphore times out in InnoDB */
+#define DEFAULT_SRV_FATAL_SEMAPHORE_TIMEOUT 600
+extern ulong	srv_fatal_semaphore_wait_threshold;
+
+/** Enable semaphore request instrumentation */
+extern my_bool srv_instrument_semaphores;
+
+/** Buffer pool dump status frequence in percentages */
+extern ulong srv_buf_dump_status_frequency;
 
 # ifdef UNIV_PFS_THREAD
 /* Keys to register InnoDB threads with performance schema */
@@ -889,19 +965,29 @@ ulint
 srv_get_activity_count(void);
 /*========================*/
 /*******************************************************************//**
-Check if there has been any activity.
+Check if there has been any activity. Considers background change buffer
+merge as regular server activity unless a non-default
+old_ibuf_merge_activity_count value is passed, in which case the merge will be
+treated as keeping server idle.
 @return FALSE if no change in activity counter. */
 UNIV_INTERN
 ibool
 srv_check_activity(
 /*===============*/
-	ulint		old_activity_count);	/*!< old activity count */
+	ulint		old_activity_count,	/*!< old activity count */
+						/*!< old change buffer merge
+						activity count, or
+						ULINT_UNDEFINED */
+	ulint		old_ibuf_merge_activity_count = ULINT_UNDEFINED);
 /******************************************************************//**
 Increment the server activity counter. */
 UNIV_INTERN
 void
-srv_inc_activity_count(void);
-/*=========================*/
+srv_inc_activity_count(
+/*===================*/
+	bool ibuf_merge_activity = false);	/*!< whether this activity bump
+						is caused by the background
+						change buffer merge */
 
 /**********************************************************************//**
 Enqueues a task to server task queue and releases a worker thread, if there
@@ -962,7 +1048,7 @@ UNIV_INTERN
 os_thread_ret_t
 DECLARE_THREAD(srv_purge_coordinator_thread)(
 /*=========================================*/
-	void*	arg __attribute__((unused)));	/*!< in: a dummy parameter
+	void*	arg MY_ATTRIBUTE((unused)));	/*!< in: a dummy parameter
 						required by os_thread_create */
 
 /*********************************************************************//**
@@ -972,7 +1058,7 @@ UNIV_INTERN
 os_thread_ret_t
 DECLARE_THREAD(srv_worker_thread)(
 /*==============================*/
-	void*	arg __attribute__((unused)));	/*!< in: a dummy parameter
+	void*	arg MY_ATTRIBUTE((unused)));	/*!< in: a dummy parameter
 						required by os_thread_create */
 } /* extern "C" */
 
@@ -995,15 +1081,6 @@ srv_release_threads(
 /*================*/
 	enum srv_thread_type	type,	/*!< in: thread type */
 	ulint			n);	/*!< in: number of threads to release */
-
-/**********************************************************************//**
-Check whether any background thread are active. If so print which thread
-is active. Send the threads wakeup signal.
-@return name of thread that is active or NULL */
-UNIV_INTERN
-const char*
-srv_any_background_threads_are_active(void);
-/*=======================================*/
 
 /**********************************************************************//**
 Wakeup the purge threads. */
@@ -1088,7 +1165,8 @@ struct export_var_t{
 	ulint innodb_os_log_pending_fsyncs;	/*!< fil_n_pending_log_flushes */
 	ulint innodb_page_size;			/*!< UNIV_PAGE_SIZE */
 	ulint innodb_pages_created;		/*!< buf_pool->stat.n_pages_created */
-	ulint innodb_pages_read;		/*!< buf_pool->stat.n_pages_read */
+	ulint innodb_pages_read;		/*!< buf_pool->stat.n_pages_read*/
+	ulint innodb_page0_read;		/*!< srv_stats.page0_read */
 	ulint innodb_pages_written;		/*!< buf_pool->stat.n_pages_written */
 	ib_int64_t innodb_purge_trx_id;
 	ib_int64_t innodb_purge_undo_no;
@@ -1106,6 +1184,10 @@ struct export_var_t{
 	ulint innodb_rows_inserted;		/*!< srv_n_rows_inserted */
 	ulint innodb_rows_updated;		/*!< srv_n_rows_updated */
 	ulint innodb_rows_deleted;		/*!< srv_n_rows_deleted */
+	ulint innodb_system_rows_read; /*!< srv_n_system_rows_read */
+	ulint innodb_system_rows_inserted; /*!< srv_n_system_rows_inserted */
+	ulint innodb_system_rows_updated; /*!< srv_n_system_rows_updated */
+	ulint innodb_system_rows_deleted; /*!< srv_n_system_rows_deleted*/
 	ulint innodb_num_open_files;		/*!< fil_n_file_opened */
 	ulint innodb_truncated_status_writes;	/*!< srv_truncated_status_writes */
 	ulint innodb_available_undo_logs;       /*!< srv_available_undo_logs */
@@ -1138,13 +1220,24 @@ struct export_var_t{
 	ulint innodb_purge_view_trx_id_age;	/*!< rw_max_trx_id
 						- purged view's min trx_id */
 #endif /* UNIV_DEBUG */
-
+	ulint innodb_column_compressed;		/*!< srv_column_compressed */
+	ulint innodb_column_decompressed;	/*!< srv_column_decompressed */
 
 	ib_int64_t innodb_page_compression_saved;/*!< Number of bytes saved
 						by page compression */
 	ib_int64_t innodb_page_compression_trim_sect512;/*!< Number of 512b TRIM
 						by page compression */
+	ib_int64_t innodb_page_compression_trim_sect1024;/*!< Number of 1K TRIM
+						by page compression */
+	ib_int64_t innodb_page_compression_trim_sect2048;/*!< Number of 2K TRIM
+						by page compression */
 	ib_int64_t innodb_page_compression_trim_sect4096;/*!< Number of 4K byte TRIM
+						by page compression */
+	ib_int64_t innodb_page_compression_trim_sect8192;/*!< Number of 8K TRIM
+						by page compression */
+	ib_int64_t innodb_page_compression_trim_sect16384;/*!< Number of 16K TRIM
+						by page compression */
+	ib_int64_t innodb_page_compression_trim_sect32768;/*!< Number of 32K TRIM
 						by page compression */
 	ib_int64_t innodb_index_pages_written;  /*!< Number of index pages
 						written */
@@ -1161,6 +1254,27 @@ struct export_var_t{
 						compression */
 	ib_int64_t innodb_pages_page_compression_error;/*!< Number of page
 						compression errors */
+	ib_int64_t innodb_pages_encrypted;      /*!< Number of pages
+						encrypted */
+	ib_int64_t innodb_pages_decrypted;      /*!< Number of pages
+						decrypted */
+
+	ulint innodb_sec_rec_cluster_reads;	/*!< srv_sec_rec_cluster_reads */
+	ulint innodb_sec_rec_cluster_reads_avoided;/*!< srv_sec_rec_cluster_reads_avoided */
+
+	ulint innodb_encryption_rotation_pages_read_from_cache;
+	ulint innodb_encryption_rotation_pages_read_from_disk;
+	ulint innodb_encryption_rotation_pages_modified;
+	ulint innodb_encryption_rotation_pages_flushed;
+	ulint innodb_encryption_rotation_estimated_iops;
+	ib_int64_t innodb_encryption_key_requests;
+
+	ulint innodb_scrub_page_reorganizations;
+	ulint innodb_scrub_page_splits;
+	ulint innodb_scrub_page_split_failures_underflow;
+	ulint innodb_scrub_page_split_failures_out_of_filespace;
+	ulint innodb_scrub_page_split_failures_missing_index;
+	ulint innodb_scrub_page_split_failures_unknown;
 };
 
 /** Thread slot in the thread table.  */
@@ -1191,6 +1305,7 @@ struct srv_slot_t{
 #else /* !UNIV_HOTBACKUP */
 # define srv_use_adaptive_hash_indexes		FALSE
 # define srv_use_native_aio			FALSE
+# define srv_numa_interleave			FALSE
 # define srv_force_recovery			0UL
 # define srv_set_io_thread_op_info(t,info)	((void) 0)
 # define srv_reset_io_thread_op_info()		((void) 0)

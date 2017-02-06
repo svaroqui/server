@@ -1,4 +1,4 @@
-/* Copyright (C) 2013 Codership Oy <info@codership.com>
+/* Copyright (C) 2013-2015 Codership Oy <info@codership.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,9 +15,11 @@
 
 #include "wsrep_priv.h"
 #include "wsrep_binlog.h" // wsrep_dump_rbr_buf()
+#include "wsrep_xid.h"
 
-#include "log_event.h" // EVENT_LEN_OFFSET, etc.
+#include "log_event.h" // class THD, EVENT_LEN_OFFSET, etc.
 #include "wsrep_applier.h"
+#include "debug_sync.h"
 
 /*
   read the first event from (*buf). The size of the (*buf) is (*buf_len).
@@ -37,15 +39,9 @@ static Log_event* wsrep_read_log_event(
   const char *error= 0;
   Log_event *res=  0;
 
-  if (data_len > wsrep_max_ws_size)
-  {
-    error = "Event too big";
-    goto err;
-  }
+  res= Log_event::read_log_event(buf, data_len, &error, description_event,
+                                 true);
 
-  res= Log_event::read_log_event(buf, data_len, &error, description_event, true);
-
-err:
   if (!res)
   {
     DBUG_ASSERT(error != 0);
@@ -60,10 +56,8 @@ err:
 
 #include "transaction.h" // trans_commit(), trans_rollback()
 #include "rpl_rli.h"     // class Relay_log_info;
-#include "sql_base.h"    // close_temporary_table()
 
-static inline void
-wsrep_set_apply_format(THD* thd, Format_description_log_event* ev)
+void wsrep_set_apply_format(THD* thd, Format_description_log_event* ev)
 {
   if (thd->wsrep_apply_format)
   {
@@ -72,17 +66,16 @@ wsrep_set_apply_format(THD* thd, Format_description_log_event* ev)
   thd->wsrep_apply_format= ev;
 }
 
-static inline Format_description_log_event*
-wsrep_get_apply_format(THD* thd)
+Format_description_log_event* wsrep_get_apply_format(THD* thd)
 {
   if (thd->wsrep_apply_format)
-      return (Format_description_log_event*) thd->wsrep_apply_format;
-  /* TODO: mariadb does not support rli->get_rli_description_event()
-   * => look for alternative way to remember last FDE in replication
-   */
-  //return thd->wsrep_rli->get_rli_description_event();
-  thd->wsrep_apply_format = new Format_description_log_event(4);
-  return (Format_description_log_event*) thd->wsrep_apply_format;
+  {
+    return (Format_description_log_event*) thd->wsrep_apply_format;
+  }
+
+  DBUG_ASSERT(thd->wsrep_rgi);
+
+  return thd->wsrep_rgi->rli->relay_log.description_event_for_exec;
 }
 
 static wsrep_cb_status_t wsrep_apply_events(THD*        thd,
@@ -92,10 +85,12 @@ static wsrep_cb_status_t wsrep_apply_events(THD*        thd,
   char *buf= (char *)events_buf;
   int rcode= 0;
   int event= 1;
+  Log_event_type typ;
 
   DBUG_ENTER("wsrep_apply_events");
 
-  if (thd->killed == KILL_CONNECTION)
+  if (thd->killed == KILL_CONNECTION &&
+      thd->wsrep_conflict_state != REPLAYING)
   {
     WSREP_INFO("applier has been aborted, skipping apply_rbr: %lld",
                (long long) wsrep_thd_trx_seqno(thd));
@@ -125,7 +120,9 @@ static wsrep_cb_status_t wsrep_apply_events(THD*        thd,
       goto error;
     }
 
-    switch (ev->get_type_code()) {
+    typ= ev->get_type_code();
+
+    switch (typ) {
     case FORMAT_DESCRIPTION_EVENT:
       wsrep_set_apply_format(thd, (Format_description_log_event*)ev);
       continue;
@@ -145,10 +142,11 @@ static wsrep_cb_status_t wsrep_apply_events(THD*        thd,
       break;
     }
 
-    thd->set_server_id(ev->server_id); // use the original server id for logging
-    thd->set_time();                // time the query
+    /* Use the original server id for logging. */
+    thd->set_server_id(ev->server_id);
+    thd->set_time();                            // time the query
     wsrep_xid_init(&thd->transaction.xid_state.xid,
-                   &thd->wsrep_trx_meta.gtid.uuid,
+                   thd->wsrep_trx_meta.gtid.uuid,
                    thd->wsrep_trx_meta.gtid.seqno);
     thd->lex->current_select= 0;
     if (!ev->when)
@@ -158,8 +156,11 @@ static wsrep_cb_status_t wsrep_apply_events(THD*        thd,
       ev->when_sec_part= hrtime_sec_part(hrtime);
     }
 
+    thd->variables.option_bits=
+      (thd->variables.option_bits & ~OPTION_SKIP_REPLICATION) |
+      (ev->flags & LOG_EVENT_SKIP_REPLICATION_F ?  OPTION_SKIP_REPLICATION : 0);
+
     ev->thd = thd;
-    //exec_res = ev->apply_event(thd->wsrep_rli);
     exec_res = ev->apply_event(thd->wsrep_rgi);
     DBUG_PRINT("info", ("exec_event result: %d", exec_res));
 
@@ -191,7 +192,7 @@ static wsrep_cb_status_t wsrep_apply_events(THD*        thd,
       DBUG_RETURN(WSREP_CB_FAILURE);
     }
 
-    delete ev;
+    delete_or_keep_event_post_apply(thd->wsrep_rgi, typ, ev);
   }
 
  error:
@@ -216,6 +217,16 @@ wsrep_cb_status_t wsrep_apply_cb(void* const             ctx,
 {
   THD* const thd((THD*)ctx);
 
+  // Allow tests to block the applier thread using the DBUG facilities.
+  DBUG_EXECUTE_IF("sync.wsrep_apply_cb",
+                 {
+                   const char act[]=
+                     "now "
+                     "wait_for signal.wsrep_apply_cb";
+                   DBUG_ASSERT(!debug_sync_set_action(thd,
+                                                      STRING_WITH_LEN(act)));
+                 };);
+
   thd->wsrep_trx_meta = *meta;
 
 #ifdef WSREP_PROC_INFO
@@ -238,6 +249,9 @@ wsrep_cb_status_t wsrep_apply_cb(void* const             ctx,
   else
     thd->variables.option_bits&= ~OPTION_NO_FOREIGN_KEY_CHECKS;
 
+  /* With galera we assume that the master has done the constraint checks */
+  thd->variables.option_bits|= OPTION_NO_CHECK_CONSTRAINT_CHECKS;
+
   if (flags & WSREP_FLAG_ISOLATION)
   {
     thd->wsrep_apply_toi= true;
@@ -259,24 +273,20 @@ wsrep_cb_status_t wsrep_apply_cb(void* const             ctx,
 
   if (WSREP_CB_SUCCESS != rcode)
   {
-    wsrep_dump_rbr_buf(thd, buf, buf_len);
+    wsrep_dump_rbr_buf_with_header(thd, buf, buf_len);
   }
 
-  TABLE *tmp;
-  while ((tmp = thd->temporary_tables))
+  if (thd->has_thd_temporary_tables())
   {
-    WSREP_DEBUG("Applier %lu, has temporary tables: %s.%s",
-		thd->thread_id,
-		(tmp->s) ? tmp->s->db.str : "void",
-		(tmp->s) ? tmp->s->table_name.str : "void");
-    close_temporary_table(thd, tmp, 1, 1);
+    WSREP_DEBUG("Applier %lld has temporary tables. Closing them now..",
+                thd->thread_id);
+    thd->close_temporary_tables();
   }
 
   return rcode;
 }
 
-static wsrep_cb_status_t wsrep_commit(THD* const thd,
-                                      wsrep_seqno_t const global_seqno)
+static wsrep_cb_status_t wsrep_commit(THD* const thd)
 {
 #ifdef WSREP_PROC_INFO
   snprintf(thd->wsrep_info, sizeof(thd->wsrep_info) - 1,
@@ -289,28 +299,31 @@ static wsrep_cb_status_t wsrep_commit(THD* const thd,
   wsrep_cb_status_t const rcode(trans_commit(thd) ?
                                 WSREP_CB_FAILURE : WSREP_CB_SUCCESS);
 
-#ifdef WSREP_PROC_INFO
-  snprintf(thd->wsrep_info, sizeof(thd->wsrep_info) - 1,
-           "committed %lld", (long long)wsrep_thd_trx_seqno(thd));
-  thd_proc_info(thd, thd->wsrep_info);
-#else
-  thd_proc_info(thd, "committed");
-#endif /* WSREP_PROC_INFO */
-
   if (WSREP_CB_SUCCESS == rcode)
   {
     thd->wsrep_rgi->cleanup_context(thd, false);
 #ifdef GTID_SUPPORT
     thd->variables.gtid_next.set_automatic();
 #endif /* GTID_SUPPORT */
-    // TODO: mark snapshot with global_seqno.
+    if (thd->wsrep_apply_toi)
+    {
+      wsrep_set_SE_checkpoint(thd->wsrep_trx_meta.gtid.uuid,
+                              thd->wsrep_trx_meta.gtid.seqno);
+    }
   }
+
+#ifdef WSREP_PROC_INFO
+  snprintf(thd->wsrep_info, sizeof(thd->wsrep_info) - 1,
+           "committed %lld", (long long) wsrep_thd_trx_seqno(thd));
+  thd_proc_info(thd, thd->wsrep_info);
+#else
+  thd_proc_info(thd, "committed");
+#endif /* WSREP_PROC_INFO */
 
   return rcode;
 }
 
-static wsrep_cb_status_t wsrep_rollback(THD* const thd,
-                                        wsrep_seqno_t const global_seqno)
+static wsrep_cb_status_t wsrep_rollback(THD* const thd)
 {
 #ifdef WSREP_PROC_INFO
   snprintf(thd->wsrep_info, sizeof(thd->wsrep_info) - 1,
@@ -347,12 +360,14 @@ wsrep_cb_status_t wsrep_commit_cb(void*         const     ctx,
   wsrep_cb_status_t rcode;
 
   if (commit)
-    rcode = wsrep_commit(thd, meta->gtid.seqno);
+    rcode = wsrep_commit(thd);
   else
-    rcode = wsrep_rollback(thd, meta->gtid.seqno);
+    rcode = wsrep_rollback(thd);
 
+  /* Cleanup */
   wsrep_set_apply_format(thd, NULL);
   thd->mdl_context.release_transactional_locks();
+  thd->reset_query();                           /* Mutex protected */
   free_root(thd->mem_root,MYF(MY_KEEP_PREALLOC));
   thd->tx_isolation= (enum_tx_isolation) thd->variables.tx_isolation;
 

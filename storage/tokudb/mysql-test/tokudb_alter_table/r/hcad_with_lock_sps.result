@@ -120,7 +120,7 @@ create function f0() returns int
 begin
 alter table foo add column ggg int;
 end|
-ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger.
+ERROR HY000: Explicit or implicit commit is not allowed in stored function or trigger
 set autocommit=0;
 create procedure p1()
 begin
@@ -168,7 +168,7 @@ a	b	c	g
 5	50	500	NULL
 explain select * from foo where b > 10;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
-1	SIMPLE	foo	range	b	b	5	NULL	4	Using where; Using index
+1	SIMPLE	foo	index	b	b	5	NULL	5	Using where; Using index
 select * from foo where b > 10;
 a	b	c	g
 2	20	200	NULL

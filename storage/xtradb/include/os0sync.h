@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
 
 Portions of this file contain modifications contributed and copyrighted by
@@ -38,6 +38,26 @@ Created 9/6/1995 Heikki Tuuri
 #include "ut0lst.h"
 #include "sync0types.h"
 
+#if defined __i386__ || defined __x86_64__ || defined _M_IX86 \
+    || defined _M_X64 || defined __WIN__
+
+#define IB_STRONG_MEMORY_MODEL
+
+#endif /* __i386__ || __x86_64__ || _M_IX86 || _M_X64 || __WIN__ */
+
+#ifdef HAVE_WINDOWS_ATOMICS
+typedef LONG lock_word_t;	/*!< On Windows, InterlockedExchange operates
+				on LONG variable */
+#elif defined(HAVE_ATOMIC_BUILTINS) && !defined(HAVE_ATOMIC_BUILTINS_BYTE)
+typedef ulint lock_word_t;
+#else
+
+#define IB_LOCK_WORD_IS_BYTE
+
+typedef byte lock_word_t;
+
+#endif /* HAVE_WINDOWS_ATOMICS */
+
 #ifdef __WIN__
 /** Native event (slow)*/
 typedef HANDLE			os_native_event_t;
@@ -73,16 +93,62 @@ struct os_event {
 #endif
 	os_fast_mutex_t	os_mutex;	/*!< this mutex protects the next
 					fields */
-	ibool		is_set;		/*!< this is TRUE when the event is
-					in the signaled state, i.e., a thread
-					does not stop if it tries to wait for
-					this event */
-	ib_int64_t	signal_count;	/*!< this is incremented each time
-					the event becomes signaled */
+private:
+	/** Masks for the event signal count and set flag in the count_and_set
+	field */
+	static const ib_uint64_t count_mask = 0x7fffffffffffffffULL;
+	static const ib_uint64_t set_mask   = 0x8000000000000000ULL;
+
+	/** The MSB is set whenever when the event is in the signaled state,
+	i.e. a thread does not stop if it tries to wait for this event. Lower
+	bits are incremented each time the event becomes signaled. */
+	ib_uint64_t	count_and_set;
+public:
 	os_cond_t	cond_var;	/*!< condition variable is used in
 					waiting for the event */
-	UT_LIST_NODE_T(os_event_t) os_event_list;
-					/*!< list of all created events */
+
+	/** Initialise count_and_set field */
+	void init_count_and_set(void)
+	{
+		/* We return this value in os_event_reset(), which can then be
+		be used to pass to the os_event_wait_low(). The value of zero
+		is reserved in os_event_wait_low() for the case when the
+		caller does not want to pass any signal_count value. To
+		distinguish between the two cases we initialize signal_count
+		to 1 here. */
+		count_and_set = 1;
+	}
+
+	/** Mark this event as set */
+	void set(void)
+	{
+		count_and_set |= set_mask;
+	}
+
+	/** Unmark this event as set */
+	void reset(void)
+	{
+		count_and_set &= count_mask;
+	}
+
+	/** Return true if this event is set */
+	bool is_set(void) const
+	{
+		return count_and_set & set_mask;
+	}
+
+	/** Bump signal count for this event */
+	void inc_signal_count(void)
+	{
+		ut_ad(static_cast<ib_uint64_t>(signal_count()) < count_mask);
+		count_and_set++;
+	}
+
+	/** Return how many times this event has been signalled */
+	ib_int64_t signal_count(void) const
+	{
+		return (count_and_set & count_mask);
+	}
 };
 
 /** Denotes an infinite delay for os_event_wait_time() */
@@ -94,8 +160,7 @@ struct os_event {
 /** Operating system mutex handle */
 typedef struct os_mutex_t*	os_ib_mutex_t;
 
-/** Mutex protecting counts and the event and OS 'slow' mutex lists */
-extern os_ib_mutex_t	os_sync_mutex;
+// All the os_*_count variables are accessed atomically
 
 /** This is incremented by 1 in os_thread_create and decremented by 1 in
 os_thread_exit */
@@ -111,12 +176,15 @@ UNIV_INTERN
 void
 os_sync_init(void);
 /*==============*/
-/*********************************************************//**
-Frees created events and OS 'slow' mutexes. */
+
+/** Create an event semaphore, i.e., a semaphore which may just have two
+states: signaled and nonsignaled. The created event is manual reset: it must be
+reset explicitly by calling sync_os_reset_event.
+@param[in,out]	event	memory block where to create the event */
 UNIV_INTERN
 void
-os_sync_free(void);
-/*==============*/
+os_event_create(os_event_t event);
+
 /*********************************************************//**
 Creates an event semaphore, i.e., a semaphore which may just have two states:
 signaled and nonsignaled. The created event is manual reset: it must be reset
@@ -152,7 +220,10 @@ UNIV_INTERN
 void
 os_event_free(
 /*==========*/
-	os_event_t	event);	/*!< in: event to free */
+	os_event_t	event,	/*!< in: event to free */
+	bool		free_memory = true);
+				/*!< in: if true, deallocate the event memory
+				block too */
 
 /**********************************************************//**
 Waits for an event object until it is in the signaled state.
@@ -322,12 +393,29 @@ pfs_os_fast_mutex_unlock(
 #endif /* UNIV_PFS_MUTEX */
 
 /**********************************************************//**
+Acquires ownership of a fast mutex. Implies a full memory barrier even on
+platforms such as PowerPC where this is not normally required.
+@return	0 if success, != 0 if was reserved by another thread */
+UNIV_INLINE
+ulint
+os_fast_mutex_trylock_full_barrier(
+/*==================*/
+	os_fast_mutex_t*	fast_mutex);	/*!< in: mutex to acquire */
+/**********************************************************//**
 Releases ownership of a fast mutex. */
 UNIV_INTERN
 void
 os_fast_mutex_unlock_func(
 /*======================*/
 	fast_mutex_t*		fast_mutex);	/*!< in: mutex to release */
+/**********************************************************//**
+Releases ownership of a fast mutex. Implies a full memory barrier even on
+platforms such as PowerPC where this is not normally required. */
+UNIV_INTERN
+void
+os_fast_mutex_unlock_full_barrier(
+/*=================*/
+	os_fast_mutex_t*	fast_mutex);	/*!< in: mutex to release */
 /*********************************************************//**
 Initializes an operating system fast mutex semaphore. */
 UNIV_INTERN
@@ -429,17 +517,77 @@ amount to decrement. */
 # define os_atomic_decrement_uint64(ptr, amount) \
 	os_atomic_decrement(ptr, amount)
 
-/**********************************************************//**
-Returns the old value of *ptr, atomically sets *ptr to new_val */
+# if defined(HAVE_ATOMIC_BUILTINS)
 
-# define os_atomic_test_and_set_byte(ptr, new_val) \
+/** Do an atomic test and set.
+@param[in,out]	ptr		Memory location to set to non-zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_test_and_set(volatile lock_word_t* ptr)
+{
+	return(__sync_lock_test_and_set(ptr, 1));
+}
+
+/** Do an atomic release.
+@param[in,out]	ptr		Memory location to write to
+@return the previous value */
+inline
+void
+os_atomic_clear(volatile lock_word_t* ptr)
+{
+	__sync_lock_release(ptr);
+}
+
+# elif defined(HAVE_IB_GCC_ATOMIC_TEST_AND_SET)
+
+/** Do an atomic test-and-set.
+@param[in,out]	ptr		Memory location to set to non-zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_test_and_set(volatile lock_word_t* ptr)
+{
+       return(__atomic_test_and_set(ptr, __ATOMIC_ACQUIRE));
+}
+
+/** Do an atomic clear.
+@param[in,out]	ptr		Memory location to set to zero */
+inline
+void
+os_atomic_clear(volatile lock_word_t* ptr)
+{
+	__atomic_clear(ptr, __ATOMIC_RELEASE);
+}
+
+# else
+
+#  error "Unsupported platform"
+
+# endif /* HAVE_IB_GCC_ATOMIC_TEST_AND_SET */
+
+#if defined(__powerpc__) || defined(__aarch64__)
+/*
+  os_atomic_test_and_set_byte_release() should imply a release barrier before
+  setting, and a full barrier after. But __sync_lock_test_and_set() is only
+  documented as an aquire barrier. So on PowerPC we need to add the full
+  barrier explicitly.  */
+# define os_atomic_test_and_set_byte_release(ptr, new_val) \
+        do { __sync_lock_release(ptr); \
+		__sync_synchronize(); } while (0)
+#else
+/*
+  On x86, __sync_lock_test_and_set() happens to be full barrier, due to
+  LOCK prefix.
+*/
+# define os_atomic_test_and_set_byte_release(ptr, new_val) \
 	__sync_lock_test_and_set(ptr, (byte) new_val)
-
-# define os_atomic_test_and_set_ulint(ptr, new_val) \
-	__sync_lock_test_and_set(ptr, new_val)
-
-# define os_atomic_lock_release_byte(ptr) \
-	__sync_lock_release(ptr)
+#endif
+/*
+  os_atomic_test_and_set_byte_acquire() is a full memory barrier on x86. But
+  in general, just an aquire barrier should be sufficient. */
+# define os_atomic_test_and_set_byte_acquire(ptr, new_val) \
+	__sync_lock_test_and_set(ptr, (byte) new_val)
 
 #elif defined(HAVE_IB_SOLARIS_ATOMICS)
 
@@ -497,7 +645,7 @@ amount of increment. */
 	os_atomic_increment_ulint((ulong_t*) ptr, amount)
 
 # define os_atomic_increment_uint64(ptr, amount) \
-	atomic_add_64_nv(ptr, amount)
+	atomic_add_64_nv((uint64_t *) ptr, amount)
 
 /* Returns the resulting value, ptr is pointer to target, amount is the
 amount to decrement. */
@@ -514,17 +662,57 @@ amount to decrement. */
 # define os_atomic_decrement_uint64(ptr, amount) \
 	os_atomic_increment_uint64(ptr, -(amount))
 
-/**********************************************************//**
-Returns the old value of *ptr, atomically sets *ptr to new_val */
+# ifdef IB_LOCK_WORD_IS_BYTE
 
-# define os_atomic_test_and_set_byte(ptr, new_val) \
+/** Do an atomic xchg and set to non-zero.
+@param[in,out]	ptr		Memory location to set to non-zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_test_and_set(volatile lock_word_t* ptr)
+{
+	return(atomic_swap_uchar(ptr, 1));
+}
+
+/** Do an atomic xchg and set to zero.
+@param[in,out]	ptr		Memory location to set to zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_clear(volatile lock_word_t* ptr)
+{
+	return(atomic_swap_uchar(ptr, 0));
+}
+
+# else
+
+/** Do an atomic xchg and set to non-zero.
+@param[in,out]	ptr		Memory location to set to non-zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_test_and_set(volatile lock_word_t* ptr)
+{
+	return(atomic_swap_ulong(ptr, 1));
+}
+
+/** Do an atomic xchg and set to zero.
+@param[in,out]	ptr		Memory location to set to zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_clear(volatile lock_word_t* ptr)
+{
+	return(atomic_swap_ulong(ptr, 0));
+}
+
+# endif /* IB_LOCK_WORD_IS_BYTE */
+
+# define os_atomic_test_and_set_byte_acquire(ptr, new_val) \
 	atomic_swap_uchar(ptr, new_val)
 
-# define os_atomic_test_and_set_ulint(ptr, new_val) \
-	atomic_swap_ulong(ptr, new_val)
-
-# define os_atomic_lock_release_byte(ptr) \
-	(void) atomic_swap_uchar(ptr, 0)
+# define os_atomic_test_and_set_byte_release(ptr, new_val) \
+	atomic_swap_uchar(ptr, new_val)
 
 #elif defined(HAVE_WINDOWS_ATOMICS)
 
@@ -639,16 +827,27 @@ amount to decrement. There is no atomic substract function on Windows */
 				(ib_int64_t*) ptr,		\
 				-(ib_int64_t) amount) - amount))
 
-/**********************************************************//**
-Returns the old value of *ptr, atomically sets *ptr to new_val.
-InterlockedExchange() operates on LONG, and the LONG will be
-clobbered */
+/** Do an atomic test and set.
+InterlockedExchange() operates on LONG, and the LONG will be clobbered
+@param[in,out]	ptr		Memory location to set to non-zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_test_and_set(volatile lock_word_t* ptr)
+{
+	return(InterlockedExchange(ptr, 1));
+}
 
-# define os_atomic_test_and_set_byte(ptr, new_val) \
-	((byte) InterlockedExchange(ptr, new_val))
-
-# define os_atomic_test_and_set_ulong(ptr, new_val) \
-	InterlockedExchange(ptr, new_val)
+/** Do an atomic release.
+InterlockedExchange() operates on LONG, and the LONG will be clobbered
+@param[in,out]	ptr		Memory location to set to zero
+@return the previous value */
+inline
+lock_word_t
+os_atomic_clear(volatile lock_word_t* ptr)
+{
+	return(InterlockedExchange(ptr, 0));
+}
 
 # define os_atomic_lock_release_byte(ptr) \
 	(void) InterlockedExchange(ptr, 0)
@@ -701,23 +900,11 @@ for synchronization */
 	} while (0);
 
 /** barrier definitions for memory ordering */
-#if defined __i386__ || defined __x86_64__ || defined _M_IX86 || defined _M_X64 || defined __WIN__
-/* Performance regression was observed at some conditions for Intel
-architecture. Disable memory barrier for Intel architecture for now. */
-# define os_rmb do { } while(0)
-# define os_wmb do { } while(0)
-# define os_isync do { } while(0)
-# define IB_MEMORY_BARRIER_STARTUP_MSG \
-	"Memory barrier is not used"
-#elif defined(HAVE_IB_GCC_ATOMIC_THREAD_FENCE)
+#if defined(HAVE_IB_GCC_ATOMIC_THREAD_FENCE)
 # define HAVE_MEMORY_BARRIER
 # define os_rmb	__atomic_thread_fence(__ATOMIC_ACQUIRE)
 # define os_wmb	__atomic_thread_fence(__ATOMIC_RELEASE)
-#ifdef __powerpc__
-# define os_isync  __asm __volatile ("isync":::"memory")
-#else
-#define os_isync do { } while(0)
-#endif
+# define os_mb __atomic_thread_fence(__ATOMIC_SEQ_CST)
 
 # define IB_MEMORY_BARRIER_STARTUP_MSG \
 	"GCC builtin __atomic_thread_fence() is used for memory barrier"
@@ -726,7 +913,7 @@ architecture. Disable memory barrier for Intel architecture for now. */
 # define HAVE_MEMORY_BARRIER
 # define os_rmb	__sync_synchronize()
 # define os_wmb	__sync_synchronize()
-# define os_isync __sync_synchronize()
+# define os_mb	__sync_synchronize()
 # define IB_MEMORY_BARRIER_STARTUP_MSG \
 	"GCC builtin __sync_synchronize() is used for memory barrier"
 
@@ -735,7 +922,7 @@ architecture. Disable memory barrier for Intel architecture for now. */
 # include <mbarrier.h>
 # define os_rmb	__machine_r_barrier()
 # define os_wmb	__machine_w_barrier()
-# define os_isync os_rmb; os_wmb
+# define os_mb __machine_rw_barrier()
 # define IB_MEMORY_BARRIER_STARTUP_MSG \
 	"Solaris memory ordering functions are used for memory barrier"
 
@@ -744,17 +931,14 @@ architecture. Disable memory barrier for Intel architecture for now. */
 # include <intrin.h>
 # define os_rmb	_mm_lfence()
 # define os_wmb	_mm_sfence()
-# define os_isync os_rmb; os_wmb
+# define os_mb	_mm_mfence()
 # define IB_MEMORY_BARRIER_STARTUP_MSG \
 	"_mm_lfence() and _mm_sfence() are used for memory barrier"
-
-# define os_atomic_lock_release_byte(ptr) \
-	(void) InterlockedExchange(ptr, 0)
 
 #else
 # define os_rmb do { } while(0)
 # define os_wmb do { } while(0)
-# define os_isync do { } while(0)
+# define os_mb do { } while(0)
 # define IB_MEMORY_BARRIER_STARTUP_MSG \
 	"Memory barrier is not used"
 #endif

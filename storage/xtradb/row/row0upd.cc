@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -221,7 +221,7 @@ NOTE that this function will temporarily commit mtr and lose the
 pcur position!
 
 @return	DB_SUCCESS or an error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_check_references_constraints(
 /*=================================*/
@@ -261,7 +261,7 @@ row_upd_check_references_constraints(
 
 	DEBUG_SYNC_C("foreign_constraint_check_for_update");
 
-	mtr_start(mtr);
+	mtr_start_trx(mtr, trx);
 
 	if (trx->dict_operation_lock_mode == 0) {
 		got_s_lock = TRUE;
@@ -415,7 +415,7 @@ wsrep_row_upd_check_foreign_constraints(
 					dict_table_open_on_name(
 					  foreign->referenced_table_name_lookup,
 					  FALSE, FALSE, DICT_ERR_IGNORE_NONE);
-				opened = TRUE;
+				opened = (foreign->referenced_table) ? TRUE : FALSE;
 			}
 
 			if (foreign->referenced_table) {
@@ -438,7 +438,7 @@ wsrep_row_upd_check_foreign_constraints(
 					       ->n_foreign_key_checks_running);
 
 				if (opened == TRUE) {
-					dict_table_close(foreign->referenced_table, TRUE, FALSE);
+					dict_table_close(foreign->referenced_table, FALSE, FALSE);
 					opened = FALSE;
 				}
 			}
@@ -778,7 +778,7 @@ row_upd_write_sys_vals_to_log(
 	roll_ptr_t	roll_ptr,/*!< in: roll ptr of the undo log record */
 	byte*		log_ptr,/*!< pointer to a buffer of size > 20 opened
 				in mlog */
-	mtr_t*		mtr __attribute__((unused))) /*!< in: mtr */
+	mtr_t*		mtr MY_ATTRIBUTE((unused))) /*!< in: mtr */
 {
 	ut_ad(dict_index_is_clust(index));
 	ut_ad(mtr);
@@ -1155,7 +1155,7 @@ row_upd_ext_fetch(
 	byte*	buf = static_cast<byte*>(mem_heap_alloc(heap, *len));
 
 	*len = btr_copy_externally_stored_field_prefix(
-		buf, *len, zip_size, data, local_len);
+		buf, *len, zip_size, data, local_len, NULL);
 
 	/* We should never update records containing a half-deleted BLOB. */
 	ut_a(*len);
@@ -1813,7 +1813,7 @@ row_upd_store_row(
 Updates a secondary index entry of a row.
 @return DB_SUCCESS if operation successfully completed, else error
 code or DB_LOCK_WAIT */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_sec_index_entry(
 /*====================*/
@@ -1859,7 +1859,7 @@ row_upd_sec_index_entry(
 	}
 #endif /* UNIV_DEBUG */
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, trx);
 
 	if (*index->name == TEMP_INDEX_PREFIX) {
 		/* The index->online_status may change if the
@@ -2055,7 +2055,7 @@ Updates the secondary index record if it is changed in the row update or
 deletes it if this is a delete.
 @return DB_SUCCESS if operation successfully completed, else error
 code or DB_LOCK_WAIT */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_sec_step(
 /*=============*/
@@ -2088,7 +2088,7 @@ updated. We must mark them as inherited in entry, so that they are not
 freed in a rollback. A limited version of this function used to be
 called btr_cur_mark_dtuple_inherited_extern().
 @return TRUE if any columns were inherited */
-static __attribute__((warn_unused_result))
+static MY_ATTRIBUTE((warn_unused_result))
 ibool
 row_upd_clust_rec_by_insert_inherit_func(
 /*=====================================*/
@@ -2167,7 +2167,7 @@ fields of the clustered index record change. This should be quite rare in
 database applications.
 @return DB_SUCCESS if operation successfully completed, else error
 code or DB_LOCK_WAIT */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_clust_rec_by_insert(
 /*========================*/
@@ -2329,7 +2329,7 @@ Updates a clustered index record of a row when the ordering fields do
 not change.
 @return DB_SUCCESS if operation successfully completed, else error
 code or DB_LOCK_WAIT */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_clust_rec(
 /*==============*/
@@ -2400,7 +2400,7 @@ row_upd_clust_rec(
 	/* We may have to modify the tree structure: do a pessimistic descent
 	down the index tree */
 
-	mtr_start(mtr);
+	mtr_start_trx(mtr, thr_get_trx(thr));
 
 	/* NOTE: this transaction has an s-lock or x-lock on the record and
 	therefore other transactions cannot modify the record when we have no
@@ -2491,7 +2491,7 @@ func_exit:
 /***********************************************************//**
 Delete marks a clustered index record.
 @return	DB_SUCCESS if operation successfully completed, else error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_del_mark_clust_rec(
 /*=======================*/
@@ -2563,12 +2563,12 @@ row_upd_del_mark_clust_rec(
 			err = DB_SUCCESS;
 			break;
 		case DB_DEADLOCK:
-			if (wsrep_debug) fprintf (stderr, 
+			if (wsrep_debug) fprintf (stderr,
 				"WSREP: clust rec FK check fail for deadlock");
 			break;
 		default:
-			fprintf (stderr, 
-				"WSREP: clust rec referenced FK check fail: %d", 
+			fprintf (stderr,
+				"WSREP: clust rec referenced FK check fail: %d",
 				 (int)err);
 			break;
 		}
@@ -2584,7 +2584,7 @@ row_upd_del_mark_clust_rec(
 Updates the clustered index record.
 @return DB_SUCCESS if operation successfully completed, DB_LOCK_WAIT
 in case of a lock wait, else error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd_clust_step(
 /*===============*/
@@ -2615,7 +2615,7 @@ row_upd_clust_step(
 
 	/* We have to restore the cursor to its position */
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, thr_get_trx(thr));
 
 	/* If the restoration does not succeed, then the same
 	transaction has deleted the record on which the cursor was,
@@ -2628,6 +2628,7 @@ row_upd_clust_step(
 	ut_a(pcur->rel_pos == BTR_PCUR_ON);
 
 	ulint	mode;
+	ulint	search_mode;
 
 #ifdef UNIV_DEBUG
 	/* Work around Bug#14626800 ASSERTION FAILURE IN DEBUG_SYNC().
@@ -2639,17 +2640,29 @@ row_upd_clust_step(
 	}
 #endif /* UNIV_DEBUG */
 
+	/* If running with fake_changes mode on then switch from modify to
+	search so that code takes only s-latch and not x-latch.
+	For dry-run (fake-changes) s-latch is acceptable. Taking x-latch will
+	make it more restrictive and will block real changes/workflow. */
 	if (UNIV_UNLIKELY(thr_get_trx(thr)->fake_changes)) {
-		mode = BTR_SEARCH_LEAF;
-	} else if (dict_index_is_online_ddl(index)) {
-		ut_ad(node->table->id != DICT_INDEXES_ID);
-		mode = BTR_MODIFY_LEAF | BTR_ALREADY_S_LATCHED;
-		mtr_s_lock(dict_index_get_lock(index), &mtr);
+		mode = BTR_MODIFY_LEAF;
+		search_mode = BTR_SEARCH_LEAF;
 	} else {
 		mode = BTR_MODIFY_LEAF;
+		search_mode = BTR_MODIFY_LEAF;
 	}
 
-	success = btr_pcur_restore_position(mode, pcur, &mtr);
+	if (dict_index_is_online_ddl(index)) {
+
+		ut_ad(node->table->id != DICT_INDEXES_ID);
+
+		mode |= BTR_ALREADY_S_LATCHED;
+		search_mode |= BTR_ALREADY_S_LATCHED;
+
+		mtr_s_lock(dict_index_get_lock(index), &mtr);
+	}
+
+	success = btr_pcur_restore_position(search_mode, pcur, &mtr);
 
 	if (!success) {
 		err = DB_RECORD_NOT_FOUND;
@@ -2667,11 +2680,15 @@ row_upd_clust_step(
 
 		ut_ad(!dict_index_is_online_ddl(index));
 
+		/* Action in fake change mode shouldn't cause changes
+		in system tables. */
+		ut_ad(UNIV_LIKELY(!thr_get_trx(thr)->fake_changes));
+
 		dict_drop_index_tree(btr_pcur_get_rec(pcur), &mtr);
 
 		mtr_commit(&mtr);
 
-		mtr_start(&mtr);
+		mtr_start_trx(&mtr, thr_get_trx(thr));
 
 		success = btr_pcur_restore_position(BTR_MODIFY_LEAF, pcur,
 						    &mtr);
@@ -2698,6 +2715,8 @@ row_upd_clust_step(
 		}
 	}
 
+	/* This check passes as the function manipulates x-lock to s-lock
+	if operating in fake-change mode. */
 	ut_ad(lock_trx_has_rec_x_lock(thr_get_trx(thr), index->table,
 				      btr_pcur_get_block(pcur),
 				      page_rec_get_heap_no(rec)));
@@ -2794,7 +2813,7 @@ to this node, we assume that we have a persistent cursor which was on a
 record, and the position of the cursor is stored in the cursor.
 @return DB_SUCCESS if operation successfully completed, else error
 code or DB_LOCK_WAIT */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_upd(
 /*====*/
@@ -2802,8 +2821,6 @@ row_upd(
 	que_thr_t*	thr)	/*!< in: query thread */
 {
 	dberr_t		err	= DB_SUCCESS;
-
-	ut_ad(node && thr);
 
 	if (UNIV_LIKELY(node->in_mysql_interface)) {
 

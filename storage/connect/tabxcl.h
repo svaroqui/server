@@ -85,11 +85,13 @@ class XCLCOL : public PRXCOL {
   friend class TDBXCL;
  public:
   // Constructors
-  XCLCOL(PGLOBAL g, PCOLDEF cdp, PTDB tdbp, PCOL cprec, int i);
+  XCLCOL(PCOLDEF cdp, PTDB tdbp, PCOL cprec, int i);
 
   // Methods
-  virtual void Reset(void) {Colp->Reset();}	// Evaluated only by TDBXCL
+  using PRXCOL::Init;
+  virtual void Reset(void) {}	  // Evaluated only by TDBXCL
   virtual void ReadColumn(PGLOBAL g);
+  virtual bool Init(PGLOBAL g, PTDBASE tp = NULL);
 
  protected:
   // Default constructor not to be used

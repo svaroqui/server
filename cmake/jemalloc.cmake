@@ -1,7 +1,7 @@
 INCLUDE (CheckLibraryExists)
 
 SET(WITH_JEMALLOC auto CACHE STRING
-  "Build with jemalloc. Possible values are 'yes', 'no', 'auto'")
+  "Build with jemalloc. Possible values are 'yes', 'no', 'static', 'auto'")
 
 MACRO (CHECK_JEMALLOC)
   # compatibility with old WITH_JEMALLOC values
@@ -20,18 +20,22 @@ MACRO (CHECK_JEMALLOC)
       SET(CMAKE_REQUIRED_LIBRARIES pthread dl m)
       SET(what bundled)
     ELSE()
-      SET(libname jemalloc)
+      SET(libname jemalloc c)
       SET(what system)
     ENDIF()
 
-    CHECK_LIBRARY_EXISTS(${libname} malloc_stats_print "" HAVE_JEMALLOC)
+    FOREACH(lib ${libname})
+      CHECK_LIBRARY_EXISTS(${lib} malloc_stats_print "" HAVE_JEMALLOC_IN_${lib})
+      IF (HAVE_JEMALLOC_IN_${lib})
+        SET(LIBJEMALLOC ${lib})
+        SET(MALLOC_LIBRARY "${what} jemalloc")
+        BREAK()
+      ENDIF()
+    ENDFOREACH()
     SET(CMAKE_REQUIRED_LIBRARIES)
 
-    IF (HAVE_JEMALLOC)
-      SET(LIBJEMALLOC ${libname})
-      SET(MALLOC_LIBRARY "${what} jemalloc")
-    ELSEIF (NOT WITH_JEMALLOC STREQUAL "auto")
-      MESSAGE(FATAL_ERROR "${libname} is not found")
+    IF (NOT LIBJEMALLOC AND NOT WITH_JEMALLOC STREQUAL "auto")
+      MESSAGE(FATAL_ERROR "jemalloc is not found")
     ENDIF()
   ENDIF()
 ENDMACRO()

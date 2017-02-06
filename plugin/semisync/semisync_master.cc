@@ -1,6 +1,6 @@
 /* Copyright (C) 2007 Google Inc.
-   Copyright (c) 2008 MySQL AB, 2008-2009 Sun Microsystems, Inc.
-   Use is subject to license terms.
+   Copyright (c) 2008, 2013, Oracle and/or its affiliates.
+   Copyright (c) 2011, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -24,6 +24,8 @@
 
 /* This indicates whether semi-synchronous replication is enabled. */
 char rpl_semi_sync_master_enabled;
+unsigned long rpl_semi_sync_master_wait_point       =
+    SEMI_SYNC_MASTER_WAIT_POINT_AFTER_STORAGE_COMMIT;
 unsigned long rpl_semi_sync_master_timeout;
 unsigned long rpl_semi_sync_master_trace_level;
 char rpl_semi_sync_master_status                    = 0;
@@ -633,7 +635,7 @@ int ReplSemiSyncMaster::commitTrx(const char* trx_wait_binlog_name,
                             (int)is_on());
     }
 
-    while (is_on() && !thd_killed(NULL))
+    while (is_on() && !thd_killed(current_thd))
     {
       if (reply_file_name_inited_)
       {
@@ -744,8 +746,10 @@ int ReplSemiSyncMaster::commitTrx(const char* trx_wait_binlog_name,
     /*
       At this point, the binlog file and position of this transaction
       must have been removed from ActiveTranx.
+      active_tranxs_ may be NULL if someone disabled semi sync during
+      cond_timewait()
     */
-    assert(thd_killed(NULL) ||
+    assert(thd_killed(current_thd) || !active_tranxs_ ||
            !active_tranxs_->is_tranx_end_pos(trx_wait_binlog_name,
                                              trx_wait_binlog_pos));
     
@@ -1046,8 +1050,6 @@ int ReplSemiSyncMaster::readSlaveReply(NET *net, uint32 server_id,
   int      result = -1;
   struct timespec start_ts;
   ulong trc_level = trace_level_;
-  LINT_INIT_STRUCT(start_ts);
-
   LINT_INIT_STRUCT(start_ts);
 
   function_enter(kWho);

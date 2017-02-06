@@ -5,7 +5,7 @@
 /*                                                                      */
 /* COPYRIGHT:                                                           */
 /* ----------                                                           */
-/*  (C) Copyright to the author Olivier BERTRAND          2007-2014     */
+/*  (C) Copyright to the author Olivier BERTRAND          2007-2016     */
 /*                                                                      */
 /* WHAT THIS PROGRAM DOES:                                              */
 /* -----------------------                                              */
@@ -35,23 +35,24 @@
 #include "my_sys.h"
 #include "mysqld_error.h"
 #endif   // !MYSQL_PREPARED_STATEMENTS
-#if defined(WIN32)
+#if defined(__WIN__)
 //#include <windows.h>
-#else   // !WIN32
+#else   // !__WIN__
 #include "osutil.h"
-#endif  // !WIN32
+#endif  // !__WIN__
 
 #include "global.h"
 #include "plgdbsem.h"
 #include "plgcnx.h"                       // For DB types
 #include "resource.h"
 //#include "value.h"
-#include "valblk.h"
+//#include "valblk.h"
+#include "xobject.h"
 #define  DLL_EXPORT            // Items are exported from this DLL
 #include "myconn.h"
 
-extern "C" int   trace;
-extern "C" int   zconv;
+//extern "C" int   zconv;
+int GetConvSize(void);
 extern MYSQL_PLUGIN_IMPORT uint  mysqld_port;
 extern MYSQL_PLUGIN_IMPORT char *mysqld_unix_port;
 
@@ -135,7 +136,7 @@ PQRYRES MyColumns(PGLOBAL g, THD *thd, const char *host, const char *db,
                    FLD_REM,  FLD_NO,    FLD_DEFAULT,  FLD_EXTRA,
                    FLD_CHARSET};
   unsigned int length[] = {0, 4, 16, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0};
-  char   *fld, *colname, *chset, *fmt, v, cmd[128], uns[16], zero[16];
+  char   *fld, *colname, *chset, *fmt, v, buf[128], uns[16], zero[16];
   int     i, n, nf, ncol = sizeof(buftyp) / sizeof(int);
   int     len, type, prec, rc, k = 0;
   PQRYRES qrp;
@@ -155,16 +156,26 @@ PQRYRES MyColumns(PGLOBAL g, THD *thd, const char *host, const char *db,
     /********************************************************************/
     /*  Do an evaluation of the result size.                            */
     /********************************************************************/
-    sprintf(cmd, "SHOW FULL COLUMNS FROM %s", table);
-    strcat(strcat(cmd, " FROM "), (db) ? db : PlgGetUser(g)->DBName);
+    STRING cmd(g, 64, "SHOW FULL COLUMNS FROM ");
+    bool   b = cmd.Append((PSZ)table);
 
-    if (colpat)
-      strcat(strcat(cmd, " LIKE "), colpat);
+    b |= cmd.Append(" FROM ");
+    b |= cmd.Append((PSZ)(db ? db : PlgGetUser(g)->DBName));
+
+    if (colpat) {
+      b |= cmd.Append(" LIKE ");
+      b |= cmd.Append((PSZ)colpat);
+      } // endif colpat
+
+    if (b) {
+      strcpy(g->Message, "Out of memory");
+      return NULL;
+      } // endif b
 
     if (trace)
-      htrc("MyColumns: cmd='%s'\n", cmd);
+      htrc("MyColumns: cmd='%s'\n", cmd.GetStr());
 
-    if ((n = myc.GetResultSize(g, cmd)) < 0) {
+    if ((n = myc.GetResultSize(g, cmd.GetStr())) < 0) {
       myc.Close();
       return NULL;
       } // endif n
@@ -225,15 +236,15 @@ PQRYRES MyColumns(PGLOBAL g, THD *thd, const char *host, const char *db,
     *uns = 0;
     *zero = 0;
 
-    switch ((nf = sscanf(fld, "%[^(](%d,%d", cmd, &len, &prec))) {
+    switch ((nf = sscanf(fld, "%[^(](%d,%d", buf, &len, &prec))) {
       case 3:
-        nf = sscanf(fld, "%[^(](%d,%d) %s %s", cmd, &len, &prec, uns, zero);
+        nf = sscanf(fld, "%[^(](%d,%d) %s %s", buf, &len, &prec, uns, zero);
         break;
       case 2:
-        nf = sscanf(fld, "%[^(](%d) %s %s", cmd, &len, uns, zero) + 1;
+        nf = sscanf(fld, "%[^(](%d) %s %s", buf, &len, uns, zero) + 1;
         break;
       case 1:
-        nf = sscanf(fld, "%s %s %s", cmd, uns, zero) + 2;
+        nf = sscanf(fld, "%s %s %s", buf, uns, zero) + 2;
         break;
       default:
         sprintf(g->Message, MSG(BAD_FIELD_TYPE), fld);
@@ -241,21 +252,21 @@ PQRYRES MyColumns(PGLOBAL g, THD *thd, const char *host, const char *db,
         return NULL;
       } // endswitch nf
 
-    if ((type = MYSQLtoPLG(cmd, &v)) == TYPE_ERROR) {
+    if ((type = MYSQLtoPLG(buf, &v)) == TYPE_ERROR) {
       if (v == 'K') {
         // Skip this column
         sprintf(g->Message, "Column %s skipped (unsupported type %s)",
-                colname, cmd);
+                colname, buf);
         PushWarning(g, thd);
         continue;
         } // endif v
 
-      sprintf(g->Message, "Column %s unsupported type %s", colname, cmd);
+      sprintf(g->Message, "Column %s unsupported type %s", colname, buf);
       myc.Close();
       return NULL;
     } else if (type == TYPE_STRING) {
       if (v == 'X') {
-        len = zconv;
+        len = GetConvSize();
         sprintf(g->Message, "Column %s converted to varchar(%d)",
                 colname, len);
         PushWarning(g, thd);
@@ -276,11 +287,11 @@ PQRYRES MyColumns(PGLOBAL g, THD *thd, const char *host, const char *db,
       } // endswitch nf
 
     crp = crp->Next;                       // Type_Name
-    crp->Kdata->SetValue(cmd, i);
+    crp->Kdata->SetValue(buf, i);
 
     if (type == TYPE_DATE) {
       // When creating tables we do need info about date columns
-      fmt = MyDateFmt(cmd);
+      fmt = MyDateFmt(buf);
       len = strlen(fmt);
     } else
       fmt = NULL;
@@ -390,8 +401,10 @@ PQRYRES SrcColumns(PGLOBAL g, const char *host, const char *db,
 MYSQLC::MYSQLC(void)
   {
   m_DB = NULL;
-  m_Stmt = NULL;
-  m_Res = NULL;
+#if defined (MYSQL_PREPARED_STATEMENTS)
+	m_Stmt = NULL;
+#endif    // MYSQL_PREPARED_STATEMENTS
+	m_Res = NULL;
   m_Rows = -1;
   m_Row = NULL;
   m_Fields = -1;
@@ -420,10 +433,11 @@ int MYSQLC::GetResultSize(PGLOBAL g, PSZ sql)
 /***********************************************************************/
 int MYSQLC::Open(PGLOBAL g, const char *host, const char *db,
                             const char *user, const char *pwd,
-                            int pt)
+                            int pt, const char *csname)
   {
   const char *pipe = NULL;
-  uint cto = 6000, nrt = 12000;
+  uint        cto = 6000, nrt = 12000;
+  my_bool     my_true= 1;
 
   m_DB = mysql_init(NULL);
 
@@ -432,22 +446,25 @@ int MYSQLC::Open(PGLOBAL g, const char *host, const char *db,
     return RC_FX;
     } // endif m_DB
 
-  // Removed to do like FEDERATED do
+	if (trace)
+		htrc("MYSQLC Open: m_DB=%.4X size=%d\n", m_DB, (int)sizeof(*m_DB));
+
+	// Removed to do like FEDERATED do
 //mysql_options(m_DB, MYSQL_READ_DEFAULT_GROUP, "client-mariadb");
   mysql_options(m_DB, MYSQL_OPT_USE_REMOTE_CONNECTION, NULL);
   mysql_options(m_DB, MYSQL_OPT_CONNECT_TIMEOUT, &cto);
   mysql_options(m_DB, MYSQL_OPT_READ_TIMEOUT, &nrt);
 //mysql_options(m_DB, MYSQL_OPT_WRITE_TIMEOUT, ...);
 
-#if defined(WIN32)
+#if defined(__WIN__)
   if (!strcmp(host, ".")) {
     mysql_options(m_DB, MYSQL_OPT_NAMED_PIPE, NULL);
     pipe = mysqld_unix_port;
     } // endif host
-#else   // !WIN32
+#else   // !__WIN__
   if (!strcmp(host, "localhost"))
     pipe = mysqld_unix_port;
-#endif  // !WIN32
+#endif  // !__WIN__
 
 #if 0
   if (pwd && !strcmp(pwd, "*")) {
@@ -459,6 +476,18 @@ int MYSQLC::Open(PGLOBAL g, const char *host, const char *db,
 
     } // endif pwd
 #endif // 0
+
+/***********************************************************************/
+/*	BUG# 17044 Federated Storage Engine is not UTF8 clean              */
+/*	Add set names to whatever charset the table is at open of table    */
+/*  this sets the csname like 'set names utf8'.                        */
+/***********************************************************************/
+  if (csname)
+    mysql_options(m_DB, MYSQL_SET_CHARSET_NAME, csname);
+
+  // Don't know what this one do but FEDERATED does it
+  mysql_options(m_DB, MYSQL_OPT_USE_THREAD_SPECIFIC_MEMORY,
+                  (char*)&my_true);
 
   if (!mysql_real_connect(m_DB, host, user, pwd, db, pt, pipe, CLIENT_MULTI_RESULTS)) {
 #if defined(_DEBUG)
@@ -677,6 +706,11 @@ int MYSQLC::ExecSQL(PGLOBAL g, const char *query, int *w)
     } else {
       m_Fields = mysql_num_fields(m_Res);
       m_Rows = (!m_Use) ? (int)mysql_num_rows(m_Res) : 0;
+
+			if (trace)
+				htrc("ExecSQL: m_Res=%.4X size=%d m_Fields=%d m_Rows=%d\n",
+				               m_Res, sizeof(*m_Res), m_Fields, m_Rows);
+
     } // endif m_Res
 
   } else {
@@ -696,7 +730,7 @@ int MYSQLC::ExecSQL(PGLOBAL g, const char *query, int *w)
 /***********************************************************************/
 /*  Get table size by executing "select count(*) from table_name".     */
 /***********************************************************************/
-int MYSQLC::GetTableSize(PGLOBAL g, PSZ query)
+int MYSQLC::GetTableSize(PGLOBAL g __attribute__((unused)), PSZ query)
   {
   if (mysql_real_query(m_DB, query, strlen(query))) {
 #if defined(_DEBUG)
@@ -877,8 +911,12 @@ PQRYRES MYSQLC::GetResult(PGLOBAL g, bool pdb)
     if (fld->flags & NOT_NULL_FLAG)
       crp->Nulls = NULL;
     else {
-      crp->Nulls = (char*)PlugSubAlloc(g, NULL, m_Rows);
-      memset(crp->Nulls, ' ', m_Rows);
+			if (m_Rows) {
+				crp->Nulls = (char*)PlugSubAlloc(g, NULL, m_Rows);
+				memset(crp->Nulls, ' ', m_Rows);
+			} // endif m_Rows
+
+			crp->Kdata->SetNullable(true);
     } // endelse fld->flags
 
     } // endfor fld
@@ -935,11 +973,16 @@ void MYSQLC::FreeResult(void)
 /***********************************************************************/
 /*  Place the cursor at the beginning of the result set.               */
 /***********************************************************************/
-void MYSQLC::Rewind(void)
+int MYSQLC::Rewind(PGLOBAL g, PSZ sql)
   {
-  if (m_Res)
-    DataSeek(0);
+		int rc = RC_OK;
 
+		if (m_Res)
+			DataSeek(0);
+		else if (sql)
+			rc = ExecSQL(g, sql);
+
+		return rc;
   } // end of Rewind
 
 /***********************************************************************/
@@ -984,7 +1027,11 @@ int MYSQLC::ExecSQLcmd(PGLOBAL g, const char *query, int *w)
 void MYSQLC::Close(void)
   {
   FreeResult();
-  mysql_close(m_DB);
+
+	if (trace)
+		htrc("MYSQLC Close: m_DB=%.4X\n", m_DB);
+
+	mysql_close(m_DB);
   m_DB = NULL;
   } // end of Close
 

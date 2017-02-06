@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -1232,7 +1232,8 @@ pars_process_assign_list(
 		col_sym = assign_node->col;
 
 		upd_field_set_field_no(upd_field, dict_index_get_nth_col_pos(
-					       clust_index, col_sym->col_no),
+						clust_index, col_sym->col_no,
+						NULL),
 				       clust_index, NULL);
 		upd_field->exp = assign_node->val;
 
@@ -1925,7 +1926,7 @@ pars_create_table(
 	sym_node_t*	column_defs,	/*!< in: list of column names */
 	sym_node_t*	compact,	/* in: non-NULL if COMPACT table. */
 	sym_node_t*	block_size,	/* in: block size (can be NULL) */
-	void*		not_fit_in_memory __attribute__((unused)))
+	void*		not_fit_in_memory MY_ATTRIBUTE((unused)))
 					/*!< in: a non-NULL pointer means that
 					this is a table which in simulations
 					should be simulated as not fitting
@@ -1997,7 +1998,7 @@ pars_create_table(
 	n_cols = que_node_list_get_len(column_defs);
 
 	table = dict_mem_table_create(
-		table_sym->name, 0, n_cols, flags, flags2, false);
+		table_sym->name, 0, n_cols, flags, flags2);
 
 #ifdef UNIV_DEBUG
 	if (not_fit_in_memory != NULL) {
@@ -2018,7 +2019,8 @@ pars_create_table(
 		column = static_cast<sym_node_t*>(que_node_get_next(column));
 	}
 
-	node = tab_create_graph_create(table, pars_sym_tab_global->heap, true);
+	node = tab_create_graph_create(table, pars_sym_tab_global->heap, true,
+		FIL_SPACE_ENCRYPTION_DEFAULT, FIL_DEFAULT_ENCRYPTION_KEY);
 
 	table_sym->resolved = TRUE;
 	table_sym->token_type = SYM_TABLE;
@@ -2141,7 +2143,7 @@ UNIV_INTERN
 que_fork_t*
 pars_stored_procedure_call(
 /*=======================*/
-	sym_node_t*	sym_node __attribute__((unused)))
+	sym_node_t*	sym_node MY_ATTRIBUTE((unused)))
 					/*!< in: stored procedure name */
 {
 	ut_error;
@@ -2201,7 +2203,7 @@ UNIV_INTERN
 void
 yyerror(
 /*====*/
-	const char*	s __attribute__((unused)))
+	const char*	s MY_ATTRIBUTE((unused)))
 				/*!< in: error message string */
 {
 	ut_ad(s);

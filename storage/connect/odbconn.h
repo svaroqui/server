@@ -25,17 +25,13 @@
 //efine MAX_FNAME_LEN    256    // Max size of field names
 #define MAX_STRING_INFO  256    // Max size of string from SQLGetInfo
 //efine MAX_DNAME_LEN    256    // Max size of Recordset names
-#define MAX_CONNECT_LEN  512    // Max size of Connect string
+#define MAX_CONNECT_LEN  1024   // Max size of Connect string
 //efine MAX_CURSOR_NAME  18     // Max size of a cursor name
 #define DEFAULT_FIELD_TYPE SQL_TYPE_NULL // pick "C" data type to match SQL data type
 
-#if !defined(WIN32)
+#if !defined(__WIN__)
 typedef unsigned char *PUCHAR;
-#endif   // !WIN32
-
-// Timeout and net wait defaults
-#define DEFAULT_LOGIN_TIMEOUT 15    // seconds to before fail on connect
-#define DEFAULT_QUERY_TIMEOUT 15    // seconds to before fail waiting for results
+#endif   // !__WIN__
 
 // Field Flags, used to indicate status of fields
 //efine SQL_FIELD_FLAG_DIRTY    0x1
@@ -95,7 +91,7 @@ class DBX : public BLOCK {
   const char *GetErrorMessage(int i);
 
  protected:
-  void    BuildErrorMessage(ODBConn* pdb, HSTMT hstmt = SQL_NULL_HSTMT);
+  bool    BuildErrorMessage(ODBConn* pdb, HSTMT hstmt = SQL_NULL_HSTMT);
 
   // Attributes
   RETCODE m_RC;
@@ -123,8 +119,10 @@ class ODBConn : public BLOCK {
     noOdbcDialog =    0x0008,     // Don't display ODBC Connect dialog
     forceOdbcDialog = 0x0010};    // Always display ODBC connect dialog
 
-  int  Open(PSZ ConnectString, DWORD Options = 0);
+  int  Open(PSZ ConnectString, POPARM sop, DWORD Options = 0);
+  int  Rewind(char *sql, ODBCCOL *tocols);
   void Close(void);
+  PQRYRES AllocateResult(PGLOBAL g);
 
   // Attributes
  public:
@@ -137,11 +135,13 @@ class ODBConn : public BLOCK {
 
  public:
   // Operations
-  void SetLoginTimeout(DWORD sec) {m_LoginTimeout = sec;}
-  void SetQueryTimeout(DWORD sec) {m_QueryTimeout = sec;}
+//void SetLoginTimeout(DWORD sec) {m_LoginTimeout = sec;}
+//void SetQueryTimeout(DWORD sec) {m_QueryTimeout = sec;}
+//void SetUserName(PSZ user) {m_User = user;}
+//void SetUserPwd(PSZ pwd) {m_Pwd = pwd;}
   int  GetResultSize(char *sql, ODBCCOL *colp);
   int  ExecDirectSQL(char *sql, ODBCCOL *tocols);
-  int  Fetch(void);
+  int  Fetch(int pos = 0);
   int  PrepareSQL(char *sql);
   int  ExecuteSQL(void);
   bool BindParam(ODBCCOL *colp);
@@ -157,7 +157,7 @@ class ODBConn : public BLOCK {
 
   // Implementation
  public:
-//  virtual ~ODBConn();
+//virtual ~ODBConn();
 
   // ODBC operations
  protected:
@@ -165,7 +165,8 @@ class ODBConn : public BLOCK {
   void ThrowDBX(RETCODE rc, PSZ msg, HSTMT hstmt = SQL_NULL_HSTMT);
   void ThrowDBX(PSZ msg);
   void AllocConnect(DWORD dwOptions);
-  bool Connect(DWORD Options);
+  void Connect(void);
+  bool DriverConnect(DWORD Options);
   void VerifyConnect(void);
   void GetConnectInfo(void);
   void Free(void);
@@ -186,8 +187,15 @@ class ODBConn : public BLOCK {
   DWORD    m_UpdateOptions;
   DWORD    m_RowsetSize;
   char     m_IDQuoteChar[2];
-  int      m_Catver;
   PSZ      m_Connect;
+  PSZ      m_User;
+  PSZ      m_Pwd;
+  int      m_Catver;
+  int      m_Rows;
+  int      m_Fetch;
   bool     m_Updatable;
   bool     m_Transact;
+  bool     m_Scrollable;
+  bool     m_UseCnc;
+  bool     m_Full;
   }; // end of ODBConn class definition

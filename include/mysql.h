@@ -75,11 +75,12 @@ typedef int my_socket;
 
 #include "my_list.h" /* for LISTs used in 'MYSQL' and 'MYSQL_STMT' */
 
+extern unsigned int mariadb_deinitialize_ssl;
 extern unsigned int mysql_port;
 extern char *mysql_unix_port;
 
-#define CLIENT_NET_READ_TIMEOUT		365*24*3600	/* Timeout on read */
-#define CLIENT_NET_WRITE_TIMEOUT	365*24*3600	/* Timeout on write */
+#define CLIENT_NET_READ_TIMEOUT		(365*24*3600)	/* Timeout on read */
+#define CLIENT_NET_WRITE_TIMEOUT	(365*24*3600)	/* Timeout on write */
 
 #define IS_PRI_KEY(n)	((n) & PRI_KEY_FLAG)
 #define IS_NOT_NULL(n)	((n) & NOT_NULL_FLAG)
@@ -136,6 +137,13 @@ typedef unsigned long long my_ulonglong;
 /* backward compatibility define - to be removed eventually */
 #define ER_WARN_DATA_TRUNCATED WARN_DATA_TRUNCATED
 #define WARN_PLUGIN_DELETE_BUILTIN ER_PLUGIN_DELETE_BUILTIN
+#define ER_FK_DUP_NAME ER_DUP_CONSTRAINT_NAME
+#define ER_VIRTUAL_COLUMN_FUNCTION_IS_NOT_ALLOWED ER_GENERATED_COLUMN_FUNCTION_IS_NOT_ALLOWED
+#define ER_PRIMARY_KEY_BASED_ON_VIRTUAL_COLUMN ER_PRIMARY_KEY_BASED_ON_GENERATED_COLUMN
+#define ER_WRONG_FK_OPTION_FOR_VIRTUAL_COLUMN ER_WRONG_FK_OPTION_FOR_GENERATED_COLUMN
+#define ER_WARNING_NON_DEFAULT_VALUE_FOR_VIRTUAL_COLUMN ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN
+#define ER_UNSUPPORTED_ACTION_ON_VIRTUAL_COLUMN ER_UNSUPPORTED_ACTION_ON_GENERATED_COLUMN
+#define ER_UNSUPPORTED_ENGINE_FOR_VIRTUAL_COLUMNS ER_UNSUPPORTED_ENGINE_FOR_GENERATED_COLUMNS
 
 typedef struct st_mysql_rows {
   struct st_mysql_rows *next;		/* list of rows */
@@ -366,7 +374,7 @@ void STDCALL mysql_server_end(void);
 /*
   mysql_server_init/end need to be called when using libmysqld or
   libmysqlclient (exactly, mysql_server_init() is called by mysql_init() so
-  you don't need to call it explicitely; but you need to call
+  you don't need to call it explicitly; but you need to call
   mysql_server_end() to free memory). The names are a bit misleading
   (mysql_SERVER* to be used when using libmysqlCLIENT). So we add more general
   names which suit well whether you're using libmysqld or libmysqlclient. We
@@ -863,6 +871,12 @@ int STDCALL mysql_close_cont(MYSQL *sock, int status);
 my_socket STDCALL mysql_get_socket(const MYSQL *mysql);
 unsigned int STDCALL mysql_get_timeout_value(const MYSQL *mysql);
 unsigned int STDCALL mysql_get_timeout_value_ms(const MYSQL *mysql);
+
+/********************************************************************
+  mysql_net_ functions - low-level API to MySQL protocol
+*********************************************************************/
+unsigned long STDCALL mysql_net_read_packet(MYSQL *mysql);
+unsigned long STDCALL mysql_net_field_length(unsigned char **packet);
 
 /* status return codes */
 #define MYSQL_NO_DATA        100

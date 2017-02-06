@@ -1,4 +1,4 @@
-/* Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2000, 2015, Oracle and/or its affiliates. All rights reserved.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -88,9 +88,10 @@ qsort2_cmp get_ptr_compare (size_t size)
 
 static int ptr_compare(size_t *compare_length, uchar **a, uchar **b)
 {
-  reg3 int length= *compare_length;
-  reg1 uchar *first,*last;
+  size_t length= *compare_length;
+  uchar *first,*last;
 
+  DBUG_ASSERT(length > 0);
   first= *a; last= *b;
   while (--length)
   {
@@ -103,8 +104,8 @@ static int ptr_compare(size_t *compare_length, uchar **a, uchar **b)
 
 static int ptr_compare_0(size_t *compare_length,uchar **a, uchar **b)
 {
-  reg3 int length= *compare_length;
-  reg1 uchar *first,*last;
+  size_t length= *compare_length;
+  uchar *first,*last;
 
   first= *a; last= *b;
  loop:
@@ -124,8 +125,8 @@ static int ptr_compare_0(size_t *compare_length,uchar **a, uchar **b)
 
 static int ptr_compare_1(size_t *compare_length,uchar **a, uchar **b)
 {
-  reg3 int length= *compare_length-1;
-  reg1 uchar *first,*last;
+  size_t length= *compare_length-1;
+  uchar *first,*last;
 
   first= *a+1; last= *b+1;
   cmp(-1);
@@ -145,8 +146,8 @@ static int ptr_compare_1(size_t *compare_length,uchar **a, uchar **b)
 
 static int ptr_compare_2(size_t *compare_length,uchar **a, uchar **b)
 {
-  reg3 int length= *compare_length-2;
-  reg1 uchar *first,*last;
+  size_t length= *compare_length-2;
+  uchar *first,*last;
 
   first= *a +2 ; last= *b +2;
   cmp(-2);
@@ -167,8 +168,8 @@ static int ptr_compare_2(size_t *compare_length,uchar **a, uchar **b)
 
 static int ptr_compare_3(size_t *compare_length,uchar **a, uchar **b)
 {
-  reg3 int length= *compare_length-3;
-  reg1 uchar *first,*last;
+  size_t length= *compare_length-3;
+  uchar *first,*last;
 
   first= *a +3 ; last= *b +3;
   cmp(-3);

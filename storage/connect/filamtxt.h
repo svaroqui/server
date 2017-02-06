@@ -26,6 +26,7 @@ class DllExport TXTFAM : public BLOCK {
   friend class TDBCSV;
   friend class TDBFIX;
   friend class TDBVCT;
+  friend class TDBJSON;
   friend class DOSCOL;
   friend class BINCOL;
   friend class VCTCOL;
@@ -41,6 +42,7 @@ class DllExport TXTFAM : public BLOCK {
   virtual PTXF  Duplicate(PGLOBAL g) = 0;
   virtual bool  GetUseTemp(void) {return false;}
   virtual int   GetDelRows(void) {return DelRows;}
+        PFBLOCK GetTo_Fb(void) {return To_Fb;}
           int   GetCurBlk(void) {return CurBlk;}
           void  SetTdbp(PTDBDOS tdbp) {Tdbp = tdbp;}
           int   GetBlock(void) {return Block;}
@@ -55,8 +57,8 @@ class DllExport TXTFAM : public BLOCK {
   virtual int   GetFileLength(PGLOBAL g);
   virtual int   Cardinality(PGLOBAL g);
   virtual int   MaxBlkSize(PGLOBAL g, int s);
-  virtual bool  AllocateBuffer(PGLOBAL g) {return false;}
-  virtual void  ResetBuffer(PGLOBAL g) {}
+  virtual bool  AllocateBuffer(PGLOBAL) {return false;}
+  virtual void  ResetBuffer(PGLOBAL) {}
   virtual int   GetNerr(void) {return 0;}
   virtual int   GetRowID(void) = 0;
   virtual bool  RecordPos(PGLOBAL g) = 0;

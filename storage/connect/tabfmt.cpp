@@ -5,7 +5,7 @@
 /*                                                                     */
 /* COPYRIGHT:                                                          */
 /* ----------                                                          */
-/*  (C) Copyright to the author Olivier BERTRAND          2001 - 2014  */
+/*  (C) Copyright to the author Olivier BERTRAND          2001 - 2015  */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -20,7 +20,7 @@
 /***********************************************************************/
 #include "my_global.h"
 
-#if defined(WIN32)
+#if defined(__WIN__)
 #include <io.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -66,8 +66,10 @@
 #define MAXCOL          200        /* Default max column nb in result  */
 #define TYPE_UNKNOWN     10        /* Must be greater than other types */
 
-extern "C" int     trace;
-extern "C" USETEMP Use_Temp;
+/***********************************************************************/
+/*  External function.                                                 */
+/***********************************************************************/
+USETEMP UseTemp(void);
 
 /***********************************************************************/
 /* CSVColumns: constructs the result blocks containing the description */
@@ -100,14 +102,14 @@ PQRYRES CSVColumns(PGLOBAL g, char *dp, const char *fn, char sep,
     } // endif info
 
 //      num_max = atoi(p+1);             // Max num of record to test
-#if defined(WIN32)
+#if defined(__WIN__)
   if (sep == ',' || strnicmp(setlocale(LC_NUMERIC, NULL), "French", 6))
     dechar = '.';
   else
     dechar = ',';
-#else   // !WIN32
+#else   // !__WIN__
   dechar = '.';
-#endif  // !WIN32
+#endif  // !__WIN__
 
   if (trace)
     htrc("File %s sep=%c q=%c hdr=%d mxr=%d\n",
@@ -145,7 +147,7 @@ PQRYRES CSVColumns(PGLOBAL g, char *dp, const char *fn, char sep,
     if (fgets(buf, sizeof(buf), infile)) {
       n = strlen(buf) + 1;
       buf[n - 2] = '\0';
-#if defined(UNIX)
+#if !defined(__WIN__)
       // The file can be imported from Windows
       if (buf[n - 3] == '\r')
         buf[n - 3] = 0;
@@ -202,7 +204,7 @@ PQRYRES CSVColumns(PGLOBAL g, char *dp, const char *fn, char sep,
     if (fgets(buf, sizeof(buf), infile)) {
       n = strlen(buf);
       buf[n - 1] = '\0';
-#if defined(UNIX)
+#if !defined(__WIN__)
       // The file can be imported from Windows
       if (buf[n - 2] == '\r')
         buf[n - 2] = 0;
@@ -390,8 +392,8 @@ PQRYRES CSVColumns(PGLOBAL g, char *dp, const char *fn, char sep,
 /***********************************************************************/
 CSVDEF::CSVDEF(void)
   {
-  Fmtd = Accept = Header = false;
-  Maxerr = 0;
+  Fmtd = Header = false;
+//Maxerr = 0;
   Quoted = -1;
   Sep = ',';
   Qot = '\0';
@@ -428,9 +430,13 @@ bool CSVDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
     Qot = '"';
 
   Fmtd = (!Sep || (am && (*am == 'F' || *am == 'f')));
-  Header = (GetIntCatInfo("Header", 0) != 0);
+  Header = GetBoolCatInfo("Header", false);
   Maxerr = GetIntCatInfo("Maxerr", 0);
-  Accept = (GetIntCatInfo("Accept", 0) != 0);
+  Accept = GetBoolCatInfo("Accept", false);
+
+  if (Accept && Maxerr == 0)
+    Maxerr = INT_MAX32;       // Accept all bad lines
+
   return false;
   } // end of DefineAM
 
@@ -442,7 +448,7 @@ PTDB CSVDEF::GetTable(PGLOBAL g, MODE mode)
   PTDBASE tdbp;
 
   if (Catfunc != FNC_COL) {
-    USETEMP tmp = Use_Temp;
+    USETEMP tmp = UseTemp();
     bool    map = Mapped && mode != MODE_INSERT &&
                   !(tmp != TMP_NO && mode == MODE_UPDATE) &&
                   !(tmp == TMP_FORCE &&
@@ -619,7 +625,7 @@ bool TDBCSV::CheckErr(void)
 /***********************************************************************/
 /*  CSV EstimatedLength. Returns an estimated minimum line length.     */
 /***********************************************************************/
-int TDBCSV::EstimatedLength(PGLOBAL g)
+int TDBCSV::EstimatedLength(void)
   {
   int     n = 0;
   PCOLDEF cdp;
@@ -958,7 +964,7 @@ bool TDBCSV::PrepareWriting(PGLOBAL g)
       if (!strlen(Field[i])) {
         // Generally null fields are not quoted
         if (Quoted > 2)
-          // Except if explicitely required
+          // Except if explicitly required
           strcat(strcat(To_Line, qot), qot);
 
       } else if (Qot && (strchr(Field[i], Sep) || *Field[i] == Qot
@@ -1112,7 +1118,7 @@ PCOL TDBFMT::MakeCol(PGLOBAL g, PCOLDEF cdp, PCOL cprec, int n)
 /*  FMT EstimatedLength. Returns an estimated minimum line length.     */
 /*  The big problem here is how can we astimated that minimum ?        */
 /***********************************************************************/
-int TDBFMT::EstimatedLength(PGLOBAL g)
+int TDBFMT::EstimatedLength(void)
   {
   // This is rather stupid !!!
   return ((PDOSDEF)To_Def)->GetEnding() + (int)((Lrecl / 10) + 1);

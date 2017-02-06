@@ -20,6 +20,8 @@ mysqld_ld_preload=
 mysqld_ld_library_path=
 flush_caches=0
 numa_interleave=0
+wsrep_on=0
+dry_run=0
 
 # Initial logging status: error log is not open, and not using syslog
 logging=init
@@ -28,6 +30,8 @@ syslog_tag=
 user='@MYSQLD_USER@'
 pid_file=
 err_log=
+err_log_base=
+skip_err_log=0
 
 syslog_tag_mysqld=mysqld
 syslog_tag_mysqld_safe=mysqld_safe
@@ -78,6 +82,7 @@ Usage: $0 [OPTIONS]
   --malloc-lib=LIB           Preload shared library LIB if available
   --mysqld=FILE              Use the specified file as mysqld
   --mysqld-version=VERSION   Use "mysqld-VERSION" as mysqld
+  --dry-run                  Simulate the start to detect errors but don't start
   --nice=NICE                Set the scheduling priority of mysqld
   --no-auto-restart          Exit after starting mysqld
   --nowatch                  Exit after starting mysqld
@@ -128,6 +133,7 @@ my_which ()
 }
 
 log_generic () {
+  [ $dry_run -eq 1 ] && return
   priority="$1"
   shift
 
@@ -153,7 +159,7 @@ log_notice () {
 }
 
 eval_log_error () {
-  cmd="$1"
+  local cmd="$1"
   case $logging in
     file) cmd="$cmd >> "`shell_quote_string "$err_log"`" 2>&1" ;;
     syslog)
@@ -285,12 +291,19 @@ parse_arguments() {
       --user=*) user="$val"; SET_USER=1 ;;
       --log[-_]basename=*|--hostname=*|--loose[-_]log[-_]basename=*)
         pid_file="$val.pid";
-	err_log="$val.err";
+	err_log_base="$val";
 	;;
 
       # these might have been set in a [mysqld_safe] section of my.cnf
       # they are added to mysqld command line to override settings from my.cnf
-      --log[-_]error=*) err_log="$val" ;;
+      --skip[-_]log[-_]error)
+        err_log=;
+        skip_err_log=1;
+        ;;
+      --log[-_]error=*)
+        err_log="$val";
+        skip_err_log=0;
+        ;;
       --port=*) mysql_tcp_port="$val" ;;
       --socket=*) mysql_unix_port="$val" ;;
 
@@ -308,6 +321,7 @@ parse_arguments() {
           MYSQLD="mysqld"
         fi
         ;;
+      --dry[-_]run) dry_run=1 ;;
       --nice=*) niceness="$val" ;;
       --nowatch|--no[-_]watch|--no[-_]auto[-_]restart) nowatch=1 ;;
       --open[-_]files[-_]limit=*) open_files="$val" ;;
@@ -318,6 +332,22 @@ parse_arguments() {
       --timezone=*) TZ="$val"; export TZ; ;;
       --flush[-_]caches) flush_caches=1 ;;
       --numa[-_]interleave) numa_interleave=1 ;;
+      --wsrep[-_]on)
+        wsrep_on=1
+        append_arg_to_args "$arg"
+        ;;
+      --skip[-_]wsrep[-_]on)
+        wsrep_on=0
+        append_arg_to_args "$arg"
+        ;;
+      --wsrep[-_]on=*)
+        if echo $val | grep -iq '\(ON\|1\)'; then
+          wsrep_on=1
+        else
+          wsrep_on=0
+        fi
+        append_arg_to_args "$arg"
+        ;;
       --wsrep[-_]urls=*) wsrep_urls="$val"; ;;
       --wsrep[-_]provider=*)
         if test -n "$val" && test "$val" != "none"
@@ -520,10 +550,6 @@ fi
 if test -d $MY_BASEDIR_VERSION/data/mysql
 then
   DATADIR=$MY_BASEDIR_VERSION/data
-  if test -z "$defaults" -a -r "$DATADIR/my.cnf"
-  then
-    defaults="--defaults-extra-file=$DATADIR/my.cnf"
-  fi
 # Next try where the source installs put it
 elif test -d $MY_BASEDIR_VERSION/var/mysql
 then
@@ -535,23 +561,13 @@ fi
 
 if test -z "$MYSQL_HOME"
 then 
-  if test -r "$MY_BASEDIR_VERSION/my.cnf" && test -r "$DATADIR/my.cnf"
-  then
-    log_error "WARNING: Found two instances of my.cnf -
-$MY_BASEDIR_VERSION/my.cnf and
-$DATADIR/my.cnf
-IGNORING $DATADIR/my.cnf"
-
-    MYSQL_HOME=$MY_BASEDIR_VERSION
-  elif test -r "$DATADIR/my.cnf"
+  if test -r "$DATADIR/my.cnf"
   then
     log_error "WARNING: Found $DATADIR/my.cnf
-The data directory is a deprecated location for my.cnf, please move it to
+The data directory is not a valid location for my.cnf, please move it to
 $MY_BASEDIR_VERSION/my.cnf"
-    MYSQL_HOME=$DATADIR
-  else
-    MYSQL_HOME=$MY_BASEDIR_VERSION
   fi
+  MYSQL_HOME=$MY_BASEDIR_VERSION
 fi
 export MYSQL_HOME
 
@@ -611,7 +627,7 @@ if [ -n "${PLUGIN_DIR}" ]; then
   plugin_dir="${PLUGIN_DIR}"
 else
   # Try to find plugin dir relative to basedir
-  for dir in lib/mysql/plugin lib/plugin
+  for dir in lib64/mysql/plugin lib64/plugin lib/mysql/plugin lib/plugin
   do
     if [ -d "${MY_BASEDIR_VERSION}/${dir}" ]; then
       plugin_dir="${MY_BASEDIR_VERSION}/${dir}"
@@ -638,6 +654,11 @@ then
   fi
 fi
 
+if [ $skip_err_log -eq 1 ]
+then
+  append_arg_to_args "--skip-log-error"
+fi
+
 if [ -n "$err_log" -o $want_syslog -eq 0 ]
 then
   if [ -n "$err_log" ]
@@ -661,7 +682,16 @@ then
       * ) err_log="$DATADIR/$err_log" ;;
     esac
   else
-    err_log=$DATADIR/`@HOSTNAME@`.err
+    if [ -n "$err_log_base" ]
+    then
+      err_log=$err_log_base.err
+      case "$err_log" in
+        /* ) ;;
+        * ) err_log="$DATADIR/$err_log" ;;
+      esac
+    else
+      err_log=$DATADIR/`@HOSTNAME@`.err
+    fi
   fi
 
   append_arg_to_args "--log-error=$err_log"
@@ -670,6 +700,7 @@ then
   then
     # User explicitly asked for syslog, so warn that it isn't used
     log_error "Can't log to error log and syslog at the same time.  Remove all --log-error configuration options for --syslog to take effect."
+    want_syslog=0
   fi
 
   # Log to err_log file
@@ -723,7 +754,7 @@ if [ ! -d $mysql_unix_port_dir ]
 then
   if ! `mkdir -p $mysql_unix_port_dir`
   then
-    echo "Fatal error Can't create database directory '$mysql_unix_port'"
+    log_error "Fatal error Can't create database directory '$mysql_unix_port'"
     exit 1
   fi
   chown $user $mysql_unix_port_dir
@@ -828,7 +859,7 @@ fi
 #
 # If there exists an old pid file, check if the daemon is already running
 # Note: The switches to 'ps' may depend on your operating system
-if test -f "$pid_file"
+if test -f "$pid_file" && [ $dry_run -eq 0 ]
 then
   PID=`cat "$pid_file"`
   if @CHECK_PID@
@@ -904,6 +935,7 @@ fi
 #fi
 
 cmd="`mysqld_ld_preload_text`$NOHUP_NICENESS"
+[ $dry_run -eq 1 ] && cmd=''
 
 #
 # Set mysqld's memory interleave policy.
@@ -923,7 +955,7 @@ then
   fi
 
   # Launch mysqld with numactl.
-  cmd="$cmd numactl --interleave=all"
+  [ $dry_run -eq 0 ] && cmd="$cmd numactl --interleave=all"
 elif test $numa_interleave -eq 1
 then
   log_error "--numa-interleave is not supported on this platform"
@@ -936,8 +968,14 @@ do
   cmd="$cmd "`shell_quote_string "$i"`
 done
 cmd="$cmd $args"
+[ $dry_run -eq 1 ] && return
+
 # Avoid 'nohup: ignoring input' warning
 test -n "$NOHUP_NICENESS" && cmd="$cmd < /dev/null"
+
+# close stdout and stderr, everything goes to $logging now
+exec 1>&-
+exec 2>&-
 
 log_notice "Starting $MYSQLD daemon with databases from $DATADIR"
 
@@ -957,18 +995,24 @@ do
 
   start_time=`date +%M%S`
 
-  # this sets wsrep_start_position_opt
-  wsrep_recover_position "$cmd"
-
-  [ $? -ne 0 ] && exit 1 #
-
-  [ -n "$wsrep_urls" ] && url=`wsrep_pick_url $wsrep_urls` # check connect address
-
-  if [ -z "$url" ]
+  # Perform wsrep position recovery if wsrep_on=1, skip otherwise.
+  if test $wsrep_on -eq 1
   then
-    eval_log_error "$cmd $wsrep_start_position_opt $nohup_redir"
+    # this sets wsrep_start_position_opt
+    wsrep_recover_position "$cmd"
+
+    [ $? -ne 0 ] && exit 1 #
+
+    [ -n "$wsrep_urls" ] && url=`wsrep_pick_url $wsrep_urls` # check connect address
+
+    if [ -z "$url" ]
+    then
+      eval_log_error "$cmd $wsrep_start_position_opt"
+    else
+      eval_log_error "$cmd $wsrep_start_position_opt --wsrep_cluster_address=$url"
+    fi
   else
-    eval_log_error "$cmd $wsrep_start_position_opt --wsrep_cluster_address=$url $nohup_redir"
+    eval_log_error "$cmd"
   fi
 
   if [ $want_syslog -eq 0 -a ! -f "$err_log" ]; then

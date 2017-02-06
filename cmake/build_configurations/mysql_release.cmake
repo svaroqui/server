@@ -83,7 +83,8 @@ IF(FEATURE_SET)
 ENDIF()
 
 OPTION(ENABLED_LOCAL_INFILE "" ON)
-IF(RPM)
+IF(WIN32)
+ELSEIF(RPM)
   SET(WITH_SSL system CACHE STRING "")
   SET(WITH_ZLIB system CACHE STRING "")
 ELSEIF(DEB)
@@ -94,6 +95,7 @@ ELSEIF(DEB)
 ELSE()
   SET(WITH_SSL bundled CACHE STRING "")
   SET(WITH_ZLIB bundled CACHE STRING "")
+  SET(WITH_JEMALLOC static CACHE STRING "")
 ENDIF()
 
 IF(NOT COMPILATION_COMMENT)
@@ -111,8 +113,6 @@ IF(UNIX)
   SET(WITH_EXTRA_CHARSETS all CACHE STRING "")
 
   IF(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    SET(WITH_JEMALLOC "static" CACHE STRING "")
-
     IF(NOT IGNORE_AIO_CHECK)
       # Ensure aio is available on Linux (required by InnoDB)
       CHECK_INCLUDE_FILES(libaio.h HAVE_LIBAIO_H)
@@ -156,6 +156,25 @@ IF(UNIX)
     SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 ${COMMON_CXX_FLAGS}")
   ENDIF()
 
+  # IBM Z flags
+  IF(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
+    IF(RPM MATCHES "(rhel|centos)6" OR RPM MATCHES "(suse|sles)11")
+      SET(z_flags "-funroll-loops -march=z9-109 -mtune=z10 ")
+    ELSEIF(RPM MATCHES "(rhel|centos)7" OR RPM MATCHES "(suse|sles)12")
+      SET(z_flags "-funroll-loops -march=z196 -mtune=zEC12 ")
+    ELSE()
+      SET(z_flags "")
+    ENDIF()
+
+    IF(CMAKE_COMPILER_IS_GNUCC)
+      SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${z_flags}${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+    ENDIF()
+    IF(CMAKE_COMPILER_IS_GNUCXX)
+      SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${z_flags}${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+    ENDIF()
+    UNSET(z_flags)
+  ENDIF()
+
   # HPUX flags
   IF(CMAKE_SYSTEM_NAME MATCHES "HP-UX")
     IF(CMAKE_C_COMPILER_ID MATCHES "HP")
@@ -189,15 +208,16 @@ IF(UNIX)
     ENDIF()
   ENDIF()
 
-  # OSX flags
-  IF(APPLE)
-    SET(COMMON_C_FLAGS                 "-g -fno-common -fno-strict-aliasing")
-    # XXX: why are we using -felide-constructors on OSX?
-    SET(COMMON_CXX_FLAGS               "-g -fno-common -felide-constructors -fno-strict-aliasing")
-    SET(CMAKE_C_FLAGS_DEBUG            "-O ${COMMON_C_FLAGS}")
-    SET(CMAKE_CXX_FLAGS_DEBUG          "-O ${COMMON_CXX_FLAGS}")
-    SET(CMAKE_C_FLAGS_RELWITHDEBINFO   "-Os ${COMMON_C_FLAGS}")
-    SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-Os ${COMMON_CXX_FLAGS}")
+  # Default Clang flags
+  IF(CMAKE_C_COMPILER_ID MATCHES "Clang")
+    SET(COMMON_C_FLAGS               "-g -fno-omit-frame-pointer -fno-strict-aliasing")
+    SET(CMAKE_C_FLAGS_DEBUG          "${COMMON_C_FLAGS}")
+    SET(CMAKE_C_FLAGS_RELWITHDEBINFO "-O3 ${COMMON_C_FLAGS}")
+  ENDIF()
+  IF(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    SET(COMMON_CXX_FLAGS               "-g -fno-omit-frame-pointer -fno-strict-aliasing")
+    SET(CMAKE_CXX_FLAGS_DEBUG          "${COMMON_CXX_FLAGS}")
+    SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 ${COMMON_CXX_FLAGS}")
   ENDIF()
 
   # Solaris flags

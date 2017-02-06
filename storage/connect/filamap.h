@@ -17,6 +17,7 @@ typedef class MAPFAM *PMAPFAM;
 /*  This is the variable file access method using file mapping.        */
 /***********************************************************************/
 class DllExport MAPFAM : public TXTFAM {
+  friend class TDBJSON;
  public:
   // Constructor
   MAPFAM(PDOSDEF tdp);
@@ -104,7 +105,7 @@ class DllExport MPXFAM : public MBKFAM {
   virtual int   MaxBlkSize(PGLOBAL g, int s)
                 {return TXTFAM::MaxBlkSize(g, s);}
   virtual bool  SetPos(PGLOBAL g, int recpos);
-  virtual int   GetNextPos(void) {return (int)Fpos + Nrec;}
+  virtual int   GetNextPos(void) {return GetPos() + 1;}
   virtual bool  DeferReading(void) {return false;}
   virtual int   ReadBuffer(PGLOBAL g);
   virtual int   WriteBuffer(PGLOBAL g);

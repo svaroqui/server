@@ -6,6 +6,8 @@
  * See COPYRIGHT.txt for details.
  */
 
+#include <my_config.h>
+
 #include <stdexcept>
 #include <string.h>
 #include <errno.h>
@@ -41,7 +43,7 @@ socket_args::set(const config& conf)
     } else {
       const char *nd = node.empty() ? 0 : node.c_str();
       if (resolve(nd, port.c_str()) != 0) {
-	fatal_exit("getaddrinfo failed: " + node + ":" + port);
+	fatal_abort("getaddrinfo failed: " + node + ":" + port);
       }
     }
   }

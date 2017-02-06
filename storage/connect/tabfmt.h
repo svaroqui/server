@@ -75,7 +75,7 @@ class TDBCSV : public TDBDOS {
   virtual int  ReadBuffer(PGLOBAL g);        // Physical file read
 
   // Specific routines
-  virtual int  EstimatedLength(PGLOBAL g);
+  virtual int  EstimatedLength(void);
   virtual bool SkipHeader(PGLOBAL g);
   virtual bool CheckErr(void);
 
@@ -157,11 +157,11 @@ class TDBFMT : public TDBCSV {
   virtual int  ReadBuffer(PGLOBAL g);        // Physical file read
 
   // Specific routines
-  virtual int  EstimatedLength(PGLOBAL g);
+  virtual int  EstimatedLength(void);
 
  protected:
   virtual bool PrepareWriting(PGLOBAL g) 
-              {strcpy(g->Message, "FMT is read only"); return true;}
+       {sprintf(g->Message, MSG(TABLE_READ_ONLY), "FMT"); return true;}
 
   // Members
   PSZ  *FldFormat;                      // Field read format

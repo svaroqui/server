@@ -1093,7 +1093,7 @@ delimiter ;|
 #
 --error ER_SP_BADSTATEMENT
 CREATE PROCEDURE BUG_12490() HELP CONTENTS;
---error ER_SP_BADSTATEMENT
+--error ER_PARSE_ERROR
 CREATE FUNCTION BUG_12490() RETURNS INT HELP CONTENTS;
 CREATE TABLE t_bug_12490(a int);
 --error ER_SP_BADSTATEMENT
@@ -1766,11 +1766,10 @@ CREATE IF NOT EXISTS PROCEDURE bug14702()
 BEGIN
 END;
 
---error ER_PARSE_ERROR
 CREATE PROCEDURE IF NOT EXISTS bug14702()
 BEGIN
 END;
-
+DROP PROCEDURE IF EXISTS bug14702;
 
 #
 # BUG#20953: create proc with a create view that uses local
@@ -1786,17 +1785,17 @@ CREATE TABLE t1 (i INT);
 
 # We do not have to drop this procedure and view because they won't be
 # created.
---error ER_VIEW_SELECT_CLAUSE
+--error ER_PARSE_ERROR
 CREATE PROCEDURE bug20953() CREATE VIEW v AS SELECT 1 INTO @a;
---error ER_VIEW_SELECT_CLAUSE
+--error ER_PARSE_ERROR
 CREATE PROCEDURE bug20953() CREATE VIEW v AS SELECT 1 INTO DUMPFILE "file";
---error ER_VIEW_SELECT_CLAUSE
+--error ER_PARSE_ERROR
 CREATE PROCEDURE bug20953() CREATE VIEW v AS SELECT 1 INTO OUTFILE "file";
---error ER_VIEW_SELECT_CLAUSE
+--error ER_PARSE_ERROR
 CREATE PROCEDURE bug20953()
   CREATE VIEW v AS SELECT i FROM t1 PROCEDURE ANALYSE();
---error ER_VIEW_SELECT_DERIVED
-CREATE PROCEDURE bug20953() CREATE VIEW v AS SELECT 1 FROM (SELECT 1) AS d1;
+--error ER_PARSE_ERROR
+CREATE PROCEDURE bug20953() CREATE VIEW v AS SELECT 1 FROM (SELECT 1) AS d1 into @w;
 --error ER_VIEW_SELECT_VARIABLE
 CREATE PROCEDURE bug20953(i INT) CREATE VIEW v AS SELECT i;
 delimiter |;
@@ -2051,13 +2050,8 @@ delimiter ;|
 --disable_warnings
 drop function if exists bug20701;
 --enable_warnings
-#
-# This was disabled in 5.1.12. See bug #20701
-# When collation support in SP is implemented, then this test should
-# be removed.
-#
---error ER_NOT_SUPPORTED_YET
 create function bug20701() returns varchar(25) binary return "test";
+drop function bug20701;
 create function bug20701() returns varchar(25) return "test";
 drop function bug20701;
 
@@ -2237,7 +2231,7 @@ begin
  return 1;
 end|
 delimiter ;|
---error ER_CANT_REOPEN_TABLE
+--error ER_BAD_TABLE_ERROR
 create temporary table t1 as select f1();
 
 delimiter |;
@@ -2247,7 +2241,7 @@ begin
  return 1;
 end|
 delimiter ;|
---error ER_CANT_REOPEN_TABLE
+--error ER_BAD_TABLE_ERROR
 create temporary table t1 as select f2();
 
 drop function f1;
@@ -2265,7 +2259,7 @@ begin
  return 1;
 end|
 delimiter ;|
---error ER_CANT_REOPEN_TABLE
+--error ER_BAD_TABLE_ERROR
 create temporary table t1 as select f2();
 
 drop function f1;
@@ -2612,7 +2606,7 @@ delimiter |;
 CREATE PROCEDURE p1()
   BEGIN
     DECLARE c INT DEFAULT 0;
-    DECLARE CONTINUE HANDLER FOR SQLWARNING SET c = c + 1;
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '22007' SET c = c + 1;
     CALL p2();
     CALL p3();
     CALL p4();
@@ -2647,7 +2641,7 @@ CREATE PROCEDURE p5()
 CREATE PROCEDURE P6()
   BEGIN
     DECLARE c INT DEFAULT 0;
-    DECLARE CONTINUE HANDLER FOR SQLWARNING SET c = c + 1;
+    DECLARE CONTINUE HANDLER FOR SQLSTATE '22007' SET c = c + 1;
     CALL p5();
     SELECT c;
   END|

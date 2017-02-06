@@ -17,7 +17,7 @@
 /***********************************************************************/
 #include "my_global.h"
 #include "table.h"       // MySQL table definitions
-#if defined(WIN32)
+#if defined(__WIN__)
 #include <stdlib.h>
 #include <stdio.h>
 #if defined(__BORLANDC__)
@@ -51,13 +51,8 @@
 #include "tabcol.h"
 #include "tabxcl.h"
 #include "xtable.h"
-#if defined(MYSQL_SUPPORT)
 #include "tabmysql.h"
-#endif   // MYSQL_SUPPORT
 #include "ha_connect.h"
-#include "mycat.h"
-
-extern "C" int trace;
 
 /* -------------- Implementation of the XCOL classes	---------------- */
 
@@ -88,7 +83,7 @@ bool XCLDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
 /***********************************************************************/
 /*  GetTable: makes a new TDB of the proper type.                      */
 /***********************************************************************/
-PTDB XCLDEF::GetTable(PGLOBAL g, MODE mode)
+PTDB XCLDEF::GetTable(PGLOBAL g, MODE)
   {
   if (Catfunc == FNC_COL)
     return new(g) TDBTBC(this);
@@ -122,7 +117,7 @@ PCOL TDBXCL::MakeCol(PGLOBAL g, PCOLDEF cdp, PCOL cprec, int n)
   PCOL colp;
   
   if (!stricmp(cdp->GetName(), Xcolumn)) {
-		Xcolp = new(g) XCLCOL(g, cdp, this, cprec, n);
+		Xcolp = new(g) XCLCOL(cdp, this, cprec, n);
     colp = Xcolp;
   } else
     colp = new(g) PRXCOL(cdp, this, cprec, n);
@@ -149,7 +144,7 @@ int TDBXCL::GetMaxSize(PGLOBAL g)
 /*  For this table type, ROWID is the (virtual) row number,            */
 /*  while ROWNUM is be the occurence rank in the multiple column.      */
 /***********************************************************************/
-int TDBXCL::RowNumber(PGLOBAL g, bool b)
+int TDBXCL::RowNumber(PGLOBAL, bool b)
 	{
 	return (b) ? M : N;
 	} // end of RowNumber
@@ -184,8 +179,9 @@ bool TDBXCL::OpenDB(PGLOBAL g)
   /*  Check and initialize the subtable columns.                       */
   /*********************************************************************/
   for (PCOL cp = Columns; cp; cp = cp->GetNext())
-    if (((PXCLCOL)cp)->Init(g))
-      return TRUE;
+    if (!cp->IsSpecial())
+      if (((PPRXCOL)cp)->Init(g, NULL))
+        return TRUE;
 
   /*********************************************************************/
   /*  Physically open the object table.                                */
@@ -236,15 +232,28 @@ int TDBXCL::ReadDB(PGLOBAL g)
 /***********************************************************************/
 /*  XCLCOL public constructor.                                         */
 /***********************************************************************/
-XCLCOL::XCLCOL(PGLOBAL g, PCOLDEF cdp, PTDB tdbp, PCOL cprec, int i)
+XCLCOL::XCLCOL(PCOLDEF cdp, PTDB tdbp, PCOL cprec, int i)
 			: PRXCOL(cdp, tdbp, cprec, i, "XCL")
   {
   // Set additional XXL access method information for column.
-  Cbuf = (char*)PlugSubAlloc(g, NULL, Long + 1);
+  Cbuf = NULL;                // Will be allocated later
 	Cp = NULL;						      // Pointer to current position in Cbuf
 	Sep = ((PTDBXCL)tdbp)->Sep;
 	AddStatus(BUF_READ);	      // Only evaluated from TDBXCL::ReadDB
   } // end of XCLCOL constructor
+
+/***********************************************************************/
+/*  XCLCOL initialization routine.                                     */
+/*  Allocate Cbuf that will contain the Colp value.                    */
+/***********************************************************************/
+bool XCLCOL::Init(PGLOBAL g, PTDBASE tp)
+  {
+  if (PRXCOL::Init(g, tp))
+    return true;
+
+  Cbuf = (char*)PlugSubAlloc(g, NULL, Colp->GetLength() + 1);
+  return false;
+  } // end of Init
 
 /***********************************************************************/
 /*  What this routine does is to get the comma-separated string        */
@@ -254,8 +263,10 @@ XCLCOL::XCLCOL(PGLOBAL g, PCOLDEF cdp, PTDB tdbp, PCOL cprec, int i)
 void XCLCOL::ReadColumn(PGLOBAL g)
   {
 	if (((PTDBXCL)To_Tdb)->New) {
+    Colp->Reset();           // Moved here in case of failed filtering
 		Colp->Eval(g);
-		strcpy(Cbuf, To_Val->GetCharValue());
+		strncpy(Cbuf, To_Val->GetCharValue(), Colp->GetLength());
+    Cbuf[Colp->GetLength()] = 0;
 		Cp = Cbuf;
 		} // endif New
 

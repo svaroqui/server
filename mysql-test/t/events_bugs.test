@@ -8,6 +8,7 @@
 #       Bug#41925 Warning 1366 Incorrect string value: ...  for column processlist.info
 #
 # Please set $
+SET SQL_MODE="";
 let $fixed_bug41925= 0;
 #     
 # Dear maintainer of this test. Please do NOT remove the next big comment.
@@ -305,7 +306,7 @@ create table events_smode_test(ev_name char(10), a date);
 delimiter |;
 create event ee_16407_2 on schedule every 60 second do
 begin
-  select get_lock('ee_16407_2', 60) /*ee_16407_2*/;
+  select get_lock('ee_16407_2', 60); /*ee_16407_2*/
   select release_lock('ee_16407_2');
   insert into events_test.events_smode_test values('ee_16407_2','1980-19-02');
 end|
@@ -314,7 +315,7 @@ insert into events_test.events_smode_test values ('test','1980-19-02')|
 --echo "This is ok"
 create event ee_16407_3 on schedule every 60 second do
 begin
-  select get_lock('ee_16407_2', 60) /*ee_16407_3*/;
+  select get_lock('ee_16407_2', 60); /*ee_16407_3*/
   select release_lock('ee_16407_2');
   insert into events_test.events_smode_test values ('ee_16407_3','1980-02-19');
   insert into events_test.events_smode_test values ('ee_16407_3','1980-02-29');
@@ -323,7 +324,7 @@ set sql_mode=""|
 --echo "This will insert rows but they will be truncated"
 create event ee_16407_4 on schedule every 60 second do
 begin
-  select get_lock('ee_16407_2', 60) /*ee_16407_4*/;
+  select get_lock('ee_16407_2', 60); /*ee_16407_4*/
   select release_lock('ee_16407_2');
   insert into events_test.events_smode_test values ('ee_16407_4','10-11-1956');
 end|
@@ -411,13 +412,13 @@ create procedure ee_16407_5_pendant() begin insert into events_test.events_smode
 create procedure ee_16407_6_pendant() begin insert into events_test.events_smode_test values('ee_16407_6','2004-02-29'); end|
 create event ee_16407_5 on schedule every 60 second do
 begin
-  select get_lock('ee_16407_5', 60) /*ee_16407_5*/;
+  select get_lock('ee_16407_5', 60); /*ee_16407_5*/
   select release_lock('ee_16407_5');
   call events_test.ee_16407_5_pendant();
 end|
 create event ee_16407_6 on schedule every 60 second do
 begin
-  select get_lock('ee_16407_5', 60) /*ee_16407_6*/;
+  select get_lock('ee_16407_5', 60); /*ee_16407_6*/
   select release_lock('ee_16407_5');
   call events_test.ee_16407_6_pendant();
 end|
@@ -508,13 +509,13 @@ drop database mysqltest_db1;
 #
 # START - BUG#16394: Events: Crash if schedule contains SELECT
 #
---error ER_NOT_SUPPORTED_YET
+--error ER_SUBQUERIES_NOT_SUPPORTED
 create event e_53 on schedule at (select s1 from ttx) do drop table t;
---error ER_NOT_SUPPORTED_YET
+--error ER_SUBQUERIES_NOT_SUPPORTED
 create event e_53 on schedule every (select s1 from ttx) second do drop table t;
---error ER_NOT_SUPPORTED_YET
+--error ER_SUBQUERIES_NOT_SUPPORTED
 create event e_53 on schedule every 5 second starts (select s1 from ttx) do drop table t;
---error ER_NOT_SUPPORTED_YET
+--error ER_SUBQUERIES_NOT_SUPPORTED
 create event e_53 on schedule every 5 second ends (select s1 from ttx) do drop table t;
 #
 # END   - BUG#16394: Events: Crash if schedule contains SELECT
@@ -570,7 +571,7 @@ begin
   select release_lock('ee_22830');
 end|
 
---error ER_NOT_SUPPORTED_YET
+--error ER_SUBQUERIES_NOT_SUPPORTED
 create event e22830 on schedule every f22830() second do
 begin
   call p22830_wait();
@@ -918,7 +919,6 @@ GRANT create, insert, select, event ON events_test.* TO evtest1@localhost;
 GRANT select,insert ON test.* TO evtest1@localhost;
 SHOW GRANTS FOR evtest1@localhost;
 
---echo connection e1;
 --replace_result $MASTER_MYPORT MASTER_MYPORT $MASTER_MYSOCK MASTER_MYSOCK
 connect (e1,localhost,evtest1,ev1,events_test,$MASTER_MYPORT,$MASTER_MYSOCK);
 DELIMITER |;
@@ -943,14 +943,13 @@ DELIMITER ;|
 #    reasonable time like 4 seconds. Till ~ 2 seconds could pass on a heavy
 #    loaded testing box before something gets executed).
 #    Detection of execution is via the records inserted by the event.
---echo Sleep till the first INSERT into events_test.event_log occured
+--echo Sleep till the first INSERT into events_test.event_log occurred
 let $wait_timeout= 4;
 let $wait_condition=
 SELECT COUNT(*) > 0 FROM events_test.event_log;
 --source include/wait_condition.inc
 SELECT COUNT(*) > 0 AS "Expect 1" FROM events_test.event_log;
 #
---echo connection default;
 connection default;
 DROP USER evtest1@localhost;
 # 2. If we meet BUG#28924 again than a server crash happens within the next
@@ -1024,10 +1023,6 @@ SET GLOBAL READ_ONLY = 1;
 
 --echo
 
---echo #
---echo # Connection: u1_con (mysqltest_u1@localhost/events_test).
---echo #
-
 --connect(u1_con,localhost,mysqltest_u1,,events_test)
 
 --echo
@@ -1048,10 +1043,6 @@ DROP EVENT e1;
 --echo
 
 # Check that the super user still can create/update/drop events.
-
---echo #
---echo # Connection: root_con (root@localhost/events_test).
---echo #
 
 --connect(root_con,localhost,root,,events_test)
 
@@ -1078,10 +1069,6 @@ SET GLOBAL READ_ONLY = 0;
 
 --echo
 
---echo #
---echo # Connection: u1_con (mysqltest_u1@localhost/test).
---echo #
-
 --connection u1_con
 
 --echo
@@ -1099,10 +1086,6 @@ FROM INFORMATION_SCHEMA.EVENTS
 WHERE event_schema = 'events_test';
 
 --echo
-
---echo #
---echo # Connection: root_con (root@localhost/events_test).
---echo #
 
 --connection root_con
 
@@ -1168,10 +1151,6 @@ DROP EVENT e2;
 SET GLOBAL READ_ONLY = 0;
 
 --echo
-
---echo #
---echo # Connection: default
---echo #
 
 --disconnect u1_con
 --disconnect root_con
@@ -1319,5 +1298,4 @@ DROP DATABASE events_test;
 SET GLOBAL event_scheduler= 'ON';
 --source include/running_event_scheduler.inc
 SET @@global.concurrent_insert= @concurrent_insert;
-
 # THIS MUST BE THE LAST LINE in this file.

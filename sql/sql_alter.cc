@@ -1,4 +1,5 @@
 /* Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+   Copyright (c) 2016, MariaDB Corporation
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,7 +17,6 @@
 #include "sql_parse.h"                       // check_access
 #include "sql_table.h"                       // mysql_alter_table,
                                              // mysql_exchange_partition
-#include "sql_base.h"                        // open_temporary_tables
 #include "sql_alter.h"
 #include "wsrep_mysqld.h"
 
@@ -25,6 +25,7 @@ Alter_info::Alter_info(const Alter_info &rhs, MEM_ROOT *mem_root)
   alter_list(rhs.alter_list, mem_root),
   key_list(rhs.key_list, mem_root),
   create_list(rhs.create_list, mem_root),
+  check_constraint_list(rhs.check_constraint_list, mem_root),
   flags(rhs.flags),
   keys_onoff(rhs.keys_onoff),
   partition_names(rhs.partition_names, mem_root),
@@ -294,29 +295,23 @@ bool Sql_cmd_alter_table::execute(THD *thd)
   /* Don't yet allow changing of symlinks with ALTER TABLE */
   if (create_info.data_file_name)
     push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
-                        WARN_OPTION_IGNORED, ER(WARN_OPTION_IGNORED),
+                        WARN_OPTION_IGNORED, ER_THD(thd, WARN_OPTION_IGNORED),
                         "DATA DIRECTORY");
   if (create_info.index_file_name)
     push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
-                        WARN_OPTION_IGNORED, ER(WARN_OPTION_IGNORED),
+                        WARN_OPTION_IGNORED, ER_THD(thd, WARN_OPTION_IGNORED),
                         "INDEX DIRECTORY");
   create_info.data_file_name= create_info.index_file_name= NULL;
 
   thd->enable_slow_log= opt_log_slow_admin_statements;
 
 #ifdef WITH_WSREP
-  TABLE *find_temporary_table(THD *thd, const TABLE_LIST *tl);
-
-  if (WSREP(thd) &&
-      (!thd->is_current_stmt_binlog_format_row() ||
-       !find_temporary_table(thd, first_table))  &&
-      wsrep_to_isolation_begin(thd,
-                               lex->name.str ? select_lex->db : NULL,
-                               lex->name.str ? lex->name.str : NULL,
-                               first_table))
+  if ((!thd->is_current_stmt_binlog_format_row() ||
+       !thd->find_temporary_table(first_table)))
   {
-    WSREP_WARN("ALTER TABLE isolation failure");
-    DBUG_RETURN(TRUE);
+    WSREP_TO_ISOLATION_BEGIN(((lex->name.str) ? select_lex->db : NULL),
+                             ((lex->name.str) ? lex->name.str : NULL),
+                             first_table);
   }
 #endif /* WITH_WSREP */
 
@@ -329,6 +324,12 @@ bool Sql_cmd_alter_table::execute(THD *thd)
                             lex->ignore);
 
   DBUG_RETURN(result);
+
+#ifdef WITH_WSREP
+error:
+  WSREP_WARN("ALTER TABLE isolation failure");
+  DBUG_RETURN(TRUE);
+#endif /* WITH_WSREP */
 }
 
 bool Sql_cmd_discard_import_tablespace::execute(THD *thd)

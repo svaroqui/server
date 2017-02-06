@@ -566,7 +566,7 @@ static my_bool type_and_offset_read_named(DYNAMIC_COLUMN_TYPE *type,
     return 1;
   }
   *type= (val & 0xf) + 1;
-  *offset= val >> 4;
+  *offset= (size_t) (val >> 4);
   return (*offset >= lim);
 }
 
@@ -2066,7 +2066,7 @@ static uchar *find_entry_named(DYN_HEADER *hdr, LEX_STRING *key)
 /**
   Write number in the buffer (backward direction - starts from the buffer end)
 
-  @return pointer on the number begining
+  @return pointer on the number beginning
 */
 
 static char *backwritenum(char *chr, uint numkey)
@@ -2578,7 +2578,6 @@ find_place(DYN_HEADER *hdr, void *key, my_bool string_keys)
   mid= 1;
   while (start != end)
   {
-    uint val;
     mid= (start + end) / 2;
     hdr->entry= hdr->header + mid * hdr->entry_size;
     if (!string_keys)
@@ -2804,7 +2803,7 @@ dynamic_column_update_copy(DYNAMIC_COLUMN *str, PLAN *plan,
       else if (offs < first_offset)
         goto err;
 
-      offs+= plan[i].ddelta;
+      offs+= (size_t) plan[i].ddelta;
       {
         DYNAMIC_COLUMN_VALUE val;
         val.type= tp; // only the type used in the header
@@ -2970,7 +2969,7 @@ dynamic_column_update_move_left(DYNAMIC_COLUMN *str, PLAN *plan,
           return ER_DYNCOL_FORMAT;
         }
 
-        offs+= plan[i].ddelta;
+        offs+= (size_t) plan[i].ddelta;
         int2store(write, nm);
         /* write rest of data at write + COLUMN_NUMBER_SIZE */
         type_and_offset_store_num(write, new_offset_size, tp, offs);
@@ -3024,9 +3023,9 @@ dynamic_column_update_move_left(DYNAMIC_COLUMN *str, PLAN *plan,
       memmove((header_base + new_header_size +
                plan[i].mv_offset + plan[i].ddelta),
               header_base + header_size + plan[i].mv_offset,
-              plan[i].mv_length);
+              (size_t) plan[i].mv_length);
     }
-    str->length+= plan[i].mv_length;
+    str->length+= (size_t) plan[i].mv_length;
 
     /* new data adding */
     if (i < add_column_count)
@@ -3515,8 +3514,8 @@ dynamic_column_update_many_fmt(DYNAMIC_COLUMN *str,
     Check if it is only "increasing" or only "decreasing" plan for (header
     and data separately).
   */
-  new_header.data_size= header.data_size + data_delta;
-  new_header.nmpool_size= new_header.nmpool_size + name_delta;
+  new_header.data_size= (size_t) (header.data_size + data_delta);
+  new_header.nmpool_size= (size_t) (new_header.nmpool_size + name_delta);
   DBUG_ASSERT(new_header.format != dyncol_fmt_num ||
               new_header.nmpool_size == 0);
   if ((new_header.offset_size=
@@ -3591,7 +3590,6 @@ end:
 create_new_string:
   /* There is no columns from before, so let's just add the new ones */
   rc= ER_DYNCOL_OK;
-  my_free(alloc_plan);
   if (not_null != 0)
     rc= dynamic_column_create_many_internal_fmt(str, add_column_count,
                                                 (uint*)column_keys, values,
@@ -3724,10 +3722,13 @@ mariadb_dyncol_check(DYNAMIC_COLUMN *str)
     if (prev_type != DYN_COL_NULL)
     {
       /* It is not first entry */
-      if (prev_data_offset >= data_offset)
+      if (prev_data_offset > data_offset ||
+          ((prev_type !=  DYN_COL_INT &&
+            prev_type != DYN_COL_UINT &&
+            prev_type != DYN_COL_DECIMAL) && prev_data_offset == data_offset))
       {
         DBUG_PRINT("info", ("Field order: %u  Previous data offset: %u"
-                            " >= Current data offset: %u",
+                            " >(=) Current data offset: %u",
                             (uint)i,
                             (uint)prev_data_offset,
                             (uint)data_offset));
@@ -3836,14 +3837,12 @@ mariadb_dyncol_val_str(DYNAMIC_STRING *str, DYNAMIC_COLUMN_VALUE *val,
         return ER_DYNCOL_RESOURCE;
       break;
     case DYN_COL_DOUBLE:
-      len= my_snprintf(buff, sizeof(buff), "%g", val->x.double_value);
+
+      len= my_gcvt(val->x.double_value, MY_GCVT_ARG_DOUBLE,
+                   sizeof(buff) - 1, buff, NULL);
       if (dynstr_realloc(str, len + (quote ? 2 : 0)))
         return ER_DYNCOL_RESOURCE;
-      if (quote)
-        str->str[str->length++]= quote;
       dynstr_append_mem(str, buff, len);
-      if (quote)
-        str->str[str->length++]= quote;
       break;
     case DYN_COL_DYNCOL:
     case DYN_COL_STRING:
@@ -3895,11 +3894,11 @@ mariadb_dyncol_val_str(DYNAMIC_STRING *str, DYNAMIC_COLUMN_VALUE *val,
       }
     case DYN_COL_DECIMAL:
       {
-        int len= sizeof(buff);
-        decimal2string(&val->x.decimal.value, buff, &len,
+        int tmp_len= sizeof(buff);
+        decimal2string(&val->x.decimal.value, buff, &tmp_len,
                        0, val->x.decimal.value.frac,
                        '0');
-        if (dynstr_append_mem(str, buff, len))
+        if (dynstr_append_mem(str, buff, tmp_len))
           return ER_DYNCOL_RESOURCE;
         break;
       }
@@ -4249,7 +4248,7 @@ mariadb_dyncol_unpack(DYNAMIC_COLUMN *str,
   {
     *names= my_malloc(sizeof(LEX_STRING) * header.column_count +
                       DYNCOL_NUM_CHAR * header.column_count, MYF(0));
-    nm= (char *)(names + sizeof(LEX_STRING) * header.column_count);
+    nm= (char *)((*names) + header.column_count);
   }
   else
   {

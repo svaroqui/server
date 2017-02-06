@@ -473,9 +473,9 @@ select collation(group_concat(a,_koi8r'test')) from t1;
 collation(group_concat(a,_koi8r'test'))
 cp1250_general_ci
 select collation(group_concat(a,_koi8r 0xC1C2)) from t1;
-ERROR HY000: Illegal mix of collations (cp1250_general_ci,IMPLICIT) and (koi8r_general_ci,COERCIBLE) for operation 'group_concat'
+ERROR HY000: Illegal mix of collations (cp1250_general_ci,IMPLICIT) and (koi8r_general_ci,COERCIBLE) for operation 'group_concat('
 select collation(group_concat(a,b)) from t1;
-ERROR HY000: Illegal mix of collations (cp1250_general_ci,IMPLICIT) and (koi8r_general_ci,IMPLICIT) for operation 'group_concat'
+ERROR HY000: Illegal mix of collations (cp1250_general_ci,IMPLICIT) and (koi8r_general_ci,IMPLICIT) for operation 'group_concat('
 drop table t1;
 drop table t2;
 CREATE TABLE t1 (a CHAR(10) CHARACTER SET cp850);
@@ -1044,7 +1044,7 @@ DROP TABLE t1;
 CREATE TABLE t1(f1 int);
 INSERT INTO t1 values (0),(0);
 SELECT POLYGON((SELECT 1 FROM (SELECT 1 IN (GROUP_CONCAT(t1.f1)) FROM t1, t1 t GROUP BY t.f1 ) d));
-ERROR 22007: Illegal non geometric '(select 1 from (select (1 = group_concat(`test`.`t1`.`f1` separator ',')) AS `1 IN (GROUP_CONCAT(t1.f1))` from `test`.`t1` join `test`.`t1` `t` group by `test`.`t`.`f1`) `d`)' value found during parsing
+ERROR 22007: Illegal non geometric '(select 1 from (select 1 = group_concat(`test`.`t1`.`f1` separator ',') AS `1 IN (GROUP_CONCAT(t1.f1))` from `test`.`t1` join `test`.`t1` `t` group by `test`.`t`.`f1`) `d`)' value found during parsing
 DROP TABLE t1;
 #
 # Bug#58396 group_concat and explain extended are still crashy
@@ -1091,3 +1091,166 @@ insert into t1 values ('a'),('b');
 select 1 from t1 where a in (select group_concat(a) from t1);
 1
 drop table t1;
+CREATE TABLE t1 (f1 VARCHAR(10)) ENGINE=MyISAM;
+INSERT INTO t1 VALUES ('a'),('b');
+CREATE TABLE t2 (f2 VARCHAR(10)) ENGINE=MyISAM;
+INSERT INTO t2 VALUES ('c');
+CREATE TABLE t3 (f3 VARCHAR(10)) ENGINE=MyISAM;
+INSERT INTO t3 VALUES ('d'),('e');
+SELECT GROUP_CONCAT( f2 ORDER BY ( f2 IN ( SELECT f1 FROM t1 WHERE f1 <= f2 ) ) ) AS field
+FROM ( SELECT * FROM t2 ) AS sq2, t3
+ORDER BY field;
+field
+c,c
+drop table t3, t2, t1;
+#
+# MDEV-7821 - Server crashes in Item_func_group_concat::fix_fields on 2nd
+#             execution of PS
+#
+CREATE TABLE t1(a INT);
+INSERT INTO t1 VALUES(1),(2);
+PREPARE stmt FROM "SELECT GROUP_CONCAT(t1a.a ORDER BY 1, t1a.a=0) FROM t1 AS t1a, t1 AS t1b GROUP BY t1a.a";
+EXECUTE stmt;
+GROUP_CONCAT(t1a.a ORDER BY 1, t1a.a=0)
+1,1
+2,2
+EXECUTE stmt;
+GROUP_CONCAT(t1a.a ORDER BY 1, t1a.a=0)
+1,1
+2,2
+DROP TABLE t1;
+#
+#  WL#6098 Eliminate GROUP_CONCAT intermediate result limitation.
+#  Bug#13387020 GROUP_CONCAT WITH ORDER BY RESULTS ARE TRUNCATED.
+#
+SET group_concat_max_len= 9999999;
+CREATE TABLE t1 (f1 LONGTEXT , f2  INTEGER);
+INSERT INTO t1 VALUES (REPEAT('a', 500000), 0), (REPEAT('b', 500000), 1), (REPEAT('c', 500000), 2);
+SELECT LENGTH(GROUP_CONCAT(f1 ORDER BY f2)) FROM t1;
+LENGTH(GROUP_CONCAT(f1 ORDER BY f2))
+1500002
+SELECT LENGTH(GROUP_CONCAT(DISTINCT f1 ORDER BY f1 DESC)) FROM t1;
+LENGTH(GROUP_CONCAT(DISTINCT f1 ORDER BY f1 DESC))
+1500002
+SELECT SUBSTRING(GROUP_CONCAT(DISTINCT f1 ORDER BY f1 DESC), 1, 5) FROM t1;
+SUBSTRING(GROUP_CONCAT(DISTINCT f1 ORDER BY f1 DESC), 1, 5)
+ccccc
+SELECT LENGTH(GROUP_CONCAT(DISTINCT f1)) FROM t1;
+LENGTH(GROUP_CONCAT(DISTINCT f1))
+1500002
+SELECT LENGTH(GROUP_CONCAT(UPPER(f1) ORDER BY f2)) FROM t1;
+LENGTH(GROUP_CONCAT(UPPER(f1) ORDER BY f2))
+1500002
+SELECT LENGTH(GROUP_CONCAT(DISTINCT UPPER(f1) ORDER BY f1)) FROM t1;
+LENGTH(GROUP_CONCAT(DISTINCT UPPER(f1) ORDER BY f1))
+1500002
+SELECT SUBSTRING(GROUP_CONCAT(DISTINCT UPPER(f1) ORDER BY f1), 1, 5) FROM t1;
+SUBSTRING(GROUP_CONCAT(DISTINCT UPPER(f1) ORDER BY f1), 1, 5)
+AAAAA
+SELECT LENGTH(GROUP_CONCAT(DISTINCT UPPER(f1))) FROM t1;
+LENGTH(GROUP_CONCAT(DISTINCT UPPER(f1)))
+1500002
+CREATE TABLE t2 SELECT GROUP_CONCAT(f1 order by f2) FROM t1;
+SHOW CREATE TABLE t2;
+Table	Create Table
+t2	CREATE TABLE `t2` (
+  `GROUP_CONCAT(f1 order by f2)` mediumtext DEFAULT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+DROP TABLE t2;
+CREATE TABLE t2 SELECT GROUP_CONCAT(UPPER(f1) ORDER BY f2) FROM t1;
+SHOW CREATE TABLE t2;
+Table	Create Table
+t2	CREATE TABLE `t2` (
+  `GROUP_CONCAT(UPPER(f1) ORDER BY f2)` mediumtext DEFAULT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+DROP TABLE t2;
+SET group_concat_max_len= DEFAULT;
+SELECT LENGTH(GROUP_CONCAT(f1 ORDER BY f2)) FROM t1;
+LENGTH(GROUP_CONCAT(f1 ORDER BY f2))
+1024
+Warnings:
+Warning	1260	Row 2 was cut by GROUP_CONCAT()
+SET group_concat_max_len= 499999;
+SELECT LENGTH(GROUP_CONCAT(f1 ORDER BY f2)) FROM t1 WHERE f2 = 0;
+LENGTH(GROUP_CONCAT(f1 ORDER BY f2))
+499999
+Warnings:
+Warning	1260	Row 1 was cut by GROUP_CONCAT()
+SELECT LENGTH(GROUP_CONCAT(f1 ORDER BY f2)) FROM t1 GROUP BY f2;
+LENGTH(GROUP_CONCAT(f1 ORDER BY f2))
+499999
+499999
+499999
+Warnings:
+Warning	1260	Row 1 was cut by GROUP_CONCAT()
+Warning	1260	Row 2 was cut by GROUP_CONCAT()
+Warning	1260	Row 3 was cut by GROUP_CONCAT()
+INSERT INTO t1 VALUES (REPEAT('a', 499999), 3), (REPEAT('b', 500000), 4);
+SELECT LENGTH(GROUP_CONCAT(f1 ORDER BY f2)) FROM t1 GROUP BY f2;
+LENGTH(GROUP_CONCAT(f1 ORDER BY f2))
+499999
+499999
+499999
+499999
+499999
+Warnings:
+Warning	1260	Row 1 was cut by GROUP_CONCAT()
+Warning	1260	Row 2 was cut by GROUP_CONCAT()
+Warning	1260	Row 3 was cut by GROUP_CONCAT()
+Warning	1260	Row 5 was cut by GROUP_CONCAT()
+DROP TABLE t1;
+SET group_concat_max_len= DEFAULT;
+#
+# Start of 10.2 tests
+#
+#
+# MDEV-10124 Incorrect usage of CUBE/ROLLUP and ORDER BY with GROUP_CONCAT(a ORDER BY a)
+#
+CREATE TABLE t1 (a INT);
+INSERT INTO t1 VALUES (10),(20),(30);
+SELECT a,GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP;
+a	GROUP_CONCAT(a ORDER BY a)
+10	10
+20	20
+30	30
+NULL	10,20,30
+CREATE VIEW v1 AS
+SELECT a,GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP;
+SELECT * FROM v1;
+a	GROUP_CONCAT(a ORDER BY a)
+10	10
+20	20
+30	30
+NULL	10,20,30
+DROP VIEW v1;
+SELECT a,GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP HAVING GROUP_CONCAT(a ORDER BY a)='10,20,30';
+a	GROUP_CONCAT(a ORDER BY a)
+NULL	10,20,30
+CREATE VIEW v1 AS
+SELECT a,GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP HAVING GROUP_CONCAT(a ORDER BY a)='10,20,30';
+SELECT * FROM v1;
+a	GROUP_CONCAT(a ORDER BY a)
+NULL	10,20,30
+DROP VIEW v1;
+SELECT * FROM (SELECT a,GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP HAVING GROUP_CONCAT(a ORDER BY a)='10,20,30') t1;
+a	GROUP_CONCAT(a ORDER BY a)
+NULL	10,20,30
+CREATE VIEW v1 AS
+SELECT * FROM (SELECT a,GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP HAVING GROUP_CONCAT(a ORDER BY a)='10,20,30') t1;
+SELECT * FROM v1;
+a	GROUP_CONCAT(a ORDER BY a)
+NULL	10,20,30
+DROP VIEW v1;
+SELECT (SELECT GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP HAVING GROUP_CONCAT(a ORDER BY a)='10,20,30');
+(SELECT GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP HAVING GROUP_CONCAT(a ORDER BY a)='10,20,30')
+10,20,30
+CREATE VIEW v1 AS
+SELECT (SELECT GROUP_CONCAT(a ORDER BY a) FROM t1 GROUP BY a WITH ROLLUP HAVING GROUP_CONCAT(a ORDER BY a)='10,20,30');
+SELECT * FROM v1;
+Name_exp_1
+10,20,30
+DROP VIEW v1;
+DROP TABLE t1;
+#
+# End of 10.2 tests
+#

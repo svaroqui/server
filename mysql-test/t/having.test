@@ -694,6 +694,41 @@ DROP TABLE t1;
 --echo End of 5.3 tests
 
 --echo #
+--echo # Bug MDEV-7301: Unknown column quoted with backticks in HAVING clause when using function.
+--echo # Bug#16221433 MYSQL REJECTS QUERY DUE TO BAD RESOLUTION OF NAMES IN HAVING; VIEW UNREADABLE
+--echo #
+
+CREATE TABLE `t1` (
+  `id` int(11) NOT NULL,
+  `title` varchar(45) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) DEFAULT CHARSET=utf8;
+
+INSERT INTO `t1` VALUES ('1', 'Just for fun');
+INSERT INTO `t1` VALUES ('2', 'Wait until a sunhine');
+INSERT INTO `t1` VALUES ('3', 'Take a new turn');
+
+SELECT `id`, SHA1(`title`) AS `column_1`
+FROM `t1`
+HAVING `column_1` LIKE '8%';
+
+--echo expected 1 row(s) returned
+
+SELECT `id`, SHA1(`title`) AS `column_1`
+FROM `t1`
+HAVING UPPER(column_1) LIKE '8%';
+
+--echo expected -- 1 row(s) returned
+
+SELECT `id`, SHA1(`title`) AS `column_1`
+FROM `t1`
+HAVING UPPER(`column_1`) LIKE '8%';
+
+--echo expected -- 1 row(s) returned not ER_BAD_FIELD_ERROR
+
+drop table t1;
+
+--echo #
 --echo # Bug mdev-5160: two-way join with HAVING over the second table
 --echo #
 
@@ -709,3 +744,17 @@ DROP TABLE t1,t2;
 
 --echo End of 10.0 tests
 
+--echo #
+--echo # MDEV-10716: Assertion `real_type() != FIELD_ITEM' failed in
+--echo # Item_ref::build_equal_items(THD*, COND_EQUAL*, bool, COND_EQUAL**)
+--echo #
+CREATE TABLE t1 (i INT);
+INSERT INTO t1 VALUES (1),(2);
+SELECT i, COUNT(*) FROM t1 GROUP BY i HAVING i<>0 AND 1;
+SELECT i-1 A, COUNT(*) FROM t1 GROUP BY i HAVING A AND 1;
+CREATE VIEW v1 as select i, i-1 as A from t1;
+SELECT A, COUNT(*) FROM v1 GROUP BY i HAVING A AND 1;
+DROP VIEW v1;
+DROP TABLE t1;
+
+--echo End of 10.1 tests

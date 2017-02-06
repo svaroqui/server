@@ -1,5 +1,5 @@
 /*
-   Copyright (c) 2010, 2012, Monty Program Ab
+   Copyright (c) 2010, 2015, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #pragma implementation				// gcc: Class implementation
 #endif
 
+#include <my_global.h>
 #include "sql_base.h"
 #include "sql_select.h"
 #include "filesort.h"
@@ -444,7 +445,7 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred);
 static bool convert_subq_to_jtbm(JOIN *parent_join, 
                                  Item_in_subselect *subq_pred, bool *remove);
 static TABLE_LIST *alloc_join_nest(THD *thd);
-static uint get_tmp_table_rec_length(Item **p_list, uint elements);
+static uint get_tmp_table_rec_length(Ref_ptr_array p_list, uint elements);
 static double get_tmp_table_lookup_cost(THD *thd, double row_count,
                                         uint row_size);
 static double get_tmp_table_write_cost(THD *thd, double row_count,
@@ -460,7 +461,7 @@ void best_access_path(JOIN *join, JOIN_TAB *s,
 
 static Item *create_subq_in_equalities(THD *thd, SJ_MATERIALIZATION_INFO *sjm, 
                                 Item_in_subselect *subq_pred);
-static void remove_sj_conds(Item **tree);
+static void remove_sj_conds(THD *thd, Item **tree);
 static bool is_cond_sj_in_equality(Item *item);
 static bool sj_table_is_included(JOIN *join, JOIN_TAB *join_tab);
 static Item *remove_additional_cond(Item* conds);
@@ -511,9 +512,8 @@ bool is_materialization_applicable(THD *thd, Item_in_subselect *in_subs,
         (Subquery is correlated to the immediate outer query &&
          Subquery !contains {GROUP BY, ORDER BY [LIMIT],
          aggregate functions}) && subquery predicate is not under "NOT IN"))
+    5. Subquery does not contain recursive references
 
-    (*) The subquery must be part of a SELECT or CREATE TABLE ... SELECT statement.
-        The current condition also excludes multi-table update statements.
   A note about prepared statements: we want the if-branch to be taken on
   PREPARE and each EXECUTE. The rewrites are only done once, but we need 
   select_lex->sj_subselects list to be populated for every EXECUTE. 
@@ -522,16 +522,15 @@ bool is_materialization_applicable(THD *thd, Item_in_subselect *in_subs,
   if (optimizer_flag(thd, OPTIMIZER_SWITCH_MATERIALIZATION) &&      // 0
         !child_select->is_part_of_union() &&                          // 1
         parent_unit->first_select()->leaf_tables.elements &&          // 2
-        (thd->lex->sql_command == SQLCOM_SELECT ||                     // *
-         thd->lex->sql_command == SQLCOM_CREATE_TABLE) &&              // *
-        child_select->outer_select()->leaf_tables.elements &&           // 2A
+        child_select->outer_select()->leaf_tables.elements &&         // 2A
         subquery_types_allow_materialization(in_subs) &&
         (in_subs->is_top_level_item() ||                               //3
          optimizer_flag(thd,
                         OPTIMIZER_SWITCH_PARTIAL_MATCH_ROWID_MERGE) || //3
          optimizer_flag(thd,
                         OPTIMIZER_SWITCH_PARTIAL_MATCH_TABLE_SCAN)) && //3
-        !in_subs->is_correlated)                                       //4
+        !in_subs->is_correlated &&                                     //4
+        !in_subs->with_recursive_reference)                            //5
    {
      return TRUE;
    }
@@ -620,6 +619,18 @@ int check_and_do_in_subquery_rewrites(JOIN *join)
         thd->stmt_arena->state != Query_arena::PREPARED)
       */
     {
+      SELECT_LEX *current= thd->lex->current_select;
+      thd->lex->current_select= current->return_after_parsing();
+      char const *save_where= thd->where;
+      thd->where= "IN/ALL/ANY subquery";
+
+      bool failure= !in_subs->left_expr->fixed &&
+                     in_subs->left_expr->fix_fields(thd, &in_subs->left_expr);
+      thd->lex->current_select= current;
+      thd->where= save_where;
+      if (failure)
+        DBUG_RETURN(-1); /* purecov: deadcode */
+
       /*
         Check if the left and right expressions have the same # of
         columns, i.e. we don't have a case like 
@@ -633,18 +644,6 @@ int check_and_do_in_subquery_rewrites(JOIN *join)
         my_error(ER_OPERAND_COLUMNS, MYF(0), in_subs->left_expr->cols());
         DBUG_RETURN(-1);
       }
-
-      SELECT_LEX *current= thd->lex->current_select;
-      thd->lex->current_select= current->return_after_parsing();
-      char const *save_where= thd->where;
-      thd->where= "IN/ALL/ANY subquery";
-        
-      bool failure= !in_subs->left_expr->fixed &&
-                     in_subs->left_expr->fix_fields(thd, &in_subs->left_expr);
-      thd->lex->current_select= current;
-      thd->where= save_where;
-      if (failure)
-        DBUG_RETURN(-1); /* purecov: deadcode */
     }
 
     DBUG_PRINT("info", ("Checking if subq can be converted to semi-join"));
@@ -694,7 +693,8 @@ int check_and_do_in_subquery_rewrites(JOIN *join)
       {
         Query_arena *arena, backup;
         arena= thd->activate_stmt_arena_if_needed(&backup);
-        select_lex->outer_select()->sj_subselects.push_back(in_subs);
+        select_lex->outer_select()->sj_subselects.push_back(in_subs,
+                                                            thd->mem_root);
         if (arena)
           thd->restore_active_arena(arena, &backup);
         in_subs->is_registered_semijoin= TRUE;
@@ -707,6 +707,12 @@ int check_and_do_in_subquery_rewrites(JOIN *join)
       if (!optimizer_flag(thd, OPTIMIZER_SWITCH_IN_TO_EXISTS) &&
           !optimizer_flag(thd, OPTIMIZER_SWITCH_MATERIALIZATION))
         my_error(ER_ILLEGAL_SUBQUERY_OPTIMIZER_SWITCHES, MYF(0));
+      /*
+        Transform each subquery predicate according to its overloaded
+        transformer.
+      */
+      if (subselect->select_transformer(join))
+        DBUG_RETURN(-1);
 
       /*
         If the subquery predicate is IN/=ANY, analyse and set all possible
@@ -731,7 +737,8 @@ int check_and_do_in_subquery_rewrites(JOIN *join)
 	    {
               Query_arena *arena, backup;
               arena= thd->activate_stmt_arena_if_needed(&backup);
-              select_lex->outer_select()->sj_subselects.push_back(in_subs);
+              select_lex->outer_select()->sj_subselects.push_back(in_subs,
+                                                                  thd->mem_root);
               if (arena)
                 thd->restore_active_arena(arena, &backup);
               in_subs->is_registered_semijoin= TRUE;
@@ -758,12 +765,6 @@ int check_and_do_in_subquery_rewrites(JOIN *join)
         allany_subs->add_strategy(strategy);
       }
 
-      /*
-        Transform each subquery predicate according to its overloaded
-        transformer.
-      */
-      if (subselect->select_transformer(join))
-        DBUG_RETURN(-1);
     }
   }
   DBUG_RETURN(0);
@@ -834,12 +835,14 @@ bool subquery_types_allow_materialization(Item_in_subselect *in_subs)
   in_subs->sjm_scan_allowed= FALSE;
   
   bool all_are_fields= TRUE;
+  uint32 total_key_length = 0;
   for (uint i= 0; i < elements; i++)
   {
     Item *outer= in_subs->left_expr->element_index(i);
     Item *inner= it++;
     all_are_fields &= (outer->real_item()->type() == Item::FIELD_ITEM && 
                        inner->real_item()->type() == Item::FIELD_ITEM);
+    total_key_length += inner->max_length;
     if (outer->cmp_type() != inner->cmp_type())
       DBUG_RETURN(FALSE);
     switch (outer->cmp_type()) {
@@ -869,6 +872,15 @@ bool subquery_types_allow_materialization(Item_in_subselect *in_subs)
       break;
     }
   }
+
+  /*
+     Make sure that create_tmp_table will not fail due to too long keys.
+     See MDEV-7122. This check is performed inside create_tmp_table also and
+     we must do it so that we know the table has keys created.
+  */
+  if (total_key_length > tmp_table_max_key_length() ||
+      elements > tmp_table_max_key_parts())
+    DBUG_RETURN(FALSE);
 
   in_subs->types_allow_materialization= TRUE;
   in_subs->sjm_scan_allowed= all_are_fields;
@@ -1138,7 +1150,8 @@ bool convert_join_subqueries_to_semijoins(JOIN *join)
       Item **tree= (in_subq->emb_on_expr_nest == NO_JOIN_NEST)?
                      &join->conds : &(in_subq->emb_on_expr_nest->on_expr);
       Item *replace_me= in_subq->original_item();
-      if (replace_where_subcondition(join, tree, replace_me, new Item_int(1),
+      if (replace_where_subcondition(join, tree, replace_me,
+                                     new (thd->mem_root) Item_int(thd, 1),
                                      FALSE))
         goto restore_arena_and_fail;
     }
@@ -1331,8 +1344,8 @@ static bool replace_where_subcondition(JOIN *join, Item **expr,
 static int subq_sj_candidate_cmp(Item_in_subselect* el1, Item_in_subselect* el2,
                                  void *arg)
 {
-  return (el1->sj_convert_priority > el2->sj_convert_priority) ? 1 : 
-         ( (el1->sj_convert_priority == el2->sj_convert_priority)? 0 : -1);
+  return (el1->sj_convert_priority > el2->sj_convert_priority) ? -1 : 
+         ( (el1->sj_convert_priority == el2->sj_convert_priority)? 0 : 1);
 }
 
 
@@ -1427,7 +1440,7 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
         A3: changes in the TABLE_LIST::outer_join will make everything work
             automatically.
       */
-      if (!(wrap_nest= alloc_join_nest(parent_join->thd)))
+      if (!(wrap_nest= alloc_join_nest(thd)))
       {
         DBUG_RETURN(TRUE);
       }
@@ -1436,7 +1449,7 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
       wrap_nest->alias= (char*) "(sj-wrap)";
 
       wrap_nest->nested_join->join_list.empty();
-      wrap_nest->nested_join->join_list.push_back(outer_tbl);
+      wrap_nest->nested_join->join_list.push_back(outer_tbl, thd->mem_root);
 
       outer_tbl->embedding= wrap_nest;
       outer_tbl->join_list= &wrap_nest->nested_join->join_list;
@@ -1472,7 +1485,7 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
 
   TABLE_LIST *sj_nest;
   NESTED_JOIN *nested_join;
-  if (!(sj_nest= alloc_join_nest(parent_join->thd)))
+  if (!(sj_nest= alloc_join_nest(thd)))
   {
     DBUG_RETURN(TRUE);
   }
@@ -1486,7 +1499,7 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
                                            subq_pred->left_expr->used_tables();
   /* Nests do not participate in those 'chains', so: */
   /* sj_nest->next_leaf= sj_nest->next_local= sj_nest->next_global == NULL*/
-  emb_join_list->push_back(sj_nest);
+  emb_join_list->push_back(sj_nest, thd->mem_root);
 
   /* 
     nested_join->used_tables and nested_join->not_null_tables are
@@ -1505,7 +1518,7 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
   {
     tl->embedding= sj_nest;
     tl->join_list= &nested_join->join_list;
-    nested_join->join_list.push_back(tl);
+    nested_join->join_list.push_back(tl, thd->mem_root);
   }
   
   /*
@@ -1547,7 +1560,12 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
   {
     tl->set_tablenr(table_no);
     if (tl->is_jtbm())
+    {
       tl->jtbm_table_no= table_no;
+      Item *dummy= tl->jtbm_subselect;
+      tl->jtbm_subselect->fix_after_pullout(parent_lex, &dummy);
+      DBUG_ASSERT(dummy == tl->jtbm_subselect);
+    }
     SELECT_LEX *old_sl= tl->select_lex;
     tl->select_lex= parent_join->select_lex; 
     for (TABLE_LIST *emb= tl->embedding;
@@ -1570,8 +1588,9 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
     DBUG_RETURN(TRUE);
   thd->lex->current_select=save_lex;
 
-  sj_nest->nested_join->sj_corr_tables= subq_pred->used_tables();
-  sj_nest->nested_join->sj_depends_on=  subq_pred->used_tables() |
+  table_map subq_pred_used_tables= subq_pred->used_tables();
+  sj_nest->nested_join->sj_corr_tables= subq_pred_used_tables;
+  sj_nest->nested_join->sj_depends_on=  subq_pred_used_tables |
                                         subq_pred->left_expr->used_tables();
   sj_nest->sj_on_expr= subq_lex->join->conds;
 
@@ -1595,28 +1614,54 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
 
   if (subq_pred->left_expr->cols() == 1)
   {
-    nested_join->sj_outer_expr_list.push_back(subq_pred->left_expr);
+    nested_join->sj_outer_expr_list.push_back(subq_pred->left_expr,
+                                              thd->mem_root);
+    /*
+      Create Item_func_eq. Note that
+      1. this is done on the statement, not execution, arena
+      2. if it's a PS then this happens only once - on the first execution.
+         On following re-executions, the item will be fix_field-ed normally.
+      3. Thus it should be created as if it was fix_field'ed, in particular
+         all pointers to items in the execution arena should be protected
+         with thd->change_item_tree
+    */
     Item_func_eq *item_eq=
-      new Item_func_eq(subq_pred->left_expr, subq_lex->ref_pointer_array[0]);
+      new (thd->mem_root) Item_func_eq(thd, subq_pred->left_expr_orig,
+                                       subq_lex->ref_pointer_array[0]);
+    if (subq_pred->left_expr_orig != subq_pred->left_expr)
+      thd->change_item_tree(item_eq->arguments(), subq_pred->left_expr);
     item_eq->in_equality_no= 0;
-    sj_nest->sj_on_expr= and_items(sj_nest->sj_on_expr, item_eq);
+    sj_nest->sj_on_expr= and_items(thd, sj_nest->sj_on_expr, item_eq);
   }
   else
   {
     for (uint i= 0; i < subq_pred->left_expr->cols(); i++)
     {
       nested_join->sj_outer_expr_list.push_back(subq_pred->left_expr->
-                                                element_index(i));
+                                                element_index(i),
+                                                thd->mem_root);
       Item_func_eq *item_eq= 
-        new Item_func_eq(subq_pred->left_expr->element_index(i), 
-                         subq_lex->ref_pointer_array[i]);
+        new (thd->mem_root)
+        Item_func_eq(thd, subq_pred->left_expr->element_index(i),
+                     subq_lex->ref_pointer_array[i]);
       item_eq->in_equality_no= i;
-      sj_nest->sj_on_expr= and_items(sj_nest->sj_on_expr, item_eq);
+      sj_nest->sj_on_expr= and_items(thd, sj_nest->sj_on_expr, item_eq);
     }
   }
-  /* Fix the created equality and AND */
-  if (!sj_nest->sj_on_expr->fixed)
-    sj_nest->sj_on_expr->fix_fields(parent_join->thd, &sj_nest->sj_on_expr);
+  /*
+    Fix the created equality and AND
+
+    Note that fix_fields() can actually fail in a meaningful way here. One
+    example is when the IN-equality is not valid, because it compares columns
+    with incompatible collations. (One can argue it would be more appropriate
+    to check for this at name resolution stage, but as a legacy of IN->EXISTS
+    we have in here).
+  */
+  if (!sj_nest->sj_on_expr->fixed &&
+      sj_nest->sj_on_expr->fix_fields(thd, &sj_nest->sj_on_expr))
+  {
+    DBUG_RETURN(TRUE);
+  }
 
   /*
     Walk through sj nest's WHERE and ON expressions and call
@@ -1635,17 +1680,20 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
   /* Inject sj_on_expr into the parent's WHERE or ON */
   if (emb_tbl_nest)
   {
-    emb_tbl_nest->on_expr= and_items(emb_tbl_nest->on_expr, 
+    emb_tbl_nest->on_expr= and_items(thd, emb_tbl_nest->on_expr,
                                      sj_nest->sj_on_expr);
     emb_tbl_nest->on_expr->top_level_item();
-    if (!emb_tbl_nest->on_expr->fixed)
-      emb_tbl_nest->on_expr->fix_fields(parent_join->thd,
-                                        &emb_tbl_nest->on_expr);
+    if (!emb_tbl_nest->on_expr->fixed &&
+         emb_tbl_nest->on_expr->fix_fields(thd,
+                                           &emb_tbl_nest->on_expr))
+    {
+      DBUG_RETURN(TRUE);
+    }
   }
   else
   {
     /* Inject into the WHERE */
-    parent_join->conds= and_items(parent_join->conds, sj_nest->sj_on_expr);
+    parent_join->conds= and_items(thd, parent_join->conds, sj_nest->sj_on_expr);
     parent_join->conds->top_level_item();
     /*
       fix_fields must update the properties (e.g. st_select_lex::cond_count of
@@ -1653,8 +1701,12 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
     */
     save_lex= thd->lex->current_select;
     thd->lex->current_select=parent_join->select_lex;
-    if (!parent_join->conds->fixed)
-      parent_join->conds->fix_fields(parent_join->thd, &parent_join->conds);
+    if (!parent_join->conds->fixed &&
+         parent_join->conds->fix_fields(thd,
+                                        &parent_join->conds))
+    {
+      DBUG_RETURN(1);
+    }
     thd->lex->current_select=save_lex;
     parent_join->select_lex->where= parent_join->conds;
   }
@@ -1664,7 +1716,7 @@ static bool convert_subq_to_sj(JOIN *parent_join, Item_in_subselect *subq_pred)
     Item_func_match *ifm;
     List_iterator_fast<Item_func_match> li(*(subq_lex->ftfunc_list));
     while ((ifm= li++))
-      parent_lex->ftfunc_list->push_front(ifm);
+      parent_lex->ftfunc_list->push_front(ifm, thd->mem_root);
   }
 
   parent_lex->have_merged_subqueries= TRUE;
@@ -1706,16 +1758,16 @@ static bool convert_subq_to_jtbm(JOIN *parent_join,
   List<TABLE_LIST> *emb_join_list= &parent_lex->top_join_list;
   TABLE_LIST *emb_tbl_nest= NULL; // will change when we learn to handle outer joins
   TABLE_LIST *tl;
-  DBUG_ENTER("convert_subq_to_jtbm");
   bool optimization_delayed= TRUE;
-  subq_pred->set_strategy(SUBS_MATERIALIZATION);
+  TABLE_LIST *jtbm;
+  char *tbl_alias;
+  DBUG_ENTER("convert_subq_to_jtbm");
 
+  subq_pred->set_strategy(SUBS_MATERIALIZATION);
   subq_pred->is_jtbm_merged= TRUE;
 
   *remove_item= TRUE;
 
-  TABLE_LIST *jtbm;
-  char *tbl_alias;
   if (!(tbl_alias= (char*)parent_join->thd->calloc(SUBQERY_TEMPTABLE_NAME_MAX_LEN)) ||
       !(jtbm= alloc_join_nest(parent_join->thd))) //todo: this is not a join nest!
   {
@@ -1729,13 +1781,13 @@ static bool convert_subq_to_jtbm(JOIN *parent_join,
 
   /* Nests do not participate in those 'chains', so: */
   /* jtbm->next_leaf= jtbm->next_local= jtbm->next_global == NULL*/
-  emb_join_list->push_back(jtbm);
+  emb_join_list->push_back(jtbm, parent_join->thd->mem_root);
   
   /* 
     Inject the jtbm table into TABLE_LIST::next_leaf list, so that 
     make_join_statistics() and co. can find it.
   */
-  parent_lex->leaf_tables.push_back(jtbm);
+  parent_lex->leaf_tables.push_back(jtbm, parent_join->thd->mem_root);
 
   if (subq_pred->unit->first_select()->options & OPTION_SCHEMA_TABLE)
     parent_lex->options |= OPTION_SCHEMA_TABLE;
@@ -2056,7 +2108,7 @@ int pull_out_semijoin_tables(JOIN *join)
             */
             child_li.remove();
             sj_nest->nested_join->used_tables &= ~tbl->table->map;
-            upper_join_list->push_back(tbl);
+            upper_join_list->push_back(tbl, join->thd->mem_root);
             tbl->join_list= upper_join_list;
             tbl->embedding= sj_nest->embedding;
           }
@@ -2191,13 +2243,9 @@ bool optimize_semijoin_nests(JOIN *join, table_map all_table_map)
             JOIN_TAB *tab= join->best_positions[i].table;
             join->map2table[tab->table->tablenr]= tab;
           }
-          //List_iterator<Item> it(right_expr_list);
-          Item **ref_array= subq_select->ref_pointer_array;
-          Item **ref_array_end= ref_array + subq_select->item_list.elements; 
           table_map map= 0;
-          //while ((item= it++))
-          for (;ref_array < ref_array_end; ref_array++)
-            map |= (*ref_array)->used_tables();
+          for (uint i=0; i < subq_select->item_list.elements; i++)
+            map|= subq_select->ref_pointer_array[i]->used_tables();
           map= map & ~PSEUDO_TABLE_BITS;
           Table_map_iterator tm_it(map);
           int tableno;
@@ -2206,7 +2254,8 @@ bool optimize_semijoin_nests(JOIN *join, table_map all_table_map)
             rows *= join->map2table[tableno]->table->quick_condition_rows;
           sjm->rows= MY_MIN(sjm->rows, rows);
         }
-        memcpy(sjm->positions, join->best_positions + join->const_tables, 
+        memcpy((uchar*) sjm->positions,
+               (uchar*) (join->best_positions + join->const_tables),
                sizeof(POSITION) * n_tables);
 
         /*
@@ -2260,15 +2309,14 @@ bool optimize_semijoin_nests(JOIN *join, table_map all_table_map)
     Length of the temptable record, in bytes
 */
 
-static uint get_tmp_table_rec_length(Item **p_items, uint elements)
+static uint get_tmp_table_rec_length(Ref_ptr_array p_items, uint elements)
 {
   uint len= 0;
   Item *item;
   //List_iterator<Item> it(items);
-  Item **p_item;
-  for (p_item= p_items; p_item < p_items + elements ; p_item++)
+  for (uint i= 0; i < elements ; i++)
   {
-    item = *p_item;
+    item = p_items[i];
     switch (item->result_type()) {
     case REAL_RESULT:
       len += sizeof(double);
@@ -2511,10 +2559,16 @@ void advance_sj_state(JOIN *join, table_map remaining_tables, uint idx,
     LooseScan detector in best_access_path)
   */
   remaining_tables &= ~new_join_tab->table->map;
-  pos->prefix_dups_producing_tables= join->cur_dups_producing_tables;
+  table_map dups_producing_tables;
+
+  if (idx == join->const_tables)
+    dups_producing_tables= 0;
+  else
+    dups_producing_tables= pos[-1].dups_producing_tables;
+
   TABLE_LIST *emb_sj_nest;
   if ((emb_sj_nest= new_join_tab->emb_sj_nest))
-    join->cur_dups_producing_tables |= emb_sj_nest->sj_inner_tables;
+    dups_producing_tables |= emb_sj_nest->sj_inner_tables;
 
   Semi_join_strategy_picker **strategy;
   if (idx == join->const_tables)
@@ -2567,7 +2621,7 @@ void advance_sj_state(JOIN *join, table_map remaining_tables, uint idx,
                    fanout from semijoin X.
                 3. We have no clue what to do about fanount of semi-join Y.
         */
-        if ((join->cur_dups_producing_tables & handled_fanout) ||
+        if ((dups_producing_tables & handled_fanout) ||
             (read_time < *current_read_time && 
              !(handled_fanout & pos->inner_tables_handled_with_other_sjs)))
         {
@@ -2580,7 +2634,7 @@ void advance_sj_state(JOIN *join, table_map remaining_tables, uint idx,
             join->sjm_lookup_tables &= ~handled_fanout;
           *current_read_time= read_time;
           *current_record_count= rec_count;
-          join->cur_dups_producing_tables &= ~handled_fanout;
+          dups_producing_tables &= ~handled_fanout;
           //TODO: update bitmap of semi-joins that were handled together with
           // others.
           if (is_multiple_semi_joins(join, join->positions, idx, handled_fanout))
@@ -2607,6 +2661,7 @@ void advance_sj_state(JOIN *join, table_map remaining_tables, uint idx,
 
   pos->prefix_cost.convert_from_cost(*current_read_time);
   pos->prefix_record_count= *current_record_count;
+  pos->dups_producing_tables= dups_producing_tables;
 }
 
 
@@ -3118,8 +3173,6 @@ void restore_prev_sj_state(const table_map remaining_tables,
       tab->join->cur_sj_inner_tables &= ~emb_sj_nest->sj_inner_tables;
     }
   }
-  POSITION *pos= tab->join->positions + idx;
-  tab->join->cur_dups_producing_tables= pos->prefix_dups_producing_tables;
 }
 
 
@@ -3291,8 +3344,7 @@ void fix_semijoin_strategies_for_picked_join_order(JOIN *join)
   {
     POSITION *pos= join->best_positions + tablenr;
     JOIN_TAB *s= pos->table;
-    uint first;
-    LINT_INIT(first); // Set by every branch except SJ_OPT_NONE which doesn't use it
+    uint UNINIT_VAR(first); // Set by every branch except SJ_OPT_NONE which doesn't use it
 
     if ((handled_tabs & s->table->map) || pos->sj_strategy == SJ_OPT_NONE)
     {
@@ -3305,7 +3357,7 @@ void fix_semijoin_strategies_for_picked_join_order(JOIN *join)
       SJ_MATERIALIZATION_INFO *sjm= s->emb_sj_nest->sj_mat_info;
       sjm->is_used= TRUE;
       sjm->is_sj_scan= FALSE;
-      memcpy(pos - sjm->tables + 1, sjm->positions, 
+      memcpy((uchar*) (pos - sjm->tables + 1), (uchar*) sjm->positions,
              sizeof(POSITION) * sjm->tables);
       recalculate_prefix_record_count(join, tablenr - sjm->tables + 1,
                                       tablenr);
@@ -3321,8 +3373,8 @@ void fix_semijoin_strategies_for_picked_join_order(JOIN *join)
       sjm->is_used= TRUE;
       sjm->is_sj_scan= TRUE;
       first= pos->sjmat_picker.sjm_scan_last_inner - sjm->tables + 1;
-      memcpy(join->best_positions + first, 
-             sjm->positions, sizeof(POSITION) * sjm->tables);
+      memcpy((uchar*) (join->best_positions + first),
+             (uchar*) sjm->positions, sizeof(POSITION) * sjm->tables);
       recalculate_prefix_record_count(join, first, first + sjm->tables);
       join->best_positions[first].sj_strategy= SJ_OPT_MATERIALIZE_SCAN;
       join->best_positions[first].n_sj_tables= sjm->tables;
@@ -3491,16 +3543,19 @@ void fix_semijoin_strategies_for_picked_join_order(JOIN *join)
 
 bool setup_sj_materialization_part1(JOIN_TAB *sjm_tab)
 {
-  DBUG_ENTER("setup_sj_materialization");
   JOIN_TAB *tab= sjm_tab->bush_children->start;
   TABLE_LIST *emb_sj_nest= tab->table->pos_in_table_list->embedding;
+  SJ_MATERIALIZATION_INFO *sjm;
+  THD *thd;
+
+  DBUG_ENTER("setup_sj_materialization");
   
   /* Walk out of outer join nests until we reach the semi-join nest we're in */
   while (!emb_sj_nest->sj_mat_info)
     emb_sj_nest= emb_sj_nest->embedding;
 
-  SJ_MATERIALIZATION_INFO *sjm= emb_sj_nest->sj_mat_info;
-  THD *thd= tab->join->thd;
+  sjm= emb_sj_nest->sj_mat_info;
+  thd= tab->join->thd;
   /* First the calls come to the materialization function */
   //List<Item> &item_list= emb_sj_nest->sj_subq_pred->unit->first_select()->item_list;
   
@@ -3510,14 +3565,11 @@ bool setup_sj_materialization_part1(JOIN_TAB *sjm_tab)
   */
   sjm->sjm_table_param.init();
   sjm->sjm_table_param.bit_fields_as_long= TRUE;
-  //List_iterator<Item> it(item_list);
   SELECT_LEX *subq_select= emb_sj_nest->sj_subq_pred->unit->first_select();
-  Item **p_item= subq_select->ref_pointer_array;
-  Item **p_end= p_item + subq_select->item_list.elements;
-  //while((right_expr= it++))
-  for(;p_item != p_end; p_item++)
-    sjm->sjm_table_cols.push_back(*p_item);
-
+  Ref_ptr_array p_items= subq_select->ref_pointer_array;
+  for (uint i= 0; i < subq_select->item_list.elements; i++)
+    sjm->sjm_table_cols.push_back(p_items[i], thd->mem_root);
+  
   sjm->sjm_table_param.field_count= subq_select->item_list.elements;
   sjm->sjm_table_param.force_not_null_cols= TRUE;
 
@@ -3533,8 +3585,8 @@ bool setup_sj_materialization_part1(JOIN_TAB *sjm_tab)
   sjm->table->file->extra(HA_EXTRA_WRITE_CACHE);
   sjm->table->file->extra(HA_EXTRA_IGNORE_DUP_KEY);
 
-  tab->join->sj_tmp_tables.push_back(sjm->table);
-  tab->join->sjm_info_list.push_back(sjm);
+  tab->join->sj_tmp_tables.push_back(sjm->table, thd->mem_root);
+  tab->join->sjm_info_list.push_back(sjm, thd->mem_root);
   
   sjm->materialized= FALSE;
   sjm_tab->table= sjm->table;
@@ -3631,9 +3683,9 @@ bool setup_sj_materialization_part2(JOIN_TAB *sjm_tab)
     */
     for (i= 0; i < sjm->tables; i++)
     {
-      remove_sj_conds(&tab[i].select_cond);
+      remove_sj_conds(thd, &tab[i].select_cond);
       if (tab[i].select)
-        remove_sj_conds(&tab[i].select->cond);
+        remove_sj_conds(thd, &tab[i].select->cond);
     }
     if (!(sjm->in_equality= create_subq_in_equalities(thd, sjm,
                                                       emb_sj_nest->sj_subq_pred)))
@@ -3672,13 +3724,13 @@ bool setup_sj_materialization_part2(JOIN_TAB *sjm_tab)
     */
     sjm->copy_field= new Copy_field[sjm->sjm_table_cols.elements];
     //it.rewind();
-    Item **p_item= emb_sj_nest->sj_subq_pred->unit->first_select()->ref_pointer_array;
+    Ref_ptr_array p_items= emb_sj_nest->sj_subq_pred->unit->first_select()->ref_pointer_array;
     for (uint i=0; i < sjm->sjm_table_cols.elements; i++)
     {
       bool dummy;
       Item_equal *item_eq;
       //Item *item= (it++)->real_item();
-      Item *item= (*(p_item++))->real_item();
+      Item *item= p_items[i]->real_item();
       DBUG_ASSERT(item->type() == Item::FIELD_ITEM);
       Field *copy_to= ((Item_field*)item)->field;
       /*
@@ -3776,8 +3828,8 @@ static Item *create_subq_in_equalities(THD *thd, SJ_MATERIALIZATION_INFO *sjm,
   Item *res= NULL;
   if (subq_pred->left_expr->cols() == 1)
   {
-    if (!(res= new Item_func_eq(subq_pred->left_expr,
-                                new Item_field(sjm->table->field[0]))))
+    if (!(res= new (thd->mem_root) Item_func_eq(thd, subq_pred->left_expr,
+                                new (thd->mem_root) Item_field(thd, sjm->table->field[0]))))
       return NULL; /* purecov: inspected */
   }
   else
@@ -3785,9 +3837,9 @@ static Item *create_subq_in_equalities(THD *thd, SJ_MATERIALIZATION_INFO *sjm,
     Item *conj;
     for (uint i= 0; i < subq_pred->left_expr->cols(); i++)
     {
-      if (!(conj= new Item_func_eq(subq_pred->left_expr->element_index(i), 
-                                   new Item_field(sjm->table->field[i]))) ||
-          !(res= and_items(res, conj)))
+      if (!(conj= new (thd->mem_root) Item_func_eq(thd, subq_pred->left_expr->element_index(i),
+                                   new (thd->mem_root) Item_field(thd, sjm->table->field[i]))) ||
+          !(res= and_items(thd, res, conj)))
         return NULL; /* purecov: inspected */
     }
   }
@@ -3799,7 +3851,7 @@ static Item *create_subq_in_equalities(THD *thd, SJ_MATERIALIZATION_INFO *sjm,
 
 
 
-static void remove_sj_conds(Item **tree)
+static void remove_sj_conds(THD *thd, Item **tree)
 {
   if (*tree)
   {
@@ -3815,7 +3867,7 @@ static void remove_sj_conds(Item **tree)
       while ((item= li++))
       {
         if (is_cond_sj_in_equality(item))
-          li.replace(new Item_int(1));
+          li.replace(new (thd->mem_root) Item_int(thd, 1));
       }
     }
   }
@@ -3893,7 +3945,6 @@ SJ_TMP_TABLE::create_sj_weedout_tmp_table(THD *thd)
   /*
     STEP 1: Get temporary table name
   */
-  thd->inc_status_created_tmp_tables();
   if (use_temp_pool && !(test_flags & TEST_KEEP_TMP_TABLES))
     temp_pool_slot = bitmap_lock_set_next(&temp_pool);
 
@@ -3904,7 +3955,7 @@ SJ_TMP_TABLE::create_sj_weedout_tmp_table(THD *thd)
   {
     /* if we run out of slots or we are not using tempool */
     sprintf(path,"%s%lx_%lx_%x", tmp_file_prefix,current_pid,
-            thd->thread_id, thd->tmp_table++);
+            (ulong) thd->thread_id, thd->tmp_table++);
   }
   fn_format(path, path, mysql_tmpdir, "", MY_REPLACE_EXT|MY_UNPACK_FILENAME);
 
@@ -3949,7 +4000,7 @@ SJ_TMP_TABLE::create_sj_weedout_tmp_table(THD *thd)
   table->alias.set("weedout-tmp", sizeof("weedout-tmp")-1,
                    table_alias_charset);
   table->reginfo.lock_type=TL_WRITE;	/* Will be updated */
-  table->db_stat=HA_OPEN_KEYFILE+HA_OPEN_RNDFILE;
+  table->db_stat=HA_OPEN_KEYFILE;
   table->map=1;
   table->temp_pool_slot = temp_pool_slot;
   table->copy_blobs= 1;
@@ -4002,13 +4053,13 @@ SJ_TMP_TABLE::create_sj_weedout_tmp_table(THD *thd)
     share->db_plugin= ha_lock_engine(0, TMP_ENGINE_HTON);
     table->file= get_new_handler(share, &table->mem_root,
                                  share->db_type());
-    DBUG_ASSERT(uniq_tuple_length_arg <= table->file->max_key_length());
   }
   else
   {
     share->db_plugin= ha_lock_engine(0, heap_hton);
     table->file= get_new_handler(share, &table->mem_root,
                                  share->db_type());
+    DBUG_ASSERT(uniq_tuple_length_arg <= table->file->max_key_length());
   }
   if (!table->file)
     goto err;
@@ -4124,7 +4175,6 @@ SJ_TMP_TABLE::create_sj_weedout_tmp_table(THD *thd)
                                               field->null_ptr,
                                               field->null_bit)))
 	  goto err;
-        key_part_info->key_part_flag|= HA_END_SPACE_ARE_EQUAL; //todo need this?
       }
       keyinfo->key_length+=  key_part_info->length;
     }
@@ -4318,7 +4368,7 @@ int init_dups_weedout(JOIN *join, uint first_table, int first_fanout_table, uint
     sjtbl->null_bytes= (jt_null_bits + 7)/8;
     if (sjtbl->create_sj_weedout_tmp_table(thd))
       DBUG_RETURN(TRUE);
-    join->sj_tmp_tables.push_back(sjtbl->tmp_table);
+    join->sj_tmp_tables.push_back(sjtbl->tmp_table, thd->mem_root);
   }
   else
   {
@@ -4339,6 +4389,74 @@ int init_dups_weedout(JOIN *join, uint first_table, int first_fanout_table, uint
   join->join_tab[first_fanout_table].first_weedout_table= sjtbl;
   join->join_tab[first_table + n_tables - 1].check_weed_out_table= sjtbl;
   DBUG_RETURN(0);
+}
+
+
+/*
+  @brief
+    Set up semi-join Loose Scan strategy for execution
+
+  @detail
+    Other strategies are done in setup_semijoin_dups_elimination(),
+    however, we need to set up Loose Scan earlier, before make_join_select is
+    called. This is to prevent make_join_select() from switching full index
+    scans into quick selects (which will break Loose Scan access).
+
+  @return
+    0  OK
+    1  Error
+*/
+
+int setup_semijoin_loosescan(JOIN *join)
+{
+  uint i;
+  DBUG_ENTER("setup_semijoin_loosescan");
+
+  POSITION *pos= join->best_positions + join->const_tables;
+  for (i= join->const_tables ; i < join->top_join_tab_count; )
+  {
+    JOIN_TAB *tab=join->join_tab + i;
+    switch (pos->sj_strategy) {
+      case SJ_OPT_MATERIALIZE:
+      case SJ_OPT_MATERIALIZE_SCAN:
+        i+= 1; /* join tabs are embedded in the nest */
+        pos += pos->n_sj_tables;
+        break;
+      case SJ_OPT_LOOSE_SCAN:
+      {
+        /* We jump from the last table to the first one */
+        tab->loosescan_match_tab= tab + pos->n_sj_tables - 1;
+
+        /* LooseScan requires records to be produced in order */
+        if (tab->select && tab->select->quick)
+          tab->select->quick->need_sorted_output();
+
+        for (uint j= i; j < i + pos->n_sj_tables; j++)
+          join->join_tab[j].inside_loosescan_range= TRUE;
+
+        /* Calculate key length */
+        uint keylen= 0;
+        uint keyno= pos->loosescan_picker.loosescan_key;
+        for (uint kp=0; kp < pos->loosescan_picker.loosescan_parts; kp++)
+          keylen += tab->table->key_info[keyno].key_part[kp].store_length;
+
+        tab->loosescan_key= keyno;
+        tab->loosescan_key_len= keylen;
+        if (pos->n_sj_tables > 1) 
+          tab[pos->n_sj_tables - 1].do_firstmatch= tab;
+        i+= pos->n_sj_tables;
+        pos+= pos->n_sj_tables;
+        break;
+      }
+      default:
+      {
+        i++;
+        pos++;
+        break;
+      }
+    }
+  }
+  DBUG_RETURN(FALSE);
 }
 
 
@@ -4450,8 +4568,6 @@ int setup_semijoin_dups_elimination(JOIN *join, ulonglong options,
   for (i= join->const_tables ; i < join->top_join_tab_count; )
   {
     JOIN_TAB *tab=join->join_tab + i;
-    //POSITION *pos= join->best_positions + i;
-    uint keylen, keyno;
     switch (pos->sj_strategy) {
       case SJ_OPT_MATERIALIZE:
       case SJ_OPT_MATERIALIZE_SCAN:
@@ -4461,26 +4577,7 @@ int setup_semijoin_dups_elimination(JOIN *join, ulonglong options,
         break;
       case SJ_OPT_LOOSE_SCAN:
       {
-        /* We jump from the last table to the first one */
-        tab->loosescan_match_tab= tab + pos->n_sj_tables - 1;
-        
-        /* LooseScan requires records to be produced in order */
-        if (tab->select && tab->select->quick)
-          tab->select->quick->need_sorted_output();
-
-        for (uint j= i; j < i + pos->n_sj_tables; j++)
-          join->join_tab[j].inside_loosescan_range= TRUE;
-
-        /* Calculate key length */
-        keylen= 0;
-        keyno= pos->loosescan_picker.loosescan_key;
-        for (uint kp=0; kp < pos->loosescan_picker.loosescan_parts; kp++)
-          keylen += tab->table->key_info[keyno].key_part[kp].store_length;
-
-        tab->loosescan_key= keyno;
-        tab->loosescan_key_len= keylen;
-        if (pos->n_sj_tables > 1) 
-          tab[pos->n_sj_tables - 1].do_firstmatch= tab;
+        /* Setup already handled by setup_semijoin_loosescan */
         i+= pos->n_sj_tables;
         pos+= pos->n_sj_tables;
         break;
@@ -4641,8 +4738,6 @@ int clear_sj_tmp_tables(JOIN *join)
   {
     if ((res= table->file->ha_delete_all_rows()))
       return res; /* purecov: inspected */
-   free_io_cache(table);
-   filesort_free_buffers(table,0);
   }
 
   SJ_MATERIALIZATION_INFO *sjm;
@@ -5082,13 +5177,14 @@ TABLE *create_dummy_tmp_table(THD *thd)
   sjm_table_param.init();
   sjm_table_param.field_count= 1;
   List<Item> sjm_table_cols;
-  Item *column_item= new Item_int(1);
-  sjm_table_cols.push_back(column_item);
+  Item *column_item= new (thd->mem_root) Item_int(thd, 1);
+  sjm_table_cols.push_back(column_item, thd->mem_root);
   if (!(table= create_tmp_table(thd, &sjm_table_param, 
                                 sjm_table_cols, (ORDER*) 0, 
                                 TRUE /* distinct */, 
                                 1, /*save_sum_fields*/
-                                thd->variables.option_bits | TMP_TABLE_ALL_COLUMNS, 
+                                thd->variables.option_bits |
+                                TMP_TABLE_ALL_COLUMNS, 
                                 HA_POS_ERROR /*rows_limit */, 
                                 (char*)"dummy", TRUE /* Do not open */)))
   {
@@ -5109,8 +5205,8 @@ TABLE *create_dummy_tmp_table(THD *thd)
 class select_value_catcher :public select_subselect
 {
 public:
-  select_value_catcher(Item_subselect *item_arg)
-    :select_subselect(item_arg)
+  select_value_catcher(THD *thd_arg, Item_subselect *item_arg):
+    select_subselect(thd_arg, item_arg)
   {}
   int send_data(List<Item> &items);
   int setup(List<Item> *items);
@@ -5125,16 +5221,16 @@ int select_value_catcher::setup(List<Item> *items)
   assigned= FALSE;
   n_elements= items->elements;
  
-  if (!(row= (Item_cache**) sql_alloc(sizeof(Item_cache*)*n_elements)))
+  if (!(row= (Item_cache**) thd->alloc(sizeof(Item_cache*) * n_elements)))
     return TRUE;
   
   Item *sel_item;
   List_iterator<Item> li(*items);
   for (uint i= 0; (sel_item= li++); i++)
   {
-    if (!(row[i]= Item_cache::get_cache(sel_item)))
+    if (!(row[i]= Item_cache::get_cache(thd, sel_item)))
       return TRUE;
-    row[i]->setup(sel_item);
+    row[i]->setup(thd, sel_item);
   }
   return FALSE;
 }
@@ -5174,6 +5270,7 @@ bool setup_jtbm_semi_joins(JOIN *join, List<TABLE_LIST> *join_list,
   TABLE_LIST *table;
   NESTED_JOIN *nested_join;
   List_iterator<TABLE_LIST> li(*join_list);
+  THD *thd= join->thd;
   DBUG_ENTER("setup_jtbm_semi_joins");
   
   while ((table= li++))
@@ -5221,7 +5318,8 @@ bool setup_jtbm_semi_joins(JOIN *join, List<TABLE_LIST> *join_list,
         subselect_single_select_engine *engine=
           (subselect_single_select_engine*)subq_pred->engine;
         select_value_catcher *new_sink;
-        if (!(new_sink= new select_value_catcher(subq_pred)))
+        if (!(new_sink=
+                new (thd->mem_root) select_value_catcher(thd, subq_pred)))
           DBUG_RETURN(TRUE);
         if (new_sink->setup(&engine->select_lex->join->fields_list) ||
             engine->select_lex->join->change_result(new_sink, NULL) ||
@@ -5241,13 +5339,14 @@ bool setup_jtbm_semi_joins(JOIN *join, List<TABLE_LIST> *join_list,
           Item *eq_cond;
           for (uint i= 0; i < subq_pred->left_expr->cols(); i++)
           {
-            eq_cond= new Item_func_eq(subq_pred->left_expr->element_index(i),
-                                      new_sink->row[i]);
+            eq_cond= new (thd->mem_root)
+              Item_func_eq(thd, subq_pred->left_expr->element_index(i),
+                           new_sink->row[i]);
             if (!eq_cond)
               DBUG_RETURN(1);
 
-            if (!((*join_where)= and_items(*join_where, eq_cond)) ||
-                (*join_where)->fix_fields(join->thd, join_where))
+            if (!((*join_where)= and_items(thd, *join_where, eq_cond)) ||
+                (*join_where)->fix_fields(thd, join_where))
               DBUG_RETURN(1);
           }
         }
@@ -5259,7 +5358,7 @@ bool setup_jtbm_semi_joins(JOIN *join, List<TABLE_LIST> *join_list,
 
         /* Set up a dummy TABLE*, optimizer code needs JOIN_TABs to have TABLE */
         TABLE *dummy_table;
-        if (!(dummy_table= create_dummy_tmp_table(join->thd)))
+        if (!(dummy_table= create_dummy_tmp_table(thd)))
           DBUG_RETURN(1);
         table->table= dummy_table;
         table->table->pos_in_table_list= table;
@@ -5285,9 +5384,9 @@ bool setup_jtbm_semi_joins(JOIN *join, List<TABLE_LIST> *join_list,
 
         Item *sj_conds= hash_sj_engine->semi_join_conds;
 
-        (*join_where)= and_items(*join_where, sj_conds);
+        (*join_where)= and_items(thd, *join_where, sj_conds);
         if (!(*join_where)->fixed)
-          (*join_where)->fix_fields(join->thd, join_where);
+          (*join_where)->fix_fields(thd, join_where);
       }
       table->table->maybe_null= MY_TEST(join->mixed_implicit_grouping);
     }
@@ -5442,7 +5541,8 @@ bool JOIN::choose_subquery_plan(table_map join_tables)
           outer join has not been optimized yet).
     */
     if (outer_join && outer_join->table_count > 0 && // (1)
-        outer_join->join_tab)                        // (2)
+        outer_join->join_tab &&                      // (2)
+        !in_subs->const_item())
     {
       /*
         TODO:
@@ -5475,7 +5575,7 @@ bool JOIN::choose_subquery_plan(table_map join_tables)
       unmodified, and with injected IN->EXISTS predicates.
     */
     inner_read_time_1= inner_join->best_read;
-    inner_record_count_1= inner_join->record_count;
+    inner_record_count_1= inner_join->join_record_count;
 
     if (in_to_exists_where && const_tables != table_count)
     {
@@ -5502,7 +5602,7 @@ bool JOIN::choose_subquery_plan(table_map join_tables)
     */
     /* C.1 Compute the cost of the materialization strategy. */
     //uint rowlen= get_tmp_table_rec_length(unit->first_select()->item_list);
-    uint rowlen= get_tmp_table_rec_length(ref_pointer_array, 
+    uint rowlen= get_tmp_table_rec_length(ref_ptrs, 
                                           select_lex->item_list.elements);
     /* The cost of writing one row into the temporary table. */
     double write_cost= get_tmp_table_write_cost(thd, inner_record_count_1,

@@ -1,4 +1,4 @@
-/* Copyright (C) 2008-2014 Kentoku Shiba
+/* Copyright (C) 2008-2015 Kentoku Shiba
 
   This program is free software); you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 
 my_bool spider_param_support_xa();
 my_bool spider_param_connect_mutex();
+uint spider_param_connect_error_interval();
 uint spider_param_table_init_error_interval();
 int spider_param_use_table_charset(
   int use_table_charset
@@ -382,4 +383,8 @@ my_bool spider_param_dry_access();
 int spider_param_delete_all_rows_type(
   THD *thd,
   int delete_all_rows_type
+);
+int spider_param_bka_table_name_type(
+  THD *thd,
+  int bka_table_name_type
 );

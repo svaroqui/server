@@ -1,5 +1,5 @@
-/*
-   Copyright (c) 2000, 2010, Oracle and/or its affiliates.
+/* Copyright (c) 2000, 2016, Oracle and/or its affiliates.
+   Copyright (c) 2009, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,6 +16,14 @@
 
 #ifndef SLAVE_H
 #define SLAVE_H
+
+/**
+  MASTER_DELAY can be at most (1 << 31) - 1.
+*/
+#define MASTER_DELAY_MAX (0x7FFFFFFF)
+#if INT_MAX < 0x7FFFFFFF
+#error "don't support platforms where INT_MAX < 0x7FFFFFFF"
+#endif
 
 /**
   @defgroup Replication Replication
@@ -102,12 +110,14 @@ int init_dynarray_intvar_from_file(DYNAMIC_ARRAY* arr, IO_CACHE* f);
 
   In Master_info: run_lock, data_lock
   run_lock protects all information about the run state: slave_running, thd
-  and the existence of the I/O thread to stop/start it, you need this mutex).
+  and the existence of the I/O thread (to stop/start it, you need this mutex).
   data_lock protects some moving members of the struct: counters (log name,
   position) and relay log (MYSQL_BIN_LOG object).
 
   In Relay_log_info: run_lock, data_lock
   see Master_info
+  However, note that run_lock does not protect
+  Relay_log_info.run_state; that is protected by data_lock.
   
   Order of acquisition: if you want to have LOCK_active_mi and a run_lock, you
   must acquire LOCK_active_mi first.
@@ -130,13 +140,17 @@ extern my_bool opt_log_slave_updates;
 extern char *opt_slave_skip_errors;
 extern my_bool opt_replicate_annotate_row_events;
 extern ulonglong relay_log_space_limit;
+extern ulonglong opt_read_binlog_speed_limit;
+extern ulonglong slave_skipped_errors;
+extern const char *relay_log_index;
+extern const char *relay_log_basename;
 
 /*
-  3 possible values for Master_info::slave_running and
+  4 possible values for Master_info::slave_running and
   Relay_log_info::slave_running.
-  The values 0,1,2 are very important: to keep the diff small, I didn't
-  substitute places where we use 0/1 with the newly defined symbols. So don't change
-  these values.
+  The values 0,1,2,3 are very important: to keep the diff small, I didn't
+  substitute places where we use 0/1 with the newly defined symbols.
+  So don't change these values.
   The same way, code is assuming that in Relay_log_info we use only values
   0/1.
   I started with using an enum, but
@@ -145,6 +159,7 @@ extern ulonglong relay_log_space_limit;
 #define MYSQL_SLAVE_NOT_RUN         0
 #define MYSQL_SLAVE_RUN_NOT_CONNECT 1
 #define MYSQL_SLAVE_RUN_CONNECT     2
+#define MYSQL_SLAVE_RUN_READING     3
 
 #define RPL_LOG_NAME (rli->group_master_log_name[0] ? rli->group_master_log_name :\
  "FIRST")
@@ -169,11 +184,11 @@ extern ulonglong relay_log_space_limit;
 int init_slave();
 int init_recovery(Master_info* mi, const char** errmsg);
 void init_slave_skip_errors(const char* arg);
-bool flush_relay_log_info(Relay_log_info* rli);
 int register_slave_on_master(MYSQL* mysql);
 int terminate_slave_threads(Master_info* mi, int thread_mask,
 			     bool skip_lock = 0);
-int start_slave_threads(bool need_slave_mutex, bool wait_for_start,
+int start_slave_threads(THD *thd,
+                        bool need_slave_mutex, bool wait_for_start,
 			Master_info* mi, const char* master_info_fname,
 			const char* slave_info_fname, int thread_mask);
 /*
@@ -202,8 +217,11 @@ int mysql_table_dump(THD* thd, const char* db,
 int fetch_master_table(THD* thd, const char* db_name, const char* table_name,
 		       Master_info* mi, MYSQL* mysql, bool overwrite);
 
+void show_master_info_get_fields(THD *thd, List<Item> *field_list,
+                                     bool full, size_t gtid_pos_length);
 bool show_master_info(THD* thd, Master_info* mi, bool full);
 bool show_all_master_info(THD* thd);
+void show_binlog_info_get_fields(THD *thd, List<Item> *field_list);
 bool show_binlog_info(THD* thd);
 bool rpl_master_has_bug(const Relay_log_info *rli, uint bug_id, bool report,
                         bool (*pred)(const void *), const void *param);
@@ -220,6 +238,10 @@ void end_relay_log_info(Relay_log_info* rli);
 void lock_slave_threads(Master_info* mi);
 void unlock_slave_threads(Master_info* mi);
 void init_thread_mask(int* mask,Master_info* mi,bool inverse);
+Format_description_log_event *
+read_relay_log_description_event(IO_CACHE *cur_log, ulonglong start_pos,
+                                 const char **errmsg);
+
 int init_relay_log_pos(Relay_log_info* rli,const char* log,ulonglong pos,
 		       bool need_data_lock, const char** errmsg,
                        bool look_for_description_event);
@@ -230,14 +252,23 @@ void set_slave_thread_options(THD* thd);
 void set_slave_thread_default_charset(THD *thd, rpl_group_info *rgi);
 int rotate_relay_log(Master_info* mi);
 int has_temporary_error(THD *thd);
+int sql_delay_event(Log_event *ev, THD *thd, rpl_group_info *rgi);
 int apply_event_and_update_pos(Log_event* ev, THD* thd,
-                               struct rpl_group_info *rgi,
-                               rpl_parallel_thread *rpt);
+                               struct rpl_group_info *rgi);
+int apply_event_and_update_pos_for_parallel(Log_event* ev, THD* thd,
+                                            struct rpl_group_info *rgi);
+
+int init_intvar_from_file(int* var, IO_CACHE* f, int default_val);
+int init_floatvar_from_file(float* var, IO_CACHE* f, float default_val);
+int init_strvar_from_file(char *var, int max_size, IO_CACHE *f,
+                          const char *default_val);
+int init_dynarray_intvar_from_file(DYNAMIC_ARRAY* arr, IO_CACHE* f);
 
 pthread_handler_t handle_slave_io(void *arg);
 void slave_output_error_info(rpl_group_info *rgi, THD *thd);
 pthread_handler_t handle_slave_sql(void *arg);
 bool net_request_file(NET* net, const char* fname);
+void slave_background_kill_request(THD *to_kill);
 
 extern bool volatile abort_loop;
 extern Master_info *active_mi; /* active_mi for multi-master */

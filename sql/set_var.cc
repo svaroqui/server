@@ -16,7 +16,7 @@
 
 /* variable declarations are in sys_vars.cc now !!! */
 
-#include "sql_plugin.h"
+#include "sql_plugin.h"                         // Includes my_global.h
 #include "sql_class.h"                   // set_var.h: session_var_ptr
 #include "set_var.h"
 #include "sql_priv.h"
@@ -64,7 +64,7 @@ int sys_var_init()
   /* Must be already initialized. */
   DBUG_ASSERT(system_charset_info != NULL);
 
-  if (my_hash_init(&system_variable_hash, system_charset_info, 100, 0,
+  if (my_hash_init(&system_variable_hash, system_charset_info, 700, 0,
                    0, (my_hash_get_key) get_sys_var_length, 0, HASH_UNIQUE))
     goto error;
 
@@ -76,6 +76,11 @@ int sys_var_init()
 error:
   fprintf(stderr, "failed to initialize System variables");
   DBUG_RETURN(1);
+}
+
+uint sys_var_elements()
+{
+  return system_variable_hash.records;
 }
 
 int sys_var_add_options(DYNAMIC_ARRAY *long_options, int parse_flags)
@@ -109,6 +114,9 @@ void sys_var_end()
 
   DBUG_VOID_RETURN;
 }
+
+
+static bool static_test_load= TRUE;
 
 /**
   sys_var constructor
@@ -172,12 +180,15 @@ sys_var::sys_var(sys_var_chain *chain, const char *name_arg,
   option.value= (uchar **)global_var_ptr();
   option.def_value= def_val;
   option.app_type= this;
+  option.var_type= flags & AUTO_SET ? GET_AUTO : 0;
 
   if (chain->last)
     chain->last->next= this;
   else
     chain->first= this;
   chain->last= this;
+
+  test_load= &static_test_load;
 }
 
 bool sys_var::update(THD *thd, set_var *var)
@@ -198,8 +209,28 @@ bool sys_var::update(THD *thd, set_var *var)
       (on_update && on_update(this, thd, OPT_GLOBAL));
   }
   else
-    return session_update(thd, var) ||
+  {
+    bool ret= session_update(thd, var) ||
       (on_update && on_update(this, thd, OPT_SESSION));
+
+    /*
+      Make sure we don't session-track variables that are not actually
+      part of the session. tx_isolation and and tx_read_only for example
+      exist as GLOBAL, SESSION, and one-shot ("for next transaction only").
+    */
+    if ((var->type == OPT_SESSION) && (!ret))
+    {
+      SESSION_TRACKER_CHANGED(thd, SESSION_SYSVARS_TRACKER,
+                              (LEX_CSTRING*)var->var);
+      /*
+        Here MySQL sends variable name to avoid reporting change of
+        the tracker itself, but we decided that it is not needed
+      */
+      SESSION_TRACKER_CHANGED(thd, SESSION_STATE_CHANGE_TRACKER, NULL);
+    }
+
+    return ret;
+  }
 }
 
 uchar *sys_var::session_value_ptr(THD *thd, const LEX_STRING *base)
@@ -402,7 +433,7 @@ void sys_var::do_deprecated_warning(THD *thd)
       : ER_WARN_DEPRECATED_SYNTAX;
     if (thd)
       push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
-                          ER_WARN_DEPRECATED_SYNTAX, ER(errmsg),
+                          ER_WARN_DEPRECATED_SYNTAX, ER_THD(thd, errmsg),
                           buf1, deprecation_substitute);
     else
       sql_print_warning(ER_DEFAULT(errmsg), buf1, deprecation_substitute);
@@ -440,7 +471,7 @@ bool throw_bounds_warning(THD *thd, const char *name,
     }
     push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
                         ER_TRUNCATED_WRONG_VALUE,
-                        ER(ER_TRUNCATED_WRONG_VALUE), name, buf);
+                        ER_THD(thd, ER_TRUNCATED_WRONG_VALUE), name, buf);
   }
   return false;
 }
@@ -460,7 +491,7 @@ bool throw_bounds_warning(THD *thd, const char *name, bool fixed, double v)
     }
     push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
                         ER_TRUNCATED_WRONG_VALUE,
-                        ER(ER_TRUNCATED_WRONG_VALUE), name, buf);
+                        ER_THD(thd, ER_TRUNCATED_WRONG_VALUE), name, buf);
   }
   return false;
 }
@@ -675,9 +706,10 @@ sys_var *intern_find_sys_var(const char *str, uint length)
     -1  ERROR, message not sent
 */
 
-int sql_set_variables(THD *thd, List<set_var_base> *var_list)
+int sql_set_variables(THD *thd, List<set_var_base> *var_list, bool free)
 {
-  int error;
+  int error= 0;
+  bool was_error= thd->is_error();
   List_iterator_fast<set_var_base> it(*var_list);
   DBUG_ENTER("sql_set_variables");
 
@@ -687,7 +719,7 @@ int sql_set_variables(THD *thd, List<set_var_base> *var_list)
     if ((error= var->check(thd)))
       goto err;
   }
-  if (!(error= MY_TEST(thd->is_error())))
+  if (was_error || !(error= MY_TEST(thd->is_error())))
   {
     it.rewind();
     while ((var= it++))
@@ -695,7 +727,8 @@ int sql_set_variables(THD *thd, List<set_var_base> *var_list)
   }
 
 err:
-  free_underlaid_joins(thd, &thd->lex->select_lex);
+  if (free)
+    free_underlaid_joins(thd, &thd->lex->select_lex);
   DBUG_RETURN(error);
 }
 
@@ -736,7 +769,7 @@ int set_var::check(THD *thd)
   if ((!value->fixed &&
        value->fix_fields(thd, &value)) || value->check_cols(1))
     return -1;
-  if (var->check_update_type(value->result_type()))
+  if (var->check_update_type(value))
   {
     my_error(ER_WRONG_TYPE_FOR_VAR, MYF(0), var->name.str);
     return -1;
@@ -786,9 +819,30 @@ int set_var::light_check(THD *thd)
   Consider set_var::check() method if there is a need to return
   an error due to logics.
 */
+
 int set_var::update(THD *thd)
 {
   return value ? var->update(thd, this) : var->set_default(thd, this);
+}
+
+
+set_var::set_var(THD *thd, enum_var_type type_arg, sys_var *var_arg,
+                 const LEX_STRING *base_name_arg, Item *value_arg)
+  :var(var_arg), type(type_arg), base(*base_name_arg)
+{
+  /*
+    If the set value is a field, change it to a string to allow things like
+    SET table_type=MYISAM;
+  */
+  if (value_arg && value_arg->type() == Item::FIELD_ITEM)
+  {
+    Item_field *item= (Item_field*) value_arg;
+    // names are utf8
+    if (!(value= new (thd->mem_root) Item_string_sys(thd, item->field_name)))
+      value=value_arg;                        /* Give error message later */
+  }
+  else
+    value=value_arg;
 }
 
 
@@ -834,9 +888,12 @@ int set_var_user::update(THD *thd)
   if (user_var_item->update())
   {
     /* Give an error if it's not given already */
-    my_message(ER_SET_CONSTANTS_ONLY, ER(ER_SET_CONSTANTS_ONLY), MYF(0));
+    my_message(ER_SET_CONSTANTS_ONLY, ER_THD(thd, ER_SET_CONSTANTS_ONLY),
+               MYF(0));
     return -1;
   }
+
+  SESSION_TRACKER_CHANGED(thd, SESSION_STATE_CHANGE_TRACKER, NULL);
   return 0;
 }
 
@@ -848,10 +905,7 @@ int set_var_user::update(THD *thd)
 int set_var_password::check(THD *thd)
 {
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
-  user= get_current_user(thd, user);
-  /* Returns 1 as the function sends error to client */
-  return check_change_password(thd, user->host.str, user->user.str,
-                               password, strlen(password)) ? 1 : 0;
+  return check_change_password(thd, user);
 #else
   return 0;
 #endif
@@ -860,9 +914,11 @@ int set_var_password::check(THD *thd)
 int set_var_password::update(THD *thd)
 {
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
-  /* Returns 1 as the function sends error to client */
-  return change_password(thd, user->host.str, user->user.str, password) ?
-          1 : 0;
+  Reprepare_observer *save_reprepare_observer= thd->m_reprepare_observer;
+  thd->m_reprepare_observer= 0;
+  int res= change_password(thd, user);
+  thd->m_reprepare_observer= save_reprepare_observer;
+  return res;
 #else
   return 0;
 #endif
@@ -885,7 +941,11 @@ int set_var_role::check(THD *thd)
 int set_var_role::update(THD *thd)
 {
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
-  return acl_setrole(thd, role.str, access);
+  int res= acl_setrole(thd, role.str, access);
+  if (!res)
+    thd->session_tracker.mark_as_changed(thd, SESSION_STATE_CHANGE_TRACKER,
+                                         NULL);
+  return res;
 #else
   return 0;
 #endif
@@ -898,8 +958,8 @@ int set_var_role::update(THD *thd)
 int set_var_default_role::check(THD *thd)
 {
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
-  user= get_current_user(thd, user);
-  int status= acl_check_set_default_role(thd, user->host.str, user->user.str);
+  real_user= get_current_user(thd, user);
+  int status= acl_check_set_default_role(thd, real_user->host.str, real_user->user.str);
   return status;
 #else
   return 0;
@@ -909,7 +969,11 @@ int set_var_default_role::check(THD *thd)
 int set_var_default_role::update(THD *thd)
 {
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
-  return acl_set_default_role(thd, user->host.str, user->user.str, role.str);
+  Reprepare_observer *save_reprepare_observer= thd->m_reprepare_observer;
+  thd->m_reprepare_observer= 0;
+  int res= acl_set_default_role(thd, real_user->host.str, real_user->user.str, role.str);
+  thd->m_reprepare_observer= save_reprepare_observer;
+  return res;
 #else
   return 0;
 #endif
@@ -933,10 +997,35 @@ int set_var_collation_client::check(THD *thd)
 
 int set_var_collation_client::update(THD *thd)
 {
-  thd->variables.character_set_client= character_set_client;
-  thd->variables.character_set_results= character_set_results;
-  thd->variables.collation_connection= collation_connection;
-  thd->update_charset();
+  thd->update_charset(character_set_client, collation_connection,
+                      character_set_results);
+
+  /* Mark client collation variables as changed */
+#ifndef EMBEDDED_LIBRARY
+  if (thd->session_tracker.get_tracker(SESSION_SYSVARS_TRACKER)->is_enabled())
+  {
+    sys_var *svar;
+    mysql_mutex_lock(&LOCK_plugin);
+    if ((svar= find_sys_var_ex(thd, "character_set_client",
+                               sizeof("character_set_client") - 1,
+                               false, true)))
+      thd->session_tracker.get_tracker(SESSION_SYSVARS_TRACKER)->
+        mark_as_changed(thd, (LEX_CSTRING*)svar);
+    if ((svar= find_sys_var_ex(thd, "character_set_results",
+                             sizeof("character_set_results") - 1,
+                               false, true)))
+      thd->session_tracker.get_tracker(SESSION_SYSVARS_TRACKER)->
+        mark_as_changed(thd, (LEX_CSTRING*)svar);
+    if ((svar= find_sys_var_ex(thd, "character_set_connection",
+                                sizeof("character_set_connection") - 1,
+                               false, true)))
+      thd->session_tracker.get_tracker(SESSION_SYSVARS_TRACKER)->
+        mark_as_changed(thd, (LEX_CSTRING*)svar);
+    mysql_mutex_unlock(&LOCK_plugin);
+  }
+  thd->session_tracker.mark_as_changed(thd, SESSION_STATE_CHANGE_TRACKER, NULL);
+#endif //EMBEDDED_LIBRARY
+
   thd->protocol_text.init(thd);
   thd->protocol_binary.init(thd);
   return 0;
@@ -976,7 +1065,7 @@ int fill_sysvars(THD *thd, TABLE_LIST *tables, COND *cond)
 
   DBUG_ASSERT(tables->table->in_use == thd);
 
-  cond= make_cond_for_info_schema(cond, tables);
+  cond= make_cond_for_info_schema(thd, cond, tables);
   thd->count_cuted_fields= CHECK_FIELD_WARN;
   mysql_rwlock_rdlock(&LOCK_system_variables_hash);
 
@@ -1059,7 +1148,8 @@ int fill_sysvars(THD *thd, TABLE_LIST *tables, COND *cond)
       { STRING_WITH_LEN("DOUBLE") },                 // GET_DOUBLE    14
       { STRING_WITH_LEN("FLAGSET") },                // GET_FLAGSET   15
     };
-    const LEX_CSTRING *type= types + (var->option.var_type & GET_TYPE_MASK);
+    const ulong vartype= (var->option.var_type & GET_TYPE_MASK);
+    const LEX_CSTRING *type= types + vartype;
     fields[6]->store(type->str, type->length, scs);
 
     // VARIABLE_COMMENT
@@ -1070,7 +1160,7 @@ int fill_sysvars(THD *thd, TABLE_LIST *tables, COND *cond)
     // NUMERIC_MAX_VALUE
     // NUMERIC_BLOCK_SIZE
     bool is_unsigned= true;
-    switch (var->option.var_type)
+    switch (vartype)
     {
     case GET_INT:
     case GET_LONG:
@@ -1152,9 +1242,9 @@ end:
   and update it directly.
 */
 
-void mark_sys_var_value_origin(void *ptr, enum sys_var::where here)
+void set_sys_var_value_origin(void *ptr, enum sys_var::where here)
 {
-  bool found= false;
+  bool found __attribute__((unused))= false;
   DBUG_ASSERT(!mysqld_server_started); // only to be used during startup
 
   for (uint i= 0; i < system_variable_hash.records; i++)
@@ -1169,5 +1259,22 @@ void mark_sys_var_value_origin(void *ptr, enum sys_var::where here)
   }
 
   DBUG_ASSERT(found); // variable must have been found
+}
+
+enum sys_var::where get_sys_var_value_origin(void *ptr)
+{
+  DBUG_ASSERT(!mysqld_server_started); // only to be used during startup
+
+  for (uint i= 0; i < system_variable_hash.records; i++)
+  {
+    sys_var *var= (sys_var*) my_hash_element(&system_variable_hash, i);
+    if (var->option.value == ptr)
+    {
+      return var->value_origin; //first match
+    }
+  }
+
+  DBUG_ASSERT(0); // variable must have been found
+  return sys_var::CONFIG;
 }
 

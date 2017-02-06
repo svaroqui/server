@@ -11,8 +11,8 @@ SELECT @max_row DIV 4 INTO @max_row_div4;
 SET @max_int_4 = 2147483647;
 DROP TABLE IF EXISTS t0_template;
 CREATE TABLE t0_template (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000) ,
@@ -27,8 +27,8 @@ file_list      VARBINARY(10000),
 PRIMARY KEY (state)
 ) ENGINE = MEMORY;
 DROP TABLE IF EXISTS t0_aux;
-CREATE TABLE t0_aux ( f_int1 INTEGER,
-f_int2 INTEGER,
+CREATE TABLE t0_aux ( f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000) )
@@ -52,8 +52,8 @@ SET @@session.sql_mode= '';
 #  1.1 The partitioning function contains one column.
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -67,14 +67,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.MYD
@@ -512,8 +512,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -527,14 +527,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.MYD
@@ -978,8 +978,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -1001,13 +1001,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1,4))
+ PARTITION BY LIST (MOD(f_int1,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = MyISAM,
  PARTITION part_2 VALUES IN (-2) ENGINE = MyISAM,
  PARTITION part_1 VALUES IN (-1) ENGINE = MyISAM,
@@ -1015,7 +1015,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part1 VALUES IN (1) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (2) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (3) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (3) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part0.MYD
@@ -1465,8 +1465,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -1486,19 +1486,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
  PARTITION partd VALUES LESS THAN (15) ENGINE = MyISAM,
  PARTITION parte VALUES LESS THAN (20) ENGINE = MyISAM,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta.MYD
@@ -1942,8 +1942,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -1961,19 +1961,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1 DIV 2)
+ PARTITION BY RANGE (f_int1 DIV 2)
 SUBPARTITION BY HASH (f_int1)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta#SP#partasp0.MYD
@@ -2423,8 +2423,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -2446,13 +2446,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int1)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = MyISAM,
@@ -2465,7 +2465,7 @@ SUBPARTITION BY KEY (f_int1)
   SUBPARTITION subpart32 ENGINE = MyISAM),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = MyISAM,
-  SUBPARTITION subpart42 ENGINE = MyISAM)) */
+  SUBPARTITION subpart42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#subpart11.MYD
@@ -2913,8 +2913,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -2940,13 +2940,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int1 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = MyISAM,
@@ -2959,7 +2959,7 @@ SUBPARTITION BY HASH (f_int1 + 1)
   SUBPARTITION sp32 ENGINE = MyISAM),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = MyISAM,
-  SUBPARTITION sp42 ENGINE = MyISAM)) */
+  SUBPARTITION sp42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#sp11.MYD
@@ -3409,8 +3409,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -3428,18 +3428,18 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int1)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (1) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part1#SP#part1sp0.MYD
@@ -3893,8 +3893,8 @@ DROP TABLE t1;
 #  1.2 The partitioning function contains two columns.
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -3908,14 +3908,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.MYD
@@ -4353,8 +4353,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -4368,14 +4368,14 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.MYD
@@ -4819,8 +4819,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -4842,13 +4842,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = MyISAM,
  PARTITION part_2 VALUES IN (-2) ENGINE = MyISAM,
  PARTITION part_1 VALUES IN (-1) ENGINE = MyISAM,
@@ -4856,7 +4856,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part1 VALUES IN (1) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (2) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (3) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (3) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part0.MYD
@@ -5306,8 +5306,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -5327,19 +5327,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
  PARTITION partd VALUES LESS THAN (15) ENGINE = MyISAM,
  PARTITION parte VALUES LESS THAN (20) ENGINE = MyISAM,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta.MYD
@@ -5783,8 +5783,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -5802,19 +5802,19 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta#SP#partasp0.MYD
@@ -6262,8 +6262,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -6285,13 +6285,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = MyISAM,
@@ -6304,7 +6304,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = MyISAM),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = MyISAM,
-  SUBPARTITION subpart42 ENGINE = MyISAM)) */
+  SUBPARTITION subpart42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#subpart11.MYD
@@ -6752,8 +6752,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -6775,13 +6775,13 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = MyISAM,
@@ -6794,7 +6794,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = MyISAM),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = MyISAM,
-  SUBPARTITION sp42 ENGINE = MyISAM)) */
+  SUBPARTITION sp42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#sp11.MYD
@@ -7244,8 +7244,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -7263,18 +7263,18 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (1) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part1#SP#part1sp0.MYD
@@ -7732,8 +7732,8 @@ DROP TABLE t1;
 #  2.5 PRIMARY KEY + UNIQUE INDEX consisting of two columns
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -7747,16 +7747,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.MYD
@@ -8245,8 +8245,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -8260,16 +8260,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.MYD
@@ -8764,8 +8764,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -8787,15 +8787,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1,4))
+ PARTITION BY LIST (MOD(f_int1,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = MyISAM,
  PARTITION part_2 VALUES IN (-2) ENGINE = MyISAM,
  PARTITION part_1 VALUES IN (-1) ENGINE = MyISAM,
@@ -8803,7 +8803,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part1 VALUES IN (1) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (2) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (3) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (3) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part0.MYD
@@ -9304,8 +9304,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -9325,21 +9325,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
  PARTITION partd VALUES LESS THAN (15) ENGINE = MyISAM,
  PARTITION parte VALUES LESS THAN (20) ENGINE = MyISAM,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta.MYD
@@ -9834,8 +9834,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -9853,21 +9853,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1 DIV 2)
+ PARTITION BY RANGE (f_int1 DIV 2)
 SUBPARTITION BY HASH (f_int1)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta#SP#partasp0.MYD
@@ -10368,8 +10368,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -10391,15 +10391,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int1)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = MyISAM,
@@ -10412,7 +10412,7 @@ SUBPARTITION BY KEY (f_int1)
   SUBPARTITION subpart32 ENGINE = MyISAM),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = MyISAM,
-  SUBPARTITION subpart42 ENGINE = MyISAM)) */
+  SUBPARTITION subpart42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#subpart11.MYD
@@ -10911,8 +10911,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -10938,15 +10938,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int1 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = MyISAM,
@@ -10959,7 +10959,7 @@ SUBPARTITION BY HASH (f_int1 + 1)
   SUBPARTITION sp32 ENGINE = MyISAM),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = MyISAM,
-  SUBPARTITION sp42 ENGINE = MyISAM)) */
+  SUBPARTITION sp42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#sp11.MYD
@@ -11460,8 +11460,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -11479,20 +11479,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int1)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (1) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part1#SP#part1sp0.MYD
@@ -12001,8 +12001,8 @@ DROP TABLE t1;
 #  3.3 PRIMARY KEY and UNIQUE INDEX consisting of two columns
 DROP TABLE IF EXISTS t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -12016,16 +12016,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY HASH (f_int1 + f_int2)
-PARTITIONS 2 */
+ PARTITION BY HASH (f_int1 + f_int2)
+PARTITIONS 2
 
 unified filelist
 t1#P#p0.MYD
@@ -12514,8 +12514,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -12529,16 +12529,16 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY KEY (f_int1,f_int2)
-PARTITIONS 5 */
+ PARTITION BY KEY (f_int1,f_int2)
+PARTITIONS 5
 
 unified filelist
 t1#P#p0.MYD
@@ -13033,8 +13033,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -13056,15 +13056,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (MOD(f_int1 + f_int2,4))
+ PARTITION BY LIST (MOD(f_int1 + f_int2,4))
 (PARTITION part_3 VALUES IN (-3) ENGINE = MyISAM,
  PARTITION part_2 VALUES IN (-2) ENGINE = MyISAM,
  PARTITION part_1 VALUES IN (-1) ENGINE = MyISAM,
@@ -13072,7 +13072,7 @@ t1	CREATE TABLE `t1` (
  PARTITION part0 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part1 VALUES IN (1) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (2) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (3) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (3) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part0.MYD
@@ -13573,8 +13573,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -13594,21 +13594,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
+ PARTITION BY RANGE ((f_int1 + f_int2) DIV 2)
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
  PARTITION partd VALUES LESS THAN (15) ENGINE = MyISAM,
  PARTITION parte VALUES LESS THAN (20) ENGINE = MyISAM,
- PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partf VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta.MYD
@@ -14103,8 +14103,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -14122,21 +14122,21 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY HASH (f_int2)
 SUBPARTITIONS 2
 (PARTITION parta VALUES LESS THAN (0) ENGINE = MyISAM,
  PARTITION partb VALUES LESS THAN (5) ENGINE = MyISAM,
  PARTITION partc VALUES LESS THAN (10) ENGINE = MyISAM,
- PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM) */
+ PARTITION partd VALUES LESS THAN (2147483646) ENGINE = MyISAM)
 
 unified filelist
 t1#P#parta#SP#partasp0.MYD
@@ -14635,8 +14635,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -14658,15 +14658,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY RANGE (f_int1)
+ PARTITION BY RANGE (f_int1)
 SUBPARTITION BY KEY (f_int2)
 (PARTITION part1 VALUES LESS THAN (0)
  (SUBPARTITION subpart11 ENGINE = MyISAM,
@@ -14679,7 +14679,7 @@ SUBPARTITION BY KEY (f_int2)
   SUBPARTITION subpart32 ENGINE = MyISAM),
  PARTITION part4 VALUES LESS THAN (2147483646)
  (SUBPARTITION subpart41 ENGINE = MyISAM,
-  SUBPARTITION subpart42 ENGINE = MyISAM)) */
+  SUBPARTITION subpart42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#subpart11.MYD
@@ -15178,8 +15178,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -15201,15 +15201,15 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,3)))
+ PARTITION BY LIST (ABS(MOD(f_int1,3)))
 SUBPARTITION BY HASH (f_int2 + 1)
 (PARTITION part1 VALUES IN (0)
  (SUBPARTITION sp11 ENGINE = MyISAM,
@@ -15222,7 +15222,7 @@ SUBPARTITION BY HASH (f_int2 + 1)
   SUBPARTITION sp32 ENGINE = MyISAM),
  PARTITION part4 VALUES IN (NULL)
  (SUBPARTITION sp41 ENGINE = MyISAM,
-  SUBPARTITION sp42 ENGINE = MyISAM)) */
+  SUBPARTITION sp42 ENGINE = MyISAM))
 
 unified filelist
 t1#P#part1#SP#sp11.MYD
@@ -15723,8 +15723,8 @@ TRUNCATE t1;
 # End usability test (inc/partition_check.inc)
 DROP TABLE t1;
 CREATE TABLE t1 (
-f_int1 INTEGER,
-f_int2 INTEGER,
+f_int1 INTEGER DEFAULT 0,
+f_int2 INTEGER DEFAULT 0,
 f_char1 CHAR(20),
 f_char2 CHAR(20),
 f_charbig VARCHAR(1000)
@@ -15742,20 +15742,20 @@ create_command
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `f_int1` int(11) DEFAULT NULL,
-  `f_int2` int(11) DEFAULT NULL,
+  `f_int1` int(11) DEFAULT 0,
+  `f_int2` int(11) DEFAULT 0,
   `f_char1` char(20) DEFAULT NULL,
   `f_char2` char(20) DEFAULT NULL,
   `f_charbig` varchar(1000) DEFAULT NULL,
   UNIQUE KEY `uidx1` (`f_int1`,`f_int2`),
   UNIQUE KEY `uidx2` (`f_int2`,`f_int1`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
-/*!50100 PARTITION BY LIST (ABS(MOD(f_int1,2)))
+ PARTITION BY LIST (ABS(MOD(f_int1,2)))
 SUBPARTITION BY KEY (f_int2)
 SUBPARTITIONS 3
 (PARTITION part1 VALUES IN (0) ENGINE = MyISAM,
  PARTITION part2 VALUES IN (1) ENGINE = MyISAM,
- PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM) */
+ PARTITION part3 VALUES IN (NULL) ENGINE = MyISAM)
 
 unified filelist
 t1#P#part1#SP#part1sp0.MYD

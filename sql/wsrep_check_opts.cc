@@ -18,8 +18,6 @@
 #include "sys_vars_shared.h"
 #include "wsrep.h"
 #include "wsrep_sst.h"
-//#include <sql_class.h>
-//#include "wsrep_mysqld.h"
 
 extern char *my_bind_addr_str;
 
@@ -47,8 +45,9 @@ int wsrep_check_opts()
 
   if (!strcasecmp(wsrep_sst_method, "mysqldump"))
   {
-    if (!strcasecmp(my_bind_addr_str, "127.0.0.1") ||
-        !strcasecmp(my_bind_addr_str, "localhost"))
+    if (my_bind_addr_str &&
+        (!strcasecmp(my_bind_addr_str, "127.0.0.1") ||
+         !strcasecmp(my_bind_addr_str, "localhost")))
     {
       WSREP_ERROR("wsrep_sst_method is set to 'mysqldump' yet "
                   "mysqld bind_address is set to '%s', which makes it "

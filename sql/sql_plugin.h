@@ -78,8 +78,6 @@ typedef struct st_mysql_show_var SHOW_VAR;
 #define PLUGIN_IS_DYING         16
 #define PLUGIN_IS_DISABLED      32
 
-/* A handle for the dynamic library containing a plugin or plugins. */
-
 struct st_ptr_backup {
   void **ptr;
   void *value;
@@ -87,6 +85,8 @@ struct st_ptr_backup {
   void save(const char **p) { save((void**)p); }
   void restore() { *ptr= value; }
 };
+
+/* A handle for the dynamic library containing a plugin or plugins. */
 
 struct st_plugin_dl
 {
@@ -120,6 +120,8 @@ struct st_plugin_int
 };
 
 
+extern mysql_mutex_t LOCK_plugin;
+
 /*
   See intern_plugin_lock() for the explanation for the
   conditionally defined plugin_ref type
@@ -152,7 +154,7 @@ typedef int (*plugin_type_init)(struct st_plugin_int *);
 
 extern I_List<i_string> *opt_plugin_load_list_ptr;
 extern char *opt_plugin_dir_ptr;
-extern char opt_plugin_dir[FN_REFLEN];
+extern MYSQL_PLUGIN_IMPORT char opt_plugin_dir[FN_REFLEN];
 extern const LEX_STRING plugin_type_names[];
 extern ulong plugin_maturity;
 extern TYPELIB plugin_maturity_values;
@@ -180,6 +182,7 @@ sys_var *find_plugin_sysvar(st_plugin_int *plugin, st_mysql_sys_var *var);
 void plugin_opt_set_limits(struct my_option *, const struct st_mysql_sys_var *);
 extern SHOW_COMP_OPTION plugin_status(const char *name, size_t len, int type);
 extern bool check_valid_path(const char *path, size_t length);
+extern void plugin_mutex_init();
 
 typedef my_bool (plugin_foreach_func)(THD *thd,
                                       plugin_ref plugin,
@@ -187,6 +190,19 @@ typedef my_bool (plugin_foreach_func)(THD *thd,
 #define plugin_foreach(A,B,C,D) plugin_foreach_with_mask(A,B,C,PLUGIN_IS_READY,D)
 extern bool plugin_foreach_with_mask(THD *thd, plugin_foreach_func *func,
                                      int type, uint state_mask, void *arg);
+extern void sync_dynamic_session_variables(THD* thd, bool global_lock);
+
 extern bool plugin_dl_foreach(THD *thd, const LEX_STRING *dl,
                               plugin_foreach_func *func, void *arg);
+
+sys_var *find_sys_var_ex(THD *thd, const char *str, size_t length,
+                         bool throw_error, bool locked);
+
+extern void sync_dynamic_session_variables(THD* thd, bool global_lock);
 #endif
+
+#ifdef WITH_WSREP
+extern void wsrep_plugins_pre_init();
+extern void wsrep_plugins_post_init();
+#endif /* WITH_WSREP */
+

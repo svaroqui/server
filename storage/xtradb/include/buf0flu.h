@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -86,8 +86,8 @@ buf_flush_init_for_writing(
 # if defined UNIV_DEBUG || defined UNIV_IBUF_DEBUG
 /********************************************************************//**
 Writes a flushable page asynchronously from the buffer pool to a file.
-NOTE: block->mutex must be held upon entering this function, and they will be
-released by this function after flushing.  This is loosely based on
+NOTE: block and LRU list mutexes must be held upon entering this function, and
+they will be released by this function after flushing. This is loosely based on
 buf_flush_batch() and buf_flush_page().
 @return TRUE if the page was flushed and the mutexes released */
 UNIV_INTERN
@@ -96,7 +96,7 @@ buf_flush_page_try(
 /*===============*/
 	buf_pool_t*	buf_pool,	/*!< in/out: buffer pool instance */
 	buf_block_t*	block)		/*!< in/out: buffer control block */
-	__attribute__((nonnull, warn_unused_result));
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 # endif /* UNIV_DEBUG || UNIV_IBUF_DEBUG */
 /*******************************************************************//**
 This utility flushes dirty blocks from the end of the flush list of
@@ -211,7 +211,7 @@ Clears up tail of the LRU lists:
 * Flush dirty pages at the tail of LRU to the disk
 The depth to which we scan each buffer pool is controlled by dynamic
 config parameter innodb_LRU_scan_depth.
-@return total pages flushed */
+@return number of pages flushed */
 UNIV_INTERN
 ulint
 buf_flush_LRU_tail(void);
@@ -277,7 +277,7 @@ buf_flush_ready_for_flush(
 	buf_page_t*	bpage,	/*!< in: buffer control block, must be
 				buf_page_in_file(bpage) */
 	buf_flush_t	flush_type)/*!< in: type of flush */
-	__attribute__((warn_unused_result));
+	MY_ATTRIBUTE((warn_unused_result));
 
 #ifdef UNIV_DEBUG
 /******************************************************************//**
@@ -310,7 +310,13 @@ UNIV_INLINE
 bool
 buf_flush_flush_list_in_progress(void)
 /*==================================*/
-	__attribute__((warn_unused_result));
+	MY_ATTRIBUTE((warn_unused_result));
+
+/** If LRU list of a buf_pool is less than this size then LRU eviction
+should not happen. This is because when we do LRU flushing we also put
+the blocks on free list. If LRU list is very small then we can end up
+in thrashing. */
+#define BUF_LRU_MIN_LEN		256
 
 /******************************************************************//**
 Start a buffer flush batch for LRU or flush list */

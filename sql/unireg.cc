@@ -25,6 +25,7 @@
     str is a (long) to record position where 0 is the first position.
 */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_partition.h"                      // struct partition_info
@@ -32,7 +33,6 @@
 #include "create_options.h"
 #include "discover.h"
 #include <m_ctype.h>
-#include <assert.h>
 
 #define FCOMP			17		/* Bytes for a packed field */
 
@@ -40,11 +40,15 @@
 #define ALLOCA_THRESHOLD       2048
 
 static uint pack_keys(uchar *,uint, KEY *, ulong);
-static bool pack_header(THD *, uchar *, List<Create_field> &, uint, ulong, handler *);
+static bool pack_header(THD *, uchar *, List<Create_field> &, HA_CREATE_INFO *,
+                        ulong, handler *);
+static bool pack_vcols(String *, List<Create_field> &, List<Virtual_column_info> *);
 static uint get_interval_id(uint *,List<Create_field> &, Create_field *);
-static bool pack_fields(uchar *, List<Create_field> &, ulong);
+static bool pack_fields(uchar **, List<Create_field> &, HA_CREATE_INFO*,
+                        ulong);
 static size_t packed_fields_length(List<Create_field> &);
-static bool make_empty_rec(THD *, uchar *, uint, List<Create_field> &, uint, ulong);
+static bool make_empty_rec(THD *, uchar *, uint, List<Create_field> &, uint,
+                           ulong);
 
 /*
   write the length as
@@ -108,11 +112,13 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
   ulong key_buff_length;
   ulong filepos, data_offset;
   uint options_len;
+  uint gis_extra2_len= 0;
   uchar fileinfo[FRM_HEADER_SIZE],forminfo[FRM_FORMINFO_SIZE];
   const partition_info *part_info= IF_PARTITIONING(thd->work_part_info, 0);
   int error;
   uchar *frm_ptr, *pos;
   LEX_CUSTRING frm= {0,0};
+  StringBuffer<MAX_FIELD_WIDTH> vcols;
   DBUG_ENTER("build_frm_image");
 
  /* If fixed row records, we need one bit to check for deleted rows */
@@ -120,13 +126,23 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
     create_info->null_bits++;
   data_offset= (create_info->null_bits + 7) / 8;
 
-  error= pack_header(thd, forminfo, create_fields, create_info->table_options,
-                     data_offset, db_file);
+  sql_mode_t save_sql_mode= thd->variables.sql_mode;
+  thd->variables.sql_mode &= ~MODE_ANSI_QUOTES;
+  error= pack_vcols(&vcols, create_fields, create_info->check_constraint_list);
+  thd->variables.sql_mode= save_sql_mode;
 
   if (error)
     DBUG_RETURN(frm);
 
-  reclength=uint2korr(forminfo+266);
+  if (vcols.length())
+    create_info->expression_length= vcols.length() + FRM_VCOL_NEW_BASE_SIZE;
+
+  error= pack_header(thd, forminfo, create_fields, create_info,
+                     data_offset, db_file);
+  if (error)
+    DBUG_RETURN(frm);
+
+  reclength= uint2korr(forminfo+266);
 
   /* Calculate extra data segment length */
   str_db_type= *hton_name(create_info->db_type);
@@ -153,6 +169,9 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
   options_len= engine_table_options_frm_length(create_info->option_list,
                                                create_fields,
                                                keys, key_info);
+#ifdef HAVE_SPATIAL
+  gis_extra2_len= gis_field_options_image(NULL, create_fields);
+#endif /*HAVE_SPATIAL*/
   DBUG_PRINT("info", ("Options length: %u", options_len));
 
   if (validate_comment_length(thd, &create_info->comment, TABLE_COMMENT_MAXLEN,
@@ -197,6 +216,10 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
   if (part_info)
     extra2_size+= 1 + 1 + hton_name(part_info->default_engine_type)->length;
 
+  if (gis_extra2_len)
+    extra2_size+= 1 + (gis_extra2_len > 255 ? 3 : 1) + gis_extra2_len;
+
+
   key_buff_length= uint4korr(fileinfo+47);
 
   frm.length= FRM_HEADER_SIZE;                  // fileinfo;
@@ -211,8 +234,10 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
   filepos= frm.length;
   frm.length+= FRM_FORMINFO_SIZE;               // forminfo
   frm.length+= packed_fields_length(create_fields);
+  frm.length+= create_info->expression_length;
 
-  if (frm.length > FRM_MAX_SIZE)
+  if (frm.length > FRM_MAX_SIZE ||
+      create_info->expression_length > UINT_MAX32)
   {
     my_error(ER_TABLE_DEFINITION_TOO_BIG, MYF(0), table);
     DBUG_RETURN(frm);
@@ -241,6 +266,15 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
                                         create_fields, keys, key_info);
   }
 
+#ifdef HAVE_SPATIAL
+  if (gis_extra2_len)
+  {
+    *pos= EXTRA2_GIS;
+    pos= extra2_write_len(pos+1, gis_extra2_len);
+    pos+= gis_field_options_image(pos, create_fields);
+  }
+#endif /*HAVE_SPATIAL*/
+
   int4store(pos, filepos); // end of the extra2 segment
   pos+= 4;
 
@@ -258,8 +292,6 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
     fileinfo[61]= (uchar) ha_legacy_type(part_info->default_engine_type);
     DBUG_PRINT("info", ("part_db_type = %d", fileinfo[61]));
   }
-
-  int2store(fileinfo+59,db_file->extra_rec_buf_length());
 
   memcpy(frm_ptr, fileinfo, FRM_HEADER_SIZE);
 
@@ -309,8 +341,18 @@ LEX_CUSTRING build_frm_image(THD *thd, const char *table,
   }
 
   memcpy(frm_ptr + filepos, forminfo, 288);
-  if (pack_fields(frm_ptr + filepos + 288, create_fields, data_offset))
+  pos= frm_ptr + filepos + 288;
+  if (pack_fields(&pos, create_fields, create_info, data_offset))
     goto err;
+
+  if (vcols.length())
+  {
+    /* Store header for packed fields (extra space for future) */
+    bzero(pos, FRM_VCOL_NEW_BASE_SIZE);
+    pos+= FRM_VCOL_NEW_BASE_SIZE;
+    memcpy(pos, vcols.ptr(), vcols.length());
+    pos+= vcols.length();
+  }
 
   {
     /* 
@@ -471,28 +513,102 @@ static uint pack_keys(uchar *keybuff, uint key_count, KEY *keyinfo,
 } /* pack_keys */
 
 
+/**
+   Pack the expression (for GENERATED ALWAYS AS, DEFAULT, CHECK)
+
+   The data is stored as:
+   1 byte      type (enum_vcol_info_type)
+   2 bytes     field_number
+   2 bytes     length of expression
+   1 byte      length of name
+   name
+   next bytes  column expression (text data)
+
+   @return 0 ok
+   @return 1 error (out of memory or wrong characters in expression)
+*/
+
+static bool pack_expression(String *buf, Virtual_column_info *vcol,
+                            uint field_nr, enum_vcol_info_type type)
+{
+  if (buf->reserve(FRM_VCOL_NEW_HEADER_SIZE + vcol->name.length))
+    return 1;
+
+  buf->q_append((char) type);
+  buf->q_append2b(field_nr);
+  size_t len_off= buf->length();
+  buf->q_append2b(0); // to be added later
+  buf->q_append((char)vcol->name.length);
+  buf->q_append(vcol->name.str, vcol->name.length);
+  size_t expr_start= buf->length();
+  vcol->print(buf);
+  size_t expr_len= buf->length() - expr_start;
+  if (expr_len >= 65536)
+  {
+    my_error(ER_EXPRESSION_IS_TOO_BIG, MYF(0), vcol_type_name(type));
+    return 1;
+  }
+  int2store(buf->ptr() + len_off, expr_len);
+  return 0;
+}
+
+
+static bool pack_vcols(String *buf, List<Create_field> &create_fields,
+                             List<Virtual_column_info> *check_constraint_list)
+{
+  List_iterator<Create_field> it(create_fields);
+  Create_field *field;
+
+  for (uint field_nr=0; (field= it++); field_nr++)
+  {
+    if (field->vcol_info)
+      if (pack_expression(buf, field->vcol_info, field_nr,
+                          field->vcol_info->stored_in_db
+                          ? VCOL_GENERATED_STORED : VCOL_GENERATED_VIRTUAL))
+        return 1;
+    if (field->has_default_expression() && !field->has_default_now_unireg_check())
+      if (pack_expression(buf, field->default_value, field_nr, VCOL_DEFAULT))
+        return 1;
+    if (field->check_constraint)
+      if (pack_expression(buf, field->check_constraint, field_nr,
+                          VCOL_CHECK_FIELD))
+        return 1;
+  }
+
+  List_iterator<Virtual_column_info> cit(*check_constraint_list);
+  Virtual_column_info *check;
+  while ((check= cit++))
+    if (pack_expression(buf, check, UINT_MAX32, VCOL_CHECK_TABLE))
+      return 1;
+  return 0;
+}
+
+
 /* Make formheader */
 
 static bool pack_header(THD *thd, uchar *forminfo,
                         List<Create_field> &create_fields,
-                        uint table_options, ulong data_offset, handler *file)
+                        HA_CREATE_INFO *create_info, ulong data_offset,
+                        handler *file)
 {
-  uint length,int_count,int_length,no_empty, int_parts;
+  uint int_count,int_length, int_parts;
   uint time_stamp_pos,null_fields;
-  ulong reclength, totlength, n_length, com_length, vcol_info_length;
+  uint table_options= create_info->table_options;
+  size_t length, reclength, totlength, n_length, com_length;
   DBUG_ENTER("pack_header");
 
   if (create_fields.elements > MAX_FIELDS)
   {
-    my_message(ER_TOO_MANY_FIELDS, ER(ER_TOO_MANY_FIELDS), MYF(0));
+    my_message(ER_TOO_MANY_FIELDS, ER_THD(thd, ER_TOO_MANY_FIELDS), MYF(0));
     DBUG_RETURN(1);
   }
 
   totlength= 0L;
   reclength= data_offset;
-  no_empty=int_count=int_parts=int_length=time_stamp_pos=null_fields=0;
-  com_length=vcol_info_length=0;
+  int_count=int_parts=int_length=time_stamp_pos=null_fields=0;
+  com_length= 0;
   n_length=2L;
+  create_info->field_check_constraints= 0;
 
   /* Check fields */
   List_iterator<Create_field> it(create_fields);
@@ -503,42 +619,10 @@ static bool pack_header(THD *thd, uchar *forminfo,
                                 ER_TOO_LONG_FIELD_COMMENT, field->field_name))
        DBUG_RETURN(1);
 
-    if (field->vcol_info)
-    {
-      uint col_expr_maxlen= field->virtual_col_expr_maxlen();
-      uint tmp_len= my_charpos(system_charset_info,
-                               field->vcol_info->expr_str.str,
-                               field->vcol_info->expr_str.str +
-                               field->vcol_info->expr_str.length,
-                               col_expr_maxlen);
-
-      if (tmp_len < field->vcol_info->expr_str.length)
-      {
-        my_error(ER_WRONG_STRING_LENGTH, MYF(0),
-                 field->vcol_info->expr_str.str,"VIRTUAL COLUMN EXPRESSION",
-                 col_expr_maxlen);
-        DBUG_RETURN(1);
-      }
-      /*
-        Sum up the length of the expression string and the length of the
-        mandatory header to the total length of info on the defining 
-        expressions saved in the frm file for virtual columns.
-      */
-      vcol_info_length+= field->vcol_info->expr_str.length+
-	                 FRM_VCOL_HEADER_SIZE(field->interval);
-    }
-
     totlength+= field->length;
     com_length+= field->comment.length;
-    if (MTYP_TYPENR(field->unireg_check) == Field::NOEMPTY ||
-	field->unireg_check & MTYP_NOEMPTY_BIT)
-    {
-      field->unireg_check= (Field::utype) ((uint) field->unireg_check |
-					   MTYP_NOEMPTY_BIT);
-      no_empty++;
-    }
-    /* 
-      We mark first TIMESTAMP field with NOW() in DEFAULT or ON UPDATE 
+    /*
+      We mark first TIMESTAMP field with NOW() in DEFAULT or ON UPDATE
       as auto-update field.
     */
     if (field->sql_type == MYSQL_TYPE_TIMESTAMP &&
@@ -566,14 +650,14 @@ static bool pack_header(THD *thd, uchar *forminfo,
           The HEX representation is created from this copy.
         */
         field->save_interval= field->interval;
-        field->interval= (TYPELIB*) sql_alloc(sizeof(TYPELIB));
+        field->interval= (TYPELIB*) thd->alloc(sizeof(TYPELIB));
         *field->interval= *field->save_interval; 
         field->interval->type_names= 
-          (const char **) sql_alloc(sizeof(char*) * 
-				    (field->interval->count+1));
+          (const char **) thd->alloc(sizeof(char*) * 
+                                     (field->interval->count+1));
         field->interval->type_names[field->interval->count]= 0;
         field->interval->type_lengths=
-          (uint *) sql_alloc(sizeof(uint) * field->interval->count);
+          (uint *) thd->alloc(sizeof(uint) * field->interval->count);
  
         for (uint pos= 0; pos < field->interval->count; pos++)
         {
@@ -583,8 +667,8 @@ static bool pack_header(THD *thd, uchar *forminfo,
           length= field->save_interval->type_lengths[pos];
           hex_length= length * 2;
           field->interval->type_lengths[pos]= hex_length;
-          field->interval->type_names[pos]= dst= (char*) sql_alloc(hex_length +
-                                                                   1);
+          field->interval->type_names[pos]= dst=
+            (char*) thd->alloc(hex_length + 1);
           octet2hex(dst, src, length);
         }
       }
@@ -599,6 +683,8 @@ static bool pack_header(THD *thd, uchar *forminfo,
     }
     if (f_maybe_null(field->pack_flag))
       null_fields++;
+    if (field->check_constraint)
+      create_info->field_check_constraints++;
   }
   int_length+=int_count*2;			// 255 prefix + 0 suffix
 
@@ -608,25 +694,23 @@ static bool pack_header(THD *thd, uchar *forminfo,
     my_error(ER_TOO_BIG_ROWSIZE, MYF(0), static_cast<long>(file->max_record_length()));
     DBUG_RETURN(1);
   }
+
   /* Hack to avoid bugs with small static rows in MySQL */
-  reclength=MY_MAX(file->min_record_length(table_options),reclength);
-  if ((ulong) create_fields.elements*FCOMP+FRM_FORMINFO_SIZE+
-      n_length+int_length+com_length+vcol_info_length > 65535L || 
-      int_count > 255)
+  reclength= MY_MAX(file->min_record_length(table_options), reclength);
+  length= n_length + create_fields.elements*FCOMP + FRM_FORMINFO_SIZE +
+          int_length + com_length + create_info->expression_length;
+  if (length > 65535L || int_count > 255)
   {
-    my_message(ER_TOO_MANY_FIELDS, ER(ER_TOO_MANY_FIELDS), MYF(0));
+    my_message(ER_TOO_MANY_FIELDS, "Table definition is too large", MYF(0));
     DBUG_RETURN(1);
   }
 
   bzero((char*)forminfo,FRM_FORMINFO_SIZE);
-  length=(create_fields.elements*FCOMP+FRM_FORMINFO_SIZE+n_length+int_length+
-	  com_length+vcol_info_length);
   int2store(forminfo,length);
-  forminfo[256] = 0;
   int2store(forminfo+258,create_fields.elements);
-  int2store(forminfo+260,0);
+  // bytes 260-261 are unused
   int2store(forminfo+262,totlength);
-  int2store(forminfo+264,no_empty);
+  // bytes 264-265 are unused
   int2store(forminfo+266,reclength);
   int2store(forminfo+268,n_length);
   int2store(forminfo+270,int_count);
@@ -637,7 +721,7 @@ static bool pack_header(THD *thd, uchar *forminfo,
   int2store(forminfo+280,22);			/* Rows needed */
   int2store(forminfo+282,null_fields);
   int2store(forminfo+284,com_length);
-  int2store(forminfo+286,vcol_info_length);
+  int2store(forminfo+286,create_info->expression_length);
   DBUG_RETURN(0);
 } /* pack_header */
 
@@ -690,26 +774,23 @@ static size_t packed_fields_length(List<Create_field> &create_fields)
       }
       length++;
     }
-    if (field->vcol_info)
-    {
-      length+= field->vcol_info->expr_str.length +
-               FRM_VCOL_HEADER_SIZE(field->interval);
-    }
+
     length+= FCOMP;
     length+= strlen(field->field_name)+1;
     length+= field->comment.length;
   }
-  length++;
-  length++;
+  length+= 2;
   DBUG_RETURN(length);
 }
 
 /* Save fields, fieldnames and intervals */
 
-static bool pack_fields(uchar *buff, List<Create_field> &create_fields,
+static bool pack_fields(uchar **buff_arg, List<Create_field> &create_fields,
+                        HA_CREATE_INFO *create_info,
                         ulong data_offset)
 {
-  uint int_count, comment_length= 0, vcol_info_length=0;
+  uchar *buff= *buff_arg;
+  uint int_count, comment_length= 0;
   Create_field *field;
   DBUG_ENTER("pack_fields");
 
@@ -719,16 +800,14 @@ static bool pack_fields(uchar *buff, List<Create_field> &create_fields,
   while ((field=it++))
   {
     uint recpos;
-    uint cur_vcol_expr_len= 0;
     int2store(buff+3, field->length);
     /* The +1 is here becasue the col offset in .frm file have offset 1 */
     recpos= field->offset+1 + (uint) data_offset;
     int3store(buff+5,recpos);
     int2store(buff+8,field->pack_flag);
-    DBUG_ASSERT(field->unireg_check < 256);
     buff[10]= (uchar) field->unireg_check;
     buff[12]= (uchar) field->interval_id;
-    buff[13]= (uchar) field->sql_type; 
+    buff[13]= (uchar) field->sql_type;
     if (field->sql_type == MYSQL_TYPE_GEOMETRY)
     {
       buff[11]= 0;
@@ -746,17 +825,7 @@ static bool pack_fields(uchar *buff, List<Create_field> &create_fields,
     {
       buff[11]= buff[14]= 0;			// Numerical
     }
-    if (field->vcol_info)
-    {
-      /* 
-        Use the interval_id place in the .frm file to store the length of
-        the additional data saved for the virtual field
-      */
-      buff[12]= cur_vcol_expr_len= field->vcol_info->expr_str.length +
-	                           FRM_VCOL_HEADER_SIZE(field->interval);
-      vcol_info_length+= cur_vcol_expr_len;
-      buff[13]= (uchar) MYSQL_TYPE_VIRTUAL;
-    }
+
     int2store(buff+15, field->comment.length);
     comment_length+= field->comment.length;
     set_if_bigger(int_count,field->interval_id);
@@ -808,9 +877,11 @@ static bool pack_fields(uchar *buff, List<Create_field> &create_fields,
             }
           }
 
-          if(!sep)    /* disaster, enum uses all characters, none left as separator */
+          if (!sep)
           {
-            my_message(ER_WRONG_FIELD_TERMINATORS,ER(ER_WRONG_FIELD_TERMINATORS),
+            /* disaster, enum uses all characters, none left as separator */
+            my_message(ER_WRONG_FIELD_TERMINATORS,
+                       ER(ER_WRONG_FIELD_TERMINATORS),
                        MYF(0));
             DBUG_RETURN(1);
           }
@@ -825,7 +896,6 @@ static bool pack_fields(uchar *buff, List<Create_field> &create_fields,
           *buff++= sep;
         }
         *buff++= 0;
-        
       }
     }
   }
@@ -838,34 +908,9 @@ static bool pack_fields(uchar *buff, List<Create_field> &create_fields,
       buff+= field->comment.length;
     }
   }
-  if (vcol_info_length)
-  {
-    it.rewind();
-    while ((field=it++))
-    {
-      /*
-        Pack each virtual field as follows:
-        byte 1      = interval_id == 0 ? 1 : 2 
-        byte 2      = sql_type
-        byte 3      = flags (as of now, 0 - no flags, 1 - field is physically stored)
-        [byte 4]    = possible interval_id for sql_type
-        next byte ...  = virtual column expression (text data)
-      */
-      if (field->vcol_info && field->vcol_info->expr_str.length)
-      {
-        *buff++= (uchar) (1 + MY_TEST(field->interval));
-        *buff++= (uchar) field->sql_type;
-        *buff++= (uchar) field->stored_in_db;
-        if (field->interval)
-          *buff++= (uchar) field->interval_id;
-        memcpy(buff, field->vcol_info->expr_str.str, field->vcol_info->expr_str.length);
-        buff+= field->vcol_info->expr_str.length;
-      }
-    }
-  }
+  *buff_arg= buff;
   DBUG_RETURN(0);
 }
-
 
 /* save an empty record on start of formfile */
 
@@ -874,7 +919,6 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
 			   uint reclength, ulong data_offset)
 {
   int error= 0;
-  Field::utype type;
   uint null_count;
   uchar *null_pos;
   TABLE table;
@@ -902,10 +946,8 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
   thd->count_cuted_fields= CHECK_FIELD_WARN;    // To find wrong default values
   while ((field=it++))
   {
-    /*
-      regfield don't have to be deleted as it's allocated with sql_alloc()
-    */
-    Field *regfield= make_field(&share,
+    /* regfield don't have to be deleted as it's allocated on THD::mem_root */
+    Field *regfield= make_field(&share, thd->mem_root,
                                 buff+field->offset + data_offset,
                                 field->length,
                                 null_pos + null_count / 8,
@@ -913,10 +955,10 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
                                 field->pack_flag,
                                 field->sql_type,
                                 field->charset,
-                                field->geom_type,
+                                field->geom_type, field->srid,
                                 field->unireg_check,
-                                field->save_interval ? field->save_interval :
-                                field->interval, 
+                                field->save_interval ? field->save_interval
+                                                     : field->interval,
                                 field->field_name);
     if (!regfield)
     {
@@ -936,11 +978,14 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
     if (field->sql_type == MYSQL_TYPE_BIT && !f_bit_as_char(field->pack_flag))
       null_count+= field->length & 7;
 
-    type= (Field::utype) MTYP_TYPENR(field->unireg_check);
-
-    if (field->def)
+    if (field->default_value && !field->default_value->flags &&
+        !(field->flags & BLOB_FLAG))
     {
-      int res= field->def->save_in_field(regfield, 1);
+      Item *expr= field->default_value->expr;
+      int res= !expr->fixed && // may be already fixed if ALTER TABLE
+                expr->fix_fields(thd, &expr);
+      if (!res)
+        res= expr->save_in_field(regfield, 1);
       /* If not ok or warning of level 'note' */
       if (res != 0 && res != 3)
       {
@@ -956,10 +1001,6 @@ static bool make_empty_rec(THD *thd, uchar *buff, uint table_options,
       regfield->set_notnull();
       regfield->store((longlong) 1, TRUE);
     }
-    else if (type == Field::YES)		// Old unireg type
-      regfield->store(ER(ER_YES),(uint) strlen(ER(ER_YES)),system_charset_info);
-    else if (type == Field::NO)			// Old unireg type
-      regfield->store(ER(ER_NO), (uint) strlen(ER(ER_NO)),system_charset_info);
     else
       regfield->reset();
   }

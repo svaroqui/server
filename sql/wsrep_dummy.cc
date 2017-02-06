@@ -47,6 +47,9 @@ my_bool get_wsrep_drupal_282555_workaround()
 my_bool get_wsrep_load_data_splitting()
 { return 0; }
 
+my_bool get_wsrep_recovery()
+{ return 0; }
+
 my_bool get_wsrep_log_conflicts()
 { return 0; }
 
@@ -71,7 +74,7 @@ int wsrep_on(THD *thd)
 void wsrep_post_commit(THD*, bool)
 { }
 
-enum wsrep_trx_status wsrep_run_wsrep_commit(THD *, handlerton *, bool)
+enum wsrep_trx_status wsrep_run_wsrep_commit(THD *, bool)
 { return WSREP_TRX_ERROR; }
 
 void wsrep_thd_LOCK(THD *)
@@ -112,6 +115,9 @@ int wsrep_thd_retry_counter(THD *)
 
 void wsrep_thd_set_conflict_state(THD *, enum wsrep_conflict_state)
 { }
+
+bool wsrep_thd_ignore_table(THD *)
+{ return 0; }
 
 longlong wsrep_thd_trx_seqno(THD *)
 { return -1; }

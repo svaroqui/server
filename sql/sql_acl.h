@@ -206,10 +206,8 @@ bool acl_authenticate(THD *thd, uint com_change_user_pkt_len);
 bool acl_getroot(Security_context *sctx, char *user, char *host,
                  char *ip, char *db);
 bool acl_check_host(const char *host, const char *ip);
-int check_change_password(THD *thd, const char *host, const char *user,
-                           char *password, uint password_len);
-bool change_password(THD *thd, const char *host, const char *user,
-                     char *password);
+bool check_change_password(THD *thd, LEX_USER *user);
+bool change_password(THD *thd, LEX_USER *user);
 
 bool mysql_grant_role(THD *thd, List<LEX_USER> &user_list, bool revoke);
 bool mysql_grant(THD *thd, const char *db, List <LEX_USER> &user_list,
@@ -243,7 +241,10 @@ ulong get_table_grant(THD *thd, TABLE_LIST *table);
 ulong get_column_grant(THD *thd, GRANT_INFO *grant,
                        const char *db_name, const char *table_name,
                        const char *field_name);
+void mysql_show_grants_get_fields(THD *thd, List<Item> *fields,
+                                  const char *name);
 bool mysql_show_grants(THD *thd, LEX_USER *user);
+bool mysql_show_create_user(THD *thd, LEX_USER *user);
 int fill_schema_enabled_roles(THD *thd, TABLE_LIST *tables, COND *cond);
 int fill_schema_applicable_roles(THD *thd, TABLE_LIST *tables, COND *cond);
 void get_privilege_desc(char *to, uint max_length, ulong access);
@@ -251,6 +252,7 @@ void get_mqh(const char *user, const char *host, USER_CONN *uc);
 bool mysql_create_user(THD *thd, List <LEX_USER> &list, bool handle_as_role);
 bool mysql_drop_user(THD *thd, List <LEX_USER> &list, bool handle_as_role);
 bool mysql_rename_user(THD *thd, List <LEX_USER> &list);
+int mysql_alter_user(THD *thd, List <LEX_USER> &list);
 bool mysql_revoke_all(THD *thd, List <LEX_USER> &list);
 void fill_effective_table_privileges(THD *thd, GRANT_INFO *grant,
                                      const char *db, const char *table);
@@ -266,7 +268,6 @@ int fill_schema_schema_privileges(THD *thd, TABLE_LIST *tables, COND *cond);
 int fill_schema_table_privileges(THD *thd, TABLE_LIST *tables, COND *cond);
 int fill_schema_column_privileges(THD *thd, TABLE_LIST *tables, COND *cond);
 int wild_case_compare(CHARSET_INFO *cs, const char *str,const char *wildstr);
-int check_password_policy(String *password);
 
 /**
   Result of an access check for an internal schema or table.
@@ -404,6 +405,8 @@ int acl_check_setrole(THD *thd, char *rolename, ulonglong *access);
 int acl_check_set_default_role(THD *thd, const char *host, const char *user);
 int acl_set_default_role(THD *thd, const char *host, const char *user,
                          const char *rolename);
+
+extern SHOW_VAR acl_statistics[];
 
 #ifndef DBUG_OFF
 extern ulong role_global_merges, role_db_merges, role_table_merges,

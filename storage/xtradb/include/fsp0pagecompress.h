@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (C) 2013, 2014 SkySQL Ab. All Rights Reserved.
+Copyright (C) 2013, 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -35,7 +35,8 @@ Created 11/12/2013 Jan Lindström jan.lindstrom@skysql.com
 #define PAGE_LZO_ALGORITHM	3
 #define PAGE_LZMA_ALGORITHM	4
 #define PAGE_BZIP2_ALGORITHM	5
-#define PAGE_ALGORITHM_LAST	PAGE_BZIP2_ALGORITHM
+#define PAGE_SNAPPY_ALGORITHM	6
+#define PAGE_ALGORITHM_LAST	PAGE_SNAPPY_ALGORITHM
 
 /**********************************************************************//**
 Reads the page compression level from the first page of a tablespace.
@@ -45,15 +46,6 @@ ulint
 fsp_header_get_compression_level(
 /*=============================*/
 	const page_t*	page);	/*!< in: first page of a tablespace */
-
-/********************************************************************//**
-Determine if the tablespace is page compressed from dict_table_t::flags.
-@return	TRUE if page compressed, FALSE if not compressed */
-UNIV_INLINE
-ibool
-fsp_flags_is_page_compressed(
-/*=========================*/
-	ulint	flags);	/*!< in: tablespace flags */
 
 /********************************************************************//**
 Extract the page compression level from tablespace flags.

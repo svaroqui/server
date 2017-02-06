@@ -131,12 +131,12 @@ drop table t2;
 create table t2 select now() as a , curtime() as b, curdate() as c , 1+1 as d , 1.0 + 1 as e , 33333333333333333 + 3 as f;
 describe t2;
 Field	Type	Null	Key	Default	Extra
-a	datetime	NO		0000-00-00 00:00:00	
-b	time	NO		00:00:00	
-c	date	NO		0000-00-00	
-d	int(3)	NO		0	
-e	decimal(3,1)	NO		0.0	
-f	bigint(19)	NO		0	
+a	datetime	NO		NULL	
+b	time	NO		NULL	
+c	date	NO		NULL	
+d	int(3)	NO		NULL	
+e	decimal(3,1)	NO		NULL	
+f	bigint(19)	NO		NULL	
 drop table t2;
 create table t2 select CAST("2001-12-29" AS DATE) as d, CAST("20:45:11" AS TIME) as t, CAST("2001-12-29  20:45:11" AS DATETIME) as dt;
 describe t2;
@@ -181,36 +181,36 @@ Warnings:
 Note	1051	Unknown table 'test.t2'
 create table t1 (a int not null, b int, primary key(a), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b), key (b));
 Warnings:
-Note	1831	Duplicate index 'b_2' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_3' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_4' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_5' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_6' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_7' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_8' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_9' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_10' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_11' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_12' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_13' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_14' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_15' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_16' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_17' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_18' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_19' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_20' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_21' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_22' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_23' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_24' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_25' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_26' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_27' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_28' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_29' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_30' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'b_31' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
+Note	1831	Duplicate index `b_2`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_3`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_4`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_5`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_6`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_7`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_8`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_9`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_10`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_11`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_12`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_13`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_14`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_15`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_16`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_17`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_18`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_19`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_20`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_21`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_22`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_23`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_24`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_25`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_26`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_27`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_28`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_29`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_30`. This is deprecated and will be disallowed in a future release
+Note	1831	Duplicate index `b_31`. This is deprecated and will be disallowed in a future release
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
@@ -323,7 +323,7 @@ Level	Code	Message
 Note	1050	Table 't1' already exists
 show status like "Opened_tables";
 Variable_name	Value
-Opened_tables	2
+Opened_tables	1
 select * from t1;
 a	b
 1	1
@@ -481,10 +481,10 @@ from t1;
 explain t2;
 Field	Type	Null	Key	Default	Extra
 a	int(11)	YES		NULL	
-b	bigint(11)	NO		0	
-c	bigint(10) unsigned	NO		0	
+b	bigint(11)	NO		NULL	
+c	bigint(10) unsigned	NO		NULL	
 d	date	YES		NULL	
-e	varchar(1)	NO			
+e	varchar(1)	NO		NULL	
 f	datetime	YES		NULL	
 g	time	YES		NULL	
 h	longblob	NO		NULL	
@@ -494,7 +494,7 @@ a	b	c	d	e	f	g	h	dd
 1	-7	7	2000-01-01	b	2000-01-01 00:00:00	05:04:03	yet another binary data	02:00:00
 2	-2	2	1825-12-14	a	2003-01-01 03:02:01	04:03:02	binary data	02:00:00
 drop table t1, t2;
-create table t1 (a tinyint, b smallint, c mediumint, d int, e bigint, f float(3,2), g double(4,3), h decimal(5,4), i year, j date, k timestamp, l datetime, m enum('a','b'), n set('a','b'), o char(10));
+create table t1 (a tinyint, b smallint, c mediumint, d int, e bigint, f float(3,2), g double(4,3), h decimal(5,4), i year, j date, k timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, l datetime, m enum('a','b'), n set('a','b'), o char(10));
 create table t2 select ifnull(a,a), ifnull(b,b), ifnull(c,c), ifnull(d,d), ifnull(e,e), ifnull(f,f), ifnull(g,g), ifnull(h,h), ifnull(i,i), ifnull(j,j), ifnull(k,k), ifnull(l,l), ifnull(m,m), ifnull(n,n), ifnull(o,o) from t1;
 show create table t2;
 Table	Create Table
@@ -567,9 +567,13 @@ select database();
 database()
 NULL
 create user mysqltest_1;
+connect  user1,localhost,mysqltest_1,,*NO-ONE*;
+connection user1;
 select database(), user();
 database()	user()
 NULL	mysqltest_1@localhost
+connection default;
+disconnect user1;
 drop user mysqltest_1;
 use test;
 create table t1 (a int, index `primary` (a));
@@ -727,7 +731,7 @@ Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) NOT NULL,
   `a` varchar(12) CHARACTER SET utf8 COLLATE utf8_bin NOT NULL,
-  `c` int(1) NOT NULL DEFAULT '0',
+  `c` int(1) NOT NULL,
   PRIMARY KEY (`a`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
@@ -740,7 +744,7 @@ Table	Create Table
 t1	CREATE TABLE `t1` (
   `b` int(11) DEFAULT NULL,
   `a` varchar(12) CHARACTER SET utf8 COLLATE utf8_bin NOT NULL,
-  `c` int(1) NOT NULL DEFAULT '0',
+  `c` int(1) NOT NULL,
   PRIMARY KEY (`a`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 drop table t1;
@@ -763,7 +767,7 @@ b int not null, primary key (a)
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `a` varchar(12) CHARACTER SET utf8 COLLATE utf8_bin NOT NULL DEFAULT '',
+  `a` varchar(12) CHARACTER SET utf8 COLLATE utf8_bin NOT NULL,
   `b` int(11) NOT NULL,
   PRIMARY KEY (`a`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
@@ -799,8 +803,8 @@ select a1,a2 from t1;
 show create table t2;
 Table	Create Table
 t2	CREATE TABLE `t2` (
-  `a` int(11) DEFAULT '3',
-  `b` int(11) DEFAULT '3',
+  `a` int(11) DEFAULT 3,
+  `b` int(11) DEFAULT 3,
   `a1` int(11) DEFAULT NULL,
   `a2` int(11) DEFAULT NULL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
@@ -912,788 +916,6 @@ unlock tables;
 drop table t1, t2;
 create table t1 (upgrade int);
 drop table t1;
-create table t1 (
-c1 int, c2 int, c3 int, c4 int, c5 int, c6 int, c7 int, c8 int,
-c9 int, c10 int, c11 int, c12 int, c13 int, c14 int, c15 int, c16 int,
-key a001_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a002_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a003_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a004_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a005_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a006_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a007_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a008_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a009_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a010_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a011_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a012_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a013_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a014_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a015_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a016_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a017_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a018_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a019_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a020_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a021_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a022_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a023_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a024_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a025_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a026_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a027_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a028_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a029_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a030_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a031_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a032_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a033_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a034_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a035_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a036_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a037_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a038_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a039_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a040_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a041_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a042_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a043_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a044_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a045_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a046_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a047_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a048_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a049_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a050_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a051_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a052_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a053_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a054_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a055_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a056_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a057_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a058_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a059_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a060_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a061_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a062_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a063_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-key a064_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16)
-);
-Warnings:
-Note	1831	Duplicate index 'a002_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a003_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a004_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a005_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a006_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a007_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a008_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a009_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a010_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a011_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a012_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a013_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a014_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a015_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a016_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a017_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a018_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a019_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a020_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a021_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a022_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a023_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a024_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a025_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a026_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a027_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a028_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a029_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a030_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a031_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a032_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a033_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a034_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a035_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a036_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a037_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a038_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a039_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a040_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a041_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a042_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a043_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a044_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a045_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a046_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a047_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a048_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a049_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a050_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a051_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a052_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a053_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a054_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a055_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a056_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a057_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a058_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a059_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a060_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a061_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a062_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a063_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a064_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-show create table t1;
-Table	Create Table
-t1	CREATE TABLE `t1` (
-  `c1` int(11) DEFAULT NULL,
-  `c2` int(11) DEFAULT NULL,
-  `c3` int(11) DEFAULT NULL,
-  `c4` int(11) DEFAULT NULL,
-  `c5` int(11) DEFAULT NULL,
-  `c6` int(11) DEFAULT NULL,
-  `c7` int(11) DEFAULT NULL,
-  `c8` int(11) DEFAULT NULL,
-  `c9` int(11) DEFAULT NULL,
-  `c10` int(11) DEFAULT NULL,
-  `c11` int(11) DEFAULT NULL,
-  `c12` int(11) DEFAULT NULL,
-  `c13` int(11) DEFAULT NULL,
-  `c14` int(11) DEFAULT NULL,
-  `c15` int(11) DEFAULT NULL,
-  `c16` int(11) DEFAULT NULL,
-  KEY `a001_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a002_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a003_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a004_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a005_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a006_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a007_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a008_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a009_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a010_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a011_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a012_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a013_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a014_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a015_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a016_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a017_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a018_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a019_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a020_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a021_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a022_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a023_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a024_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a025_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a026_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a027_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a028_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a029_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a030_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a031_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a032_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a033_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a034_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a035_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a036_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a037_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a038_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a039_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a040_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a041_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a042_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a043_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a044_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a045_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a046_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a047_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a048_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a049_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a050_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a051_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a052_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a053_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a054_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a055_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a056_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a057_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a058_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a059_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a060_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a061_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a062_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a063_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a064_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`)
-) ENGINE=MyISAM DEFAULT CHARSET=latin1
-flush tables;
-show create table t1;
-Table	Create Table
-t1	CREATE TABLE `t1` (
-  `c1` int(11) DEFAULT NULL,
-  `c2` int(11) DEFAULT NULL,
-  `c3` int(11) DEFAULT NULL,
-  `c4` int(11) DEFAULT NULL,
-  `c5` int(11) DEFAULT NULL,
-  `c6` int(11) DEFAULT NULL,
-  `c7` int(11) DEFAULT NULL,
-  `c8` int(11) DEFAULT NULL,
-  `c9` int(11) DEFAULT NULL,
-  `c10` int(11) DEFAULT NULL,
-  `c11` int(11) DEFAULT NULL,
-  `c12` int(11) DEFAULT NULL,
-  `c13` int(11) DEFAULT NULL,
-  `c14` int(11) DEFAULT NULL,
-  `c15` int(11) DEFAULT NULL,
-  `c16` int(11) DEFAULT NULL,
-  KEY `a001_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a002_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a003_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a004_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a005_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a006_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a007_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a008_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a009_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a010_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a011_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a012_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a013_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a014_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a015_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a016_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a017_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a018_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a019_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a020_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a021_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a022_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a023_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a024_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a025_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a026_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a027_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a028_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a029_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a030_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a031_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a032_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a033_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a034_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a035_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a036_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a037_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a038_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a039_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a040_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a041_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a042_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a043_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a044_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a045_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a046_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a047_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a048_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a049_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a050_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a051_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a052_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a053_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a054_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a055_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a056_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a057_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a058_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a059_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a060_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a061_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a062_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a063_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a064_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`)
-) ENGINE=MyISAM DEFAULT CHARSET=latin1
-drop table t1;
-create table t1 (c1 int, c2 int, c3 int, c4 int, c5 int, c6 int, c7 int, 
-c8 int, c9 int, c10 int, c11 int, c12 int, c13 int, c14 int, c15 int, c16 int);
-alter table t1
-add key a001_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a002_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a003_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a004_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a005_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a006_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a007_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a008_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a009_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a010_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a011_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a012_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a013_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a014_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a015_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a016_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a017_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a018_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a019_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a020_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a021_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a022_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a023_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a024_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a025_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a026_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a027_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a028_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a029_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a030_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a031_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a032_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a033_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a034_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a035_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a036_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a037_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a038_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a039_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a040_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a041_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a042_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a043_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a044_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a045_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a046_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a047_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a048_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a049_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a050_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a051_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a052_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a053_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a054_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a055_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a056_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a057_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a058_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a059_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a060_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a061_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a062_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a063_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16),
-add key a064_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16);
-Warnings:
-Note	1831	Duplicate index 'a002_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a003_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a004_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a005_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a006_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a007_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a008_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a009_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a010_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a011_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a012_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a013_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a014_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a015_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a016_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a017_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a018_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a019_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a020_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a021_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a022_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a023_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a024_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a025_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a026_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a027_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a028_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a029_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a030_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a031_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a032_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a033_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a034_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a035_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a036_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a037_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a038_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a039_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a040_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a041_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a042_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a043_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a044_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a045_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a046_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a047_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a048_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a049_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a050_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a051_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a052_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a053_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a054_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a055_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a056_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a057_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a058_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a059_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a060_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a061_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a062_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a063_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-Note	1831	Duplicate index 'a064_long_123456789_123456789_123456789_123456789_123456789_1234' defined on the table 'test.t1'. This is deprecated and will be disallowed in a future release.
-show create table t1;
-Table	Create Table
-t1	CREATE TABLE `t1` (
-  `c1` int(11) DEFAULT NULL,
-  `c2` int(11) DEFAULT NULL,
-  `c3` int(11) DEFAULT NULL,
-  `c4` int(11) DEFAULT NULL,
-  `c5` int(11) DEFAULT NULL,
-  `c6` int(11) DEFAULT NULL,
-  `c7` int(11) DEFAULT NULL,
-  `c8` int(11) DEFAULT NULL,
-  `c9` int(11) DEFAULT NULL,
-  `c10` int(11) DEFAULT NULL,
-  `c11` int(11) DEFAULT NULL,
-  `c12` int(11) DEFAULT NULL,
-  `c13` int(11) DEFAULT NULL,
-  `c14` int(11) DEFAULT NULL,
-  `c15` int(11) DEFAULT NULL,
-  `c16` int(11) DEFAULT NULL,
-  KEY `a001_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a002_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a003_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a004_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a005_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a006_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a007_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a008_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a009_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a010_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a011_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a012_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a013_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a014_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a015_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a016_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a017_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a018_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a019_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a020_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a021_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a022_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a023_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a024_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a025_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a026_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a027_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a028_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a029_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a030_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a031_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a032_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a033_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a034_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a035_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a036_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a037_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a038_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a039_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a040_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a041_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a042_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a043_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a044_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a045_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a046_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a047_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a048_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a049_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a050_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a051_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a052_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a053_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a054_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a055_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a056_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a057_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a058_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a059_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a060_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a061_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a062_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a063_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a064_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`)
-) ENGINE=MyISAM DEFAULT CHARSET=latin1
-flush tables;
-show create table t1;
-Table	Create Table
-t1	CREATE TABLE `t1` (
-  `c1` int(11) DEFAULT NULL,
-  `c2` int(11) DEFAULT NULL,
-  `c3` int(11) DEFAULT NULL,
-  `c4` int(11) DEFAULT NULL,
-  `c5` int(11) DEFAULT NULL,
-  `c6` int(11) DEFAULT NULL,
-  `c7` int(11) DEFAULT NULL,
-  `c8` int(11) DEFAULT NULL,
-  `c9` int(11) DEFAULT NULL,
-  `c10` int(11) DEFAULT NULL,
-  `c11` int(11) DEFAULT NULL,
-  `c12` int(11) DEFAULT NULL,
-  `c13` int(11) DEFAULT NULL,
-  `c14` int(11) DEFAULT NULL,
-  `c15` int(11) DEFAULT NULL,
-  `c16` int(11) DEFAULT NULL,
-  KEY `a001_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a002_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a003_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a004_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a005_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a006_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a007_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a008_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a009_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a010_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a011_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a012_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a013_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a014_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a015_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a016_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a017_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a018_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a019_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a020_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a021_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a022_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a023_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a024_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a025_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a026_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a027_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a028_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a029_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a030_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a031_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a032_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a033_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a034_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a035_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a036_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a037_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a038_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a039_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a040_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a041_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a042_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a043_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a044_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a045_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a046_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a047_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a048_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a049_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a050_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a051_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a052_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a053_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a054_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a055_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a056_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a057_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a058_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a059_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a060_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a061_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a062_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a063_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`),
-  KEY `a064_long_123456789_123456789_123456789_123456789_123456789_1234` (`c1`,`c2`,`c3`,`c4`,`c5`,`c6`,`c7`,`c8`,`c9`,`c10`,`c11`,`c12`,`c13`,`c14`,`c15`,`c16`)
-) ENGINE=MyISAM DEFAULT CHARSET=latin1
-alter table t1 add key 
-a065_long_123456789_123456789_123456789_123456789_123456789_1234 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16);
-ERROR 42000: Too many keys specified; max 64 keys allowed
-drop table t1;
-create table t1 (c1 int, c2 int, c3 int, c4 int, c5 int, c6 int, c7 int, 
-c8 int, c9 int, c10 int, c11 int, c12 int, c13 int, c14 int, c15 int, 
-c16 int, c17 int, c18 int,c19 int,c20 int,c21 int,c22 int,c23 int,c24 int,c25 int,c26 int,c27 int,c28 int,c29 int,c30 int,c31 int,c32 int, c33 int);
-alter table t1 add key i1 (
-c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16, c17,c18,c19,c20,c21,c22,c23,c24,c25,c26,c27,c28,c29,c30,c31,c32,c33);
-ERROR 42000: Too many key parts specified; max 32 parts allowed
-alter table t1 add key 
-a001_long_123456789_123456789_123456789_123456789_123456789_12345 (c1);
-ERROR 42000: Identifier name 'a001_long_123456789_123456789_123456789_123456789_123456789_12345' is too long
-show create table t1;
-Table	Create Table
-t1	CREATE TABLE `t1` (
-  `c1` int(11) DEFAULT NULL,
-  `c2` int(11) DEFAULT NULL,
-  `c3` int(11) DEFAULT NULL,
-  `c4` int(11) DEFAULT NULL,
-  `c5` int(11) DEFAULT NULL,
-  `c6` int(11) DEFAULT NULL,
-  `c7` int(11) DEFAULT NULL,
-  `c8` int(11) DEFAULT NULL,
-  `c9` int(11) DEFAULT NULL,
-  `c10` int(11) DEFAULT NULL,
-  `c11` int(11) DEFAULT NULL,
-  `c12` int(11) DEFAULT NULL,
-  `c13` int(11) DEFAULT NULL,
-  `c14` int(11) DEFAULT NULL,
-  `c15` int(11) DEFAULT NULL,
-  `c16` int(11) DEFAULT NULL,
-  `c17` int(11) DEFAULT NULL,
-  `c18` int(11) DEFAULT NULL,
-  `c19` int(11) DEFAULT NULL,
-  `c20` int(11) DEFAULT NULL,
-  `c21` int(11) DEFAULT NULL,
-  `c22` int(11) DEFAULT NULL,
-  `c23` int(11) DEFAULT NULL,
-  `c24` int(11) DEFAULT NULL,
-  `c25` int(11) DEFAULT NULL,
-  `c26` int(11) DEFAULT NULL,
-  `c27` int(11) DEFAULT NULL,
-  `c28` int(11) DEFAULT NULL,
-  `c29` int(11) DEFAULT NULL,
-  `c30` int(11) DEFAULT NULL,
-  `c31` int(11) DEFAULT NULL,
-  `c32` int(11) DEFAULT NULL,
-  `c33` int(11) DEFAULT NULL
-) ENGINE=MyISAM DEFAULT CHARSET=latin1
-drop table t1;
 
 Bug #26104 Bug on foreign key class constructor
 
@@ -1721,6 +943,7 @@ Handler_read_key	0
 Handler_read_last	0
 Handler_read_next	0
 Handler_read_prev	0
+Handler_read_retry	0
 Handler_read_rnd	0
 Handler_read_rnd_deleted	0
 Handler_read_rnd_next	7
@@ -1911,42 +1134,46 @@ create table t1 like information_schema.processlist;
 show create table t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `ID` bigint(4) NOT NULL DEFAULT '0',
+  `ID` bigint(4) NOT NULL DEFAULT 0,
   `USER` varchar(128) NOT NULL DEFAULT '',
   `HOST` varchar(64) NOT NULL DEFAULT '',
   `DB` varchar(64) DEFAULT NULL,
   `COMMAND` varchar(16) NOT NULL DEFAULT '',
-  `TIME` int(7) NOT NULL DEFAULT '0',
+  `TIME` int(7) NOT NULL DEFAULT 0,
   `STATE` varchar(64) DEFAULT NULL,
-  `INFO` longtext,
-  `TIME_MS` decimal(22,3) NOT NULL DEFAULT '0.000',
-  `STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `PROGRESS` decimal(7,3) NOT NULL DEFAULT '0.000',
-  `MEMORY_USED` int(7) NOT NULL DEFAULT '0',
-  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT '0',
-  `QUERY_ID` bigint(4) NOT NULL DEFAULT '0'
+  `INFO` longtext DEFAULT NULL,
+  `TIME_MS` decimal(22,3) NOT NULL DEFAULT 0.000,
+  `STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `PROGRESS` decimal(7,3) NOT NULL DEFAULT 0.000,
+  `MEMORY_USED` bigint(7) NOT NULL DEFAULT 0,
+  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT 0,
+  `QUERY_ID` bigint(4) NOT NULL DEFAULT 0,
+  `INFO_BINARY` blob DEFAULT NULL,
+  `TID` bigint(4) NOT NULL DEFAULT 0
 )  DEFAULT CHARSET=utf8
 drop table t1;
 create temporary table t1 like information_schema.processlist;
 show create table t1;
 Table	Create Table
 t1	CREATE TEMPORARY TABLE `t1` (
-  `ID` bigint(4) NOT NULL DEFAULT '0',
+  `ID` bigint(4) NOT NULL DEFAULT 0,
   `USER` varchar(128) NOT NULL DEFAULT '',
   `HOST` varchar(64) NOT NULL DEFAULT '',
   `DB` varchar(64) DEFAULT NULL,
   `COMMAND` varchar(16) NOT NULL DEFAULT '',
-  `TIME` int(7) NOT NULL DEFAULT '0',
+  `TIME` int(7) NOT NULL DEFAULT 0,
   `STATE` varchar(64) DEFAULT NULL,
-  `INFO` longtext,
-  `TIME_MS` decimal(22,3) NOT NULL DEFAULT '0.000',
-  `STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT '0',
-  `PROGRESS` decimal(7,3) NOT NULL DEFAULT '0.000',
-  `MEMORY_USED` int(7) NOT NULL DEFAULT '0',
-  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT '0',
-  `QUERY_ID` bigint(4) NOT NULL DEFAULT '0'
+  `INFO` longtext DEFAULT NULL,
+  `TIME_MS` decimal(22,3) NOT NULL DEFAULT 0.000,
+  `STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `MAX_STAGE` tinyint(2) NOT NULL DEFAULT 0,
+  `PROGRESS` decimal(7,3) NOT NULL DEFAULT 0.000,
+  `MEMORY_USED` bigint(7) NOT NULL DEFAULT 0,
+  `EXAMINED_ROWS` int(7) NOT NULL DEFAULT 0,
+  `QUERY_ID` bigint(4) NOT NULL DEFAULT 0,
+  `INFO_BINARY` blob DEFAULT NULL,
+  `TID` bigint(4) NOT NULL DEFAULT 0
 )  DEFAULT CHARSET=utf8
 drop table t1;
 create table t1 like information_schema.character_sets;
@@ -1956,7 +1183,7 @@ t1	CREATE TABLE `t1` (
   `CHARACTER_SET_NAME` varchar(32) NOT NULL DEFAULT '',
   `DEFAULT_COLLATE_NAME` varchar(32) NOT NULL DEFAULT '',
   `DESCRIPTION` varchar(60) NOT NULL DEFAULT '',
-  `MAXLEN` bigint(3) NOT NULL DEFAULT '0'
+  `MAXLEN` bigint(3) NOT NULL DEFAULT 0
 ) ENGINE=MEMORY DEFAULT CHARSET=utf8
 drop table t1;
 
@@ -1968,14 +1195,14 @@ DROP TABLE IF EXISTS t1;
 DROP TABLE IF EXISTS t2;
 DROP TABLE IF EXISTS t3;
 
-CREATE TABLE t1(c1 TIMESTAMP, c2 TIMESTAMP);
+CREATE TABLE t1(c1 TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, c2 TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00');
 
 SET sql_mode = NO_ZERO_DATE;
 
 CREATE TABLE t2(c1 TIMESTAMP, c2 TIMESTAMP DEFAULT 0);
 ERROR 42000: Invalid default value for 'c2'
 
-CREATE TABLE t2(c1 TIMESTAMP, c2 TIMESTAMP);
+CREATE TABLE t2(c1 TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, c2 TIMESTAMP NOT NULL);
 ERROR 42000: Invalid default value for 'c2'
 
 # -- Check that NULL column still can be created.
@@ -2015,8 +1242,8 @@ CREATE TABLE t1(c1 YEAR DEFAULT 2008, c2 YEAR DEFAULT 0);
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` year(4) DEFAULT '2008',
-  `c2` year(4) DEFAULT '0000'
+  `c1` year(4) DEFAULT 2008,
+  `c2` year(4) DEFAULT 0000
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 
 INSERT INTO t1 VALUES();
@@ -2030,8 +1257,8 @@ ALTER TABLE t1 MODIFY c1 YEAR DEFAULT 0;
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (
-  `c1` year(4) DEFAULT '0000',
-  `c2` year(4) DEFAULT '0000'
+  `c1` year(4) DEFAULT 0000,
+  `c2` year(4) DEFAULT 0000
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 
 INSERT INTO t1 VALUES();
@@ -2115,12 +1342,16 @@ BEGIN
 INSERT INTO t1 ( `int` ) VALUES (4 ),( 8 ),( 2 ) ; 
 END ; |
 INSERT INTO t1 (pk, int_key) SELECT `pk` , `int_key` FROM B ;
-ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger.
+ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger
 CREATE TRIGGER f BEFORE INSERT ON t1 FOR EACH ROW 
 BEGIN 
 UPDATE A SET `pk`=1 WHERE `pk`=0 ; 
 END ;|
-ERROR 42000: This version of MariaDB doesn't yet support 'multiple triggers with the same action time and event for one table'
+ERROR HY000: Trigger already exists
+CREATE TRIGGER f1 BEFORE INSERT ON t1 FOR EACH ROW 
+BEGIN 
+UPDATE A SET `pk`=1 WHERE `pk`=0 ; 
+END ;|
 DROP TABLE t1;
 DROP TABLE B;
 #
@@ -2505,7 +1736,8 @@ drop view t1;
 create table t1 (a int) select 1 as a;
 create temporary table if not exists t1 (a int) select * from t1;
 create temporary table if not exists t1 (a int) select * from t1;
-ERROR HY000: Can't reopen table: 't1'
+Warnings:
+Note	1050	Table 't1' already exists
 select * from t1;
 a
 1
@@ -2586,6 +1818,7 @@ create table t1 (a int, b int) engine=myisam;
 create table t2 (a int, b int) engine=myisam;
 insert into t1 values (1,1);
 lock tables t1 read;
+connect  user1,localhost,root,,test;
 set @@lock_wait_timeout=5;
 create table if not exists t1 (a int, b int);
 Warnings:
@@ -2604,10 +1837,85 @@ create table t1 like t2;
 ERROR 42S01: Table 't1' already exists
 create or replace table t1 (a int, b int) select 2,2;
 ERROR HY000: Lock wait timeout exceeded; try restarting transaction
+disconnect user1;
+connection default;
 select * from t1;
 a	b
 1	1
 unlock tables;
 drop table t1,t2;
+#
+# MDEV-6179: dynamic columns functions/cast()/convert() doesn't
+# play nice with CREATE/ALTER TABLE
+#
+create table t1 (
+color char(32) as (COLUMN_GET(dynamic_cols, 1 as char)) persistent,
+cl char(32) as (COLUMN_GET(COLUMN_ADD(COLUMN_CREATE(1 , 'blue' as char), 2, 'ttt'), i as char)) persistent,
+item_name varchar(32) primary key, -- A common attribute for all items
+i int,
+dynamic_cols  blob  -- Dynamic columns will be stored here
+);
+INSERT INTO t1(item_name, dynamic_cols, i) VALUES 
+('MariaDB T-shirt', COLUMN_CREATE(1, 'blue', 2, 'XL'), 1);
+INSERT INTO t1(item_name, dynamic_cols, i) VALUES
+('Thinkpad Laptop', COLUMN_CREATE(1, 'black', 3, 500), 2);
+select item_name, color, cl from t1;
+item_name	color	cl
+MariaDB T-shirt	blue	blue
+Thinkpad Laptop	black	ttt
+show create table t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `color` char(32) GENERATED ALWAYS AS (column_get(`dynamic_cols`,1 as char charset latin1)) STORED,
+  `cl` char(32) GENERATED ALWAYS AS (column_get(column_add(column_create(1,'blue' AS char charset latin1 ),2,'ttt'),`i` as char charset latin1)) STORED,
+  `item_name` varchar(32) NOT NULL,
+  `i` int(11) DEFAULT NULL,
+  `dynamic_cols` blob DEFAULT NULL,
+  PRIMARY KEY (`item_name`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+drop table t1;
+create table t1 (
+n int,
+c char(32) as (convert(cast(n as char), char)) persistent
+);
+insert into t1(n) values (1),(2),(3);
+select * from t1;
+n	c
+1	1
+2	2
+3	3
+show create table t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `n` int(11) DEFAULT NULL,
+  `c` char(32) GENERATED ALWAYS AS (cast(cast(`n` as char charset latin1) as char charset latin1)) STORED
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+drop table t1;
+set @@session.collation_server=filename;
+create table t1(a enum('',''));
+Warnings:
+Note	1291	Column 'a' has duplicated value '' in ENUM
+drop table t1;
+set @@session.collation_server=default;
+#
+# MDEV-7765: Crash (Assertion `!table || (!table->write_set ||
+# bitmap_is_set(table->write_set, field_index) ||
+# bitmap_is_set(table->vcol_set, field_index))' fails)
+# on using function over not created table
+#
+CREATE function f1() returns int
+BEGIN
+declare n int;
+set n:= (select count(*) from t1);
+return n;
+end|
+create table t1 as select f1();
+ERROR 42S02: Table 'test.t1' doesn't exist
+drop function f1;
+End of 5.5 tests
 create table t1;
 ERROR 42000: A table must have at least 1 column
+create table t1 (i int, j int, key(i), key(i)) as select 1 as i, 2 as j;
+Warnings:
+Note	1831	Duplicate index `i_2`. This is deprecated and will be disallowed in a future release
+drop table t1;

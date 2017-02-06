@@ -93,7 +93,7 @@ set @@SQL_MODE=NULL;
 set session sql_mode=ansi;
 create table t1
 (f1 integer auto_increment primary key,
- f2 timestamp default current_timestamp on update current_timestamp);
+ f2 timestamp not null default current_timestamp on update current_timestamp);
 show create table t1;
 set session sql_mode=no_field_options;
 show create table t1;
@@ -513,3 +513,17 @@ SET @@sql_mode= @org_mode;
 
 --echo 
 --echo #End of Test for Bug#12601974 
+
+--echo #
+--echo # MDEV-11848 Automatic statement repreparation changes query semantics
+--echo #
+SET sql_mode=DEFAULT;
+CREATE OR REPLACE TABLE t1 (a TEXT);
+PREPARE stmt FROM 'INSERT INTO t1 (a) VALUES (2||3)';
+EXECUTE stmt;
+SET sql_mode=ORACLE;
+EXECUTE stmt;
+ALTER TABLE t1 ADD b INT;
+EXECUTE stmt;
+SELECT * FROM t1;
+DROP TABLE t1;

@@ -21,11 +21,6 @@
 /* This file defines all XML functions */
 
 
-#ifdef USE_PRAGMA_INTERFACE
-#pragma interface			/* gcc class implementation */
-#endif
-
-
 typedef struct my_xml_node_st MY_XML_NODE;
 
 
@@ -69,20 +64,19 @@ protected:
   };
   Item *nodeset_func;
   XML xml;
-  bool get_xml(XML *xml, bool cache= false)
+  bool get_xml(XML *xml_arg, bool cache= false)
   {
-    if (!cache && xml->cached())
-      return xml->raw() == 0;
-    return xml->parse(args[0], cache);
+    if (!cache && xml_arg->cached())
+      return xml_arg->raw() == 0;
+    return xml_arg->parse(args[0], cache);
   }
 public:
-  Item_xml_str_func(Item *a, Item *b): 
-    Item_str_func(a,b) 
+  Item_xml_str_func(THD *thd, Item *a, Item *b): Item_str_func(thd, a, b)
   {
     maybe_null= TRUE;
   }
-  Item_xml_str_func(Item *a, Item *b, Item *c): 
-    Item_str_func(a,b,c) 
+  Item_xml_str_func(THD *thd, Item *a, Item *b, Item *c):
+    Item_str_func(thd, a, b, c)
   {
     maybe_null= TRUE;
   }
@@ -92,19 +86,18 @@ public:
   {
     return const_item_cache && (!nodeset_func || nodeset_func->const_item());
   }
-  bool check_vcol_func_processor(uchar *int_arg) 
-  {
-    return trace_unsupported_by_check_vcol_func_processor(func_name());
-  }
 };
 
 
 class Item_func_xml_extractvalue: public Item_xml_str_func
 {
 public:
-  Item_func_xml_extractvalue(Item *a,Item *b) :Item_xml_str_func(a,b) {}
+  Item_func_xml_extractvalue(THD *thd, Item *a, Item *b):
+    Item_xml_str_func(thd, a, b) {}
   const char *func_name() const { return "extractvalue"; }
   String *val_str(String *);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_xml_extractvalue>(thd, mem_root, this); }
 };
 
 
@@ -115,9 +108,12 @@ class Item_func_xml_update: public Item_xml_str_func
                       const MY_XML_NODE *cut,
                       const String *replace);
 public:
-  Item_func_xml_update(Item *a,Item *b,Item *c) :Item_xml_str_func(a,b,c) {}
+  Item_func_xml_update(THD *thd, Item *a, Item *b, Item *c):
+    Item_xml_str_func(thd, a, b, c) {}
   const char *func_name() const { return "updatexml"; }
   String *val_str(String *);
+  Item *get_copy(THD *thd, MEM_ROOT *mem_root)
+  { return get_item_copy<Item_func_xml_update>(thd, mem_root, this); }
 };
 
 #endif /* ITEM_XMLFUNC_INCLUDED */

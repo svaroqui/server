@@ -153,13 +153,11 @@
 */
 #if defined(__APPLE__) && defined(__MACH__)
 #  undef SIZEOF_CHARP 
-#  undef SIZEOF_SHORT 
 #  undef SIZEOF_INT 
 #  undef SIZEOF_LONG 
 #  undef SIZEOF_LONG_LONG 
 #  undef SIZEOF_OFF_T 
 #  undef WORDS_BIGENDIAN
-#  define SIZEOF_SHORT 2
 #  define SIZEOF_INT 4
 #  define SIZEOF_LONG_LONG 8
 #  define SIZEOF_OFF_T 8
@@ -199,20 +197,6 @@
 */
 #define likely(x)	__builtin_expect(((x) != 0),1)
 #define unlikely(x)	__builtin_expect(((x) != 0),0)
-
-/*
-  now let's figure out if inline functions are supported
-  autoconf defines 'inline' to be empty, if not
-*/
-#define inline_test_1(X)        X ## 1
-#define inline_test_2(X)        inline_test_1(X)
-#if inline_test_2(inline) != 1
-#define HAVE_INLINE
-#else
-#error Compiler does not support inline!
-#endif
-#undef inline_test_2
-#undef inline_test_1
 
 /* Fix problem with S_ISLNK() on Linux */
 #if defined(TARGET_OS_LINUX) || defined(__GLIBC__)
@@ -454,20 +438,7 @@ extern "C" int madvise(void *addr, size_t len, int behav);
 #endif
 
 #ifndef STDERR_FILENO
-#define STDERR_FILENO 2
-#endif
-
-/*
-  Deprecated workaround for false-positive uninitialized variables
-  warnings. Those should be silenced using tool-specific heuristics.
-
-  Enabled by default for g++ due to the bug referenced below.
-*/
-#if defined(_lint) || defined(FORCE_INIT_OF_VARS) || \
-    (defined(__GNUC__) && defined(__cplusplus))
-#define LINT_INIT(var) var= 0
-#else
-#define LINT_INIT(var)
+#define STDERR_FILENO fileno(stderr)
 #endif
 
 #ifndef SO_EXT
@@ -488,6 +459,13 @@ extern "C" int madvise(void *addr, size_t len, int behav);
 #define UNINIT_VAR(x) x= 0
 #else
 #define UNINIT_VAR(x) x
+#endif
+
+/* This is only to be used when reseting variables in a class constructor */
+#if defined(_lint) || defined(FORCE_INIT_OF_VARS)
+#define LINT_INIT(x) x= 0
+#else
+#define LINT_INIT(x)
 #endif
 
 #if !defined(HAVE_UINT)
@@ -553,7 +531,11 @@ typedef int	my_socket;	/* File descriptor for sockets */
 /* Type for fuctions that handles signals */
 #define sig_handler RETSIGTYPE
 C_MODE_START
-typedef void	(*sig_return)();/* Returns type from signal */
+#ifdef HAVE_SIGHANDLER_T
+#define sig_return sighandler_t
+#else
+typedef void (*sig_return)(void); /* Returns type from signal */
+#endif
 C_MODE_END
 #if defined(__GNUC__) && !defined(_lint)
 typedef char	pchar;		/* Mixed prototypes can take char */
@@ -606,6 +588,12 @@ typedef SOCKET_SIZE_TYPE size_socket;
 #endif
 #ifndef O_NOFOLLOW
 #define O_NOFOLLOW      0
+#endif
+#ifndef O_CLOEXEC
+#define O_CLOEXEC       0
+#endif
+#ifndef SOCK_CLOEXEC
+#define SOCK_CLOEXEC    0
 #endif
 
 /* additional file share flags for win32 */
@@ -821,11 +809,15 @@ inline unsigned long long my_double2ulonglong(double d)
 #else
 #define finite(x) (1.0 / fabs(x) > 0.0)
 #endif /* HAVE_FINITE */
+#elif (__cplusplus >= 201103L)
+#include <cmath>
+static inline bool isfinite(double x) { return std::isfinite(x); }
 #endif /* isfinite */
 
 #ifndef HAVE_ISNAN
 #define isnan(x) ((x) != (x))
 #endif
+#define my_isnan(x) isnan(x)
 
 #ifdef HAVE_ISINF
 #define my_isinf(X) isinf(X)
@@ -887,8 +879,7 @@ typedef long long	my_ptrdiff_t;
   and related routines are refactored.
 */
 
-#define my_offsetof(TYPE, MEMBER) \
-        ((size_t)((char *)&(((TYPE *)0x10)->MEMBER) - (char*)0x10))
+#define my_offsetof(TYPE, MEMBER) PTR_BYTE_DIFF(&((TYPE *)0x10)->MEMBER, 0x10)
 
 #define NullS		(char *) 0
 
@@ -1239,6 +1230,33 @@ static inline double rint(double x)
 #if defined(_AIX) && defined(_LARGE_FILE_API)
 #undef _LARGE_FILE_API
 #undef __GNUG__
+#endif
+
+/*
+  Provide defaults for the CPU cache line size, if it has not been detected by
+  CMake using getconf
+*/
+#if !defined(CPU_LEVEL1_DCACHE_LINESIZE) || CPU_LEVEL1_DCACHE_LINESIZE == 0
+  #if CPU_LEVEL1_DCACHE_LINESIZE == 0
+    #undef CPU_LEVEL1_DCACHE_LINESIZE
+  #endif
+
+  #if defined(__s390__)
+    #define CPU_LEVEL1_DCACHE_LINESIZE 256
+  #elif defined(__powerpc__) || defined(__aarch64__)
+    #define CPU_LEVEL1_DCACHE_LINESIZE 128
+  #else
+    #define CPU_LEVEL1_DCACHE_LINESIZE 64
+  #endif
+#endif
+
+#define FLOATING_POINT_DECIMALS 31
+
+/* Keep client compatible with earlier versions */
+#ifdef MYSQL_SERVER
+#define NOT_FIXED_DEC           DECIMAL_NOT_SPECIFIED
+#else
+#define NOT_FIXED_DEC           FLOATING_POINT_DECIMALS
 #endif
 
 #endif /* my_global_h */

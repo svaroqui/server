@@ -20,6 +20,7 @@
 
 #include "sql_string.h"                         /* String, LEX_STRING */
 #include <my_compiler.h>
+#include <json_lib.h>
 
 #ifdef HAVE_SPATIAL
 
@@ -71,7 +72,11 @@ struct MBR
   MBR(const st_point_2d &min, const st_point_2d &max)
     :xmin(min.x), ymin(min.y), xmax(max.x), ymax(max.y)
   {}
- 
+
+  MBR(const MBR &mbr1, const MBR &mbr2)
+    :xmin(mbr1.xmin), ymin(mbr1.ymin), xmax(mbr1.xmax), ymax(mbr1.ymax)
+  { add_mbr(&mbr2); }
+
   inline void add_xy(double x, double y)
   {
     /* Not using "else" for proper one point MBR calculation */
@@ -245,6 +250,13 @@ public:
     wkb_xdr= 0,    /* Big Endian */
     wkb_ndr= 1     /* Little Endian */
   };
+  enum geojson_errors
+  {
+    GEOJ_INCORRECT_GEOJSON= 1,
+    GEOJ_TOO_FEW_POINTS= 2,
+    GEOJ_POLYGON_NOT_CLOSED= 3,
+  };
+
 
   /** Callback which creates Geometry objects on top of a given placement. */
   typedef Geometry *(*create_geom_t)(char *);
@@ -267,8 +279,11 @@ public:
   virtual uint init_from_opresult(String *bin,
                                   const char *opres, uint res_len)
   { return init_from_wkb(opres + 4, UINT_MAX32, wkb_ndr, bin) + 4; }
+  virtual bool init_from_json(json_engine_t *je, String *wkb) {return true;}
 
   virtual bool get_data_as_wkt(String *txt, const char **end) const=0;
+  virtual bool get_data_as_json(String *txt, uint max_dec_digits,
+                                const char **end) const=0;
   virtual bool get_mbr(MBR *mbr, const char **end) const=0;
   virtual bool dimension(uint32 *dim, const char **end) const=0;
   virtual int get_x(double *x) const { return -1; }
@@ -298,9 +313,12 @@ public:
 				   bool init_stream=1);
   static Geometry *create_from_wkb(Geometry_buffer *buffer,
                                    const char *wkb, uint32 len, String *res);
-  static int create_from_opresult(Geometry_buffer *g_buf,
+  static Geometry *create_from_json(Geometry_buffer *buffer,
+                                    json_engine_t *je, String *res);
+  static Geometry *create_from_opresult(Geometry_buffer *g_buf,
                                   String *res, Gcalc_result_receiver &rr);
   int as_wkt(String *wkt, const char **end);
+  int as_json(String *wkt, uint max_dec_digits, const char **end);
 
   inline void set_data_ptr(const char *data, uint32 data_len)
   {
@@ -316,6 +334,7 @@ public:
   bool envelope(String *result) const;
   static Class_info *ci_collection[wkb_last+1];
 
+  static bool create_point(String *result, double x, double y);
 protected:
   static Class_info *find_class(int type_id)
   {
@@ -326,7 +345,6 @@ protected:
   const char *append_points(String *txt, uint32 n_points,
 			    const char *data, uint32 offset) const;
   bool create_point(String *result, const char *data) const;
-  bool create_point(String *result, double x, double y) const;
   const char *get_mbr_for_points(MBR *mbr, const char *data, uint offset)
     const;
 
@@ -348,7 +366,7 @@ protected:
      Need to perform the calculation in logical units, since multiplication
      can overflow the size data type.
 
-     @arg data              pointer to the begining of the points array
+     @arg data              pointer to the beginning of the points array
      @arg expected_points   number of points expected
      @arg extra_point_space extra space for each point element in the array
      @return               true if there are not enough points
@@ -375,7 +393,10 @@ public:
   uint32 get_data_size() const;
   bool init_from_wkt(Gis_read_stream *trs, String *wkb);
   uint init_from_wkb(const char *wkb, uint len, wkbByteOrder bo, String *res);
+  bool init_from_json(json_engine_t *je, String *wkb);
   bool get_data_as_wkt(String *txt, const char **end) const;
+  bool get_data_as_json(String *txt, uint max_dec_digits,
+                        const char **end) const;
   bool get_mbr(MBR *mbr, const char **end) const;
   
   int get_xy(double *x, double *y) const
@@ -427,7 +448,10 @@ public:
   uint32 get_data_size() const;
   bool init_from_wkt(Gis_read_stream *trs, String *wkb);
   uint init_from_wkb(const char *wkb, uint len, wkbByteOrder bo, String *res);
+  bool init_from_json(json_engine_t *je, String *wkb);
   bool get_data_as_wkt(String *txt, const char **end) const;
+  bool get_data_as_json(String *txt, uint max_dec_digits,
+                        const char **end) const;
   bool get_mbr(MBR *mbr, const char **end) const;
   int geom_length(double *len, const char **end) const;
   int area(double *ar, const char **end) const;
@@ -458,7 +482,10 @@ public:
   bool init_from_wkt(Gis_read_stream *trs, String *wkb);
   uint init_from_wkb(const char *wkb, uint len, wkbByteOrder bo, String *res);
   uint init_from_opresult(String *bin, const char *opres, uint res_len);
+  bool init_from_json(json_engine_t *je, String *wkb);
   bool get_data_as_wkt(String *txt, const char **end) const;
+  bool get_data_as_json(String *txt, uint max_dec_digits,
+                        const char **end) const;
   bool get_mbr(MBR *mbr, const char **end) const;
   int area(double *ar, const char **end) const;
   int exterior_ring(String *result) const;
@@ -492,7 +519,10 @@ public:
   bool init_from_wkt(Gis_read_stream *trs, String *wkb);
   uint init_from_wkb(const char *wkb, uint len, wkbByteOrder bo, String *res);
   uint init_from_opresult(String *bin, const char *opres, uint res_len);
+  bool init_from_json(json_engine_t *je, String *wkb);
   bool get_data_as_wkt(String *txt, const char **end) const;
+  bool get_data_as_json(String *txt, uint max_dec_digits,
+                        const char **end) const;
   bool get_mbr(MBR *mbr, const char **end) const;
   int num_geometries(uint32 *num) const;
   int geometry_n(uint32 num, String *result) const;
@@ -518,7 +548,10 @@ public:
   bool init_from_wkt(Gis_read_stream *trs, String *wkb);
   uint init_from_wkb(const char *wkb, uint len, wkbByteOrder bo, String *res);
   uint init_from_opresult(String *bin, const char *opres, uint res_len);
+  bool init_from_json(json_engine_t *je, String *wkb);
   bool get_data_as_wkt(String *txt, const char **end) const;
+  bool get_data_as_json(String *txt, uint max_dec_digits,
+                        const char **end) const;
   bool get_mbr(MBR *mbr, const char **end) const;
   int num_geometries(uint32 *num) const;
   int geometry_n(uint32 num, String *result) const;
@@ -545,7 +578,10 @@ public:
   uint32 get_data_size() const;
   bool init_from_wkt(Gis_read_stream *trs, String *wkb);
   uint init_from_wkb(const char *wkb, uint len, wkbByteOrder bo, String *res);
+  bool init_from_json(json_engine_t *je, String *wkb);
   bool get_data_as_wkt(String *txt, const char **end) const;
+  bool get_data_as_json(String *txt, uint max_dec_digits,
+                        const char **end) const;
   bool get_mbr(MBR *mbr, const char **end) const;
   int num_geometries(uint32 *num) const;
   int geometry_n(uint32 num, String *result) const;
@@ -574,7 +610,10 @@ public:
   bool init_from_wkt(Gis_read_stream *trs, String *wkb);
   uint init_from_wkb(const char *wkb, uint len, wkbByteOrder bo, String *res);
   uint init_from_opresult(String *bin, const char *opres, uint res_len);
+  bool init_from_json(json_engine_t *je, String *wkb);
   bool get_data_as_wkt(String *txt, const char **end) const;
+  bool get_data_as_json(String *txt, uint max_dec_digits,
+                        const char **end) const;
   bool get_mbr(MBR *mbr, const char **end) const;
   int area(double *ar, const char **end) const;
   int geom_length(double *len, const char **end) const;

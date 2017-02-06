@@ -1,7 +1,8 @@
 /*****************************************************************************
 
-Copyright (c) 1997, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1997, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2008, Google Inc.
+Copyright (c) 2015, 2017, MariaDB Corporation.
 
 Portions of this file contain modifications contributed and copyrighted by
 Google, Inc. Those modifications are gratefully acknowledged and are described
@@ -56,6 +57,7 @@ Created 12/19/1997 Heikki Tuuri
 #include "row0mysql.h"
 #include "read0read.h"
 #include "buf0lru.h"
+#include "srv0srv.h"
 #include "ha_prototypes.h"
 #include "srv0start.h"
 #include "m_string.h" /* for my_sys.h */
@@ -133,7 +135,8 @@ row_sel_sec_rec_is_for_blob(
 
 	len = btr_copy_externally_stored_field_prefix(buf, prefix_len,
 						      zip_size,
-						      clust_field, clust_len);
+						      clust_field, clust_len,
+						      NULL);
 
 	if (UNIV_UNLIKELY(len == 0)) {
 		/* The BLOB was being deleted as the server crashed.
@@ -452,7 +455,7 @@ row_sel_fetch_columns(
 				data = btr_rec_copy_externally_stored_field(
 					rec, offsets,
 					dict_table_zip_size(index->table),
-					field_no, &len, heap);
+					field_no, &len, heap, NULL);
 
 				/* data == NULL means that the
 				externally stored field was not
@@ -676,7 +679,7 @@ sel_enqueue_prefetched_row(
 /*********************************************************************//**
 Builds a previous version of a clustered index record for a consistent read
 @return	DB_SUCCESS or error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_sel_build_prev_vers(
 /*====================*/
@@ -711,7 +714,7 @@ row_sel_build_prev_vers(
 /*********************************************************************//**
 Builds the last committed version of a clustered index record for a
 semi-consistent read. */
-static __attribute__((nonnull))
+static MY_ATTRIBUTE((nonnull))
 void
 row_sel_build_committed_vers_for_mysql(
 /*===================================*/
@@ -809,7 +812,7 @@ row_sel_test_other_conds(
 Retrieves the clustered index record corresponding to a record in a
 non-clustered index. Does the necessary locking.
 @return	DB_SUCCESS or error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_sel_get_clust_rec(
 /*==================*/
@@ -1313,7 +1316,7 @@ func_exit:
 /*********************************************************************//**
 Performs a select step.
 @return	DB_SUCCESS or error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_sel(
 /*====*/
@@ -1400,7 +1403,7 @@ table_loop:
 
 	/* Open a cursor to index, or restore an open cursor position */
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, thr_get_trx(thr));
 
 	if (consistent_read && plan->unique_search && !plan->pcur_is_open
 	    && !plan->must_get_clust
@@ -1441,7 +1444,7 @@ table_loop:
 		plan_reset_cursor(plan);
 
 		mtr_commit(&mtr);
-		mtr_start(&mtr);
+		mtr_start_trx(&mtr, thr_get_trx(thr));
 	}
 
 	if (search_latch_locked) {
@@ -2453,13 +2456,13 @@ row_sel_convert_mysql_key_to_innobase(
 		/* Storing may use at most data_len bytes of buf */
 
 		if (UNIV_LIKELY(!is_null)) {
-			ut_a(buf + data_len <= original_buf + buf_len);
-			row_mysql_store_col_in_innobase_format(
-				dfield, buf,
-				FALSE, /* MySQL key value format col */
-				key_ptr + data_offset, data_len,
-				dict_table_is_comp(index->table));
-			buf += data_len;
+			buf = row_mysql_store_col_in_innobase_format(
+					dfield, buf,
+					/* MySQL key value format col */
+					FALSE,
+					key_ptr + data_offset, data_len,
+					dict_table_is_comp(index->table));
+			ut_a(buf <= original_buf + buf_len);
 		}
 
 		key_ptr += data_field_len;
@@ -2502,9 +2505,6 @@ row_sel_convert_mysql_key_to_innobase(
 		field++;
 		dfield++;
 	}
-
-	DBUG_EXECUTE_IF("innodb_srch_key_buffer_full",
-		ut_a(buf == (original_buf + buf_len)););
 
 	ut_a(buf <= original_buf + buf_len);
 
@@ -2554,18 +2554,22 @@ row_sel_store_row_id_to_prebuilt(
 
 #ifdef UNIV_DEBUG
 /** Convert a non-SQL-NULL field from Innobase format to MySQL format. */
-# define row_sel_field_store_in_mysql_format(dest,templ,idx,field,src,len) \
-	row_sel_field_store_in_mysql_format_func(dest,templ,idx,field,src,len)
+# define row_sel_field_store_in_mysql_format( \
+	dest,templ,idx,field,src,len) \
+	row_sel_field_store_in_mysql_format_func \
+	(dest,templ,idx,field,src,len)
 #else /* UNIV_DEBUG */
 /** Convert a non-SQL-NULL field from Innobase format to MySQL format. */
-# define row_sel_field_store_in_mysql_format(dest,templ,idx,field,src,len) \
-	row_sel_field_store_in_mysql_format_func(dest,templ,src,len)
+# define row_sel_field_store_in_mysql_format( \
+	dest,templ,idx,field,src,len) \
+	row_sel_field_store_in_mysql_format_func \
+	(dest,templ,src,len)
 #endif /* UNIV_DEBUG */
 
 /**************************************************************//**
 Stores a non-SQL-NULL field in the MySQL format. The counterpart of this
 function is row_mysql_store_col_in_innobase_format() in row0mysql.cc. */
-static __attribute__((nonnull))
+static MY_ATTRIBUTE((nonnull))
 void
 row_sel_field_store_in_mysql_format_func(
 /*=====================================*/
@@ -2754,7 +2758,7 @@ row_sel_field_store_in_mysql_format_func(
 #endif /* UNIV_DEBUG */
 /**************************************************************//**
 Convert a field in the Innobase format to a field in the MySQL format. */
-static __attribute__((warn_unused_result))
+static MY_ATTRIBUTE((warn_unused_result))
 ibool
 row_sel_store_mysql_field_func(
 /*===========================*/
@@ -2815,7 +2819,7 @@ row_sel_store_mysql_field_func(
 		data = btr_rec_copy_externally_stored_field(
 			rec, offsets,
 			dict_table_zip_size(prebuilt->table),
-			field_no, &len, heap);
+			field_no, &len, heap, NULL);
 
 		if (UNIV_UNLIKELY(!data)) {
 			/* The externally stored field was not written
@@ -2907,7 +2911,7 @@ Note that the template in prebuilt may advise us to copy only a few
 columns to mysql_rec, other columns are left blank. All columns may not
 be needed in the query.
 @return TRUE on success, FALSE if not all columns could be retrieved */
-static __attribute__((warn_unused_result))
+static MY_ATTRIBUTE((warn_unused_result))
 ibool
 row_sel_store_mysql_rec(
 /*====================*/
@@ -2942,8 +2946,13 @@ row_sel_store_mysql_rec(
 			: templ->rec_field_no;
 		/* We should never deliver column prefixes to MySQL,
 		except for evaluating innobase_index_cond(). */
+		/* ...actually, we do want to do this in order to
+		support the prefix query optimization.
+
 		ut_ad(dict_index_get_nth_field(index, field_no)->prefix_len
 		      == 0);
+
+		...so we disable this assert. */
 
 		if (!row_sel_store_mysql_field(mysql_rec, prebuilt,
 					       rec, index, offsets,
@@ -2969,7 +2978,7 @@ row_sel_store_mysql_rec(
 /*********************************************************************//**
 Builds a previous version of a clustered index record for a consistent read
 @return	DB_SUCCESS or error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_sel_build_prev_vers_for_mysql(
 /*==============================*/
@@ -3006,7 +3015,7 @@ Retrieves the clustered index record corresponding to a record in a
 non-clustered index. Does the necessary locking. Used in the MySQL
 interface.
 @return	DB_SUCCESS, DB_SUCCESS_LOCKED_REC, or error code */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 row_sel_get_clust_rec_for_mysql(
 /*============================*/
@@ -3036,6 +3045,8 @@ row_sel_get_clust_rec_for_mysql(
 	rec_t*		old_vers;
 	dberr_t		err;
 	trx_t*		trx;
+
+	srv_stats.n_sec_rec_cluster_reads.inc();
 
 	*out_rec = NULL;
 	trx = thr_get_trx(thr);
@@ -3693,6 +3704,7 @@ row_search_for_mysql(
 	ulint*		offsets				= offsets_;
 	ibool		table_lock_waited		= FALSE;
 	byte*		next_buf			= 0;
+	ibool		use_clustered_index		= FALSE;
 
 	rec_offs_init(offsets_);
 
@@ -3720,6 +3732,9 @@ row_search_for_mysql(
 
 		return(DB_TABLESPACE_NOT_FOUND);
 
+	} else if (prebuilt->table->is_encrypted) {
+
+		return(DB_DECRYPTION_FAILED);
 	} else if (!prebuilt->index_usable) {
 
 		return(DB_MISSING_HISTORY);
@@ -3740,12 +3755,6 @@ row_search_for_mysql(
 
 		ut_error;
 	}
-
-	/* init null bytes with default values as they might be
-	left uninitialized in some cases and these uninited bytes
-	might be copied into mysql record buffer that leads to
-	valgrind warnings */
-	memcpy(buf, prebuilt->default_rec, prebuilt->null_bitmap_len);
 
 #if 0
 	/* August 19, 2005 by Heikki: temporarily disable this error
@@ -3882,7 +3891,7 @@ row_search_for_mysql(
 		}
 	}
 
-	mtr_start(&mtr);
+	mtr_start_trx(&mtr, trx);
 
 	/*-------------------------------------------------------------*/
 	/* PHASE 2: Try fast adaptive hash index search if possible */
@@ -4131,9 +4140,14 @@ wait_table_again:
 
 	} else if (dtuple_get_n_fields(search_tuple) > 0) {
 
-		btr_pcur_open_with_no_init(index, search_tuple, mode,
-					   BTR_SEARCH_LEAF,
-					   pcur, 0, &mtr);
+		err = btr_pcur_open_with_no_init(index, search_tuple, mode,
+					   	 BTR_SEARCH_LEAF,
+					   	 pcur, 0, &mtr);
+
+		if (err != DB_SUCCESS) {
+			rec = NULL;
+			goto lock_wait_or_error;
+		}
 
 		pcur->trx_if_known = trx;
 
@@ -4167,9 +4181,23 @@ wait_table_again:
 			}
 		}
 	} else if (mode == PAGE_CUR_G || mode == PAGE_CUR_L) {
-		btr_pcur_open_at_index_side(
+		err = btr_pcur_open_at_index_side(
 			mode == PAGE_CUR_G, index, BTR_SEARCH_LEAF,
 			pcur, false, 0, &mtr);
+
+		if (err != DB_SUCCESS) {
+			if (err == DB_DECRYPTION_FAILED) {
+				ib_push_warning(trx->mysql_thd,
+					DB_DECRYPTION_FAILED,
+					"Table %s is encrypted but encryption service or"
+					" used key_id is not available. "
+					" Can't continue reading table.",
+					prebuilt->table->name);
+				index->table->is_encrypted = true;
+			}
+			rec = NULL;
+			goto lock_wait_or_error;
+		}
 	}
 
 rec_loop:
@@ -4184,6 +4212,11 @@ rec_loop:
 	/* PHASE 4: Look for matching records in a loop */
 
 	rec = btr_pcur_get_rec(pcur);
+
+	if (!rec) {
+		err = DB_DECRYPTION_FAILED;
+		goto lock_wait_or_error;
+	}
 
 	SRV_CORRUPT_TABLE_CHECK(rec,
 	{
@@ -4727,10 +4760,69 @@ locks_ok:
 	}
 
 	/* Get the clustered index record if needed, if we did not do the
-	search using the clustered index. */
+	search using the clustered index... */
 
-	if (index != clust_index && prebuilt->need_to_access_clustered) {
- 
+	use_clustered_index =
+		(index != clust_index && prebuilt->need_to_access_clustered);
+
+	if (use_clustered_index && srv_prefix_index_cluster_optimization
+	    && prebuilt->n_template <= index->n_fields) {
+		/* ...but, perhaps avoid the clustered index lookup if
+		all of the following are true:
+		1) all columns are in the secondary index
+		2) all values for columns that are prefix-only
+		   indexes are shorter than the prefix size
+		This optimization can avoid many IOs for certain schemas.
+		*/
+		ibool row_contains_all_values = TRUE;
+		int i;
+		for (i = 0; i < prebuilt->n_template; i++) {
+			/* Condition (1) from above: is the field in the
+			index (prefix or not)? */
+			mysql_row_templ_t* templ =
+				prebuilt->mysql_template + i;
+			ulint secondary_index_field_no =
+				templ->rec_prefix_field_no;
+			if (secondary_index_field_no == ULINT_UNDEFINED) {
+				row_contains_all_values = FALSE;
+				break;
+			}
+			/* Condition (2) from above: if this is a
+			prefix, is this row's value size shorter
+			than the prefix? */
+			if (templ->rec_field_is_prefix) {
+				ulint record_size = rec_offs_nth_size(
+					offsets,
+					secondary_index_field_no);
+				const dict_field_t *field =
+					dict_index_get_nth_field(
+						index,
+						secondary_index_field_no);
+				ut_a(field->prefix_len > 0);
+				if (record_size >= field->prefix_len) {
+					row_contains_all_values = FALSE;
+					break;
+				}
+			}
+		}
+		/* If (1) and (2) were true for all columns above, use
+		rec_prefix_field_no instead of rec_field_no, and skip
+		the clustered lookup below. */
+		if (row_contains_all_values) {
+			for (i = 0; i < prebuilt->n_template; i++) {
+				mysql_row_templ_t* templ =
+					prebuilt->mysql_template + i;
+				templ->rec_field_no =
+					templ->rec_prefix_field_no;
+				ut_a(templ->rec_field_no != ULINT_UNDEFINED);
+			}
+			use_clustered_index = FALSE;
+			srv_stats.n_sec_rec_cluster_reads_avoided.inc();
+		}
+	}
+
+	if (use_clustered_index) {
+
 requires_clust_rec:
 		ut_ad(index != clust_index);
 		/* We use a 'goto' to the preceding label if a consistent
@@ -5020,7 +5112,7 @@ next_rec:
 		mtr_commit(&mtr);
 		mtr_has_extra_clust_latch = FALSE;
 
-		mtr_start(&mtr);
+		mtr_start_trx(&mtr, trx);
 		if (sel_restore_position_for_mysql(&same_user_rec,
 						   BTR_SEARCH_LEAF,
 						   pcur, moves_up, &mtr)) {
@@ -5067,7 +5159,9 @@ lock_wait_or_error:
 
 	/*-------------------------------------------------------------*/
 
-	btr_pcur_store_position(pcur, &mtr);
+	if (rec) {
+		btr_pcur_store_position(pcur, &mtr);
+	}
 
 lock_table_wait:
 	mtr_commit(&mtr);
@@ -5085,7 +5179,7 @@ lock_table_wait:
 		/* It was a lock wait, and it ended */
 
 		thr->lock_state = QUE_THR_LOCK_NOLOCK;
-		mtr_start(&mtr);
+		mtr_start_trx(&mtr, trx);
 
 		/* Table lock waited, go try to obtain table lock
 		again */

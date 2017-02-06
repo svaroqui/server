@@ -73,11 +73,11 @@ class TDBMYSQL : public TDBASE {
  public:
   // Constructor
   TDBMYSQL(PMYDEF tdp);
-  TDBMYSQL(PGLOBAL g, PTDBMY tdbp);
+  TDBMYSQL(PTDBMY tdbp);
 
   // Implementation
   virtual AMT  GetAmType(void) {return TYPE_AM_MYSQL;}
-  virtual PTDB Duplicate(PGLOBAL g) {return (PTDB)new(g) TDBMYSQL(g, this);}
+  virtual PTDB Duplicate(PGLOBAL g) {return (PTDB)new(g) TDBMYSQL(this);}
 
   // Methods
   virtual PTDB CopyOne(PTABS t);
@@ -99,7 +99,7 @@ class TDBMYSQL : public TDBASE {
   virtual int  WriteDB(PGLOBAL g);
   virtual int  DeleteDB(PGLOBAL g, int irc);
   virtual void CloseDB(PGLOBAL g);
-  virtual bool ReadKey(PGLOBAL g, OPVAL op, const void *key, int len);
+  virtual bool ReadKey(PGLOBAL g, OPVAL op, const key_range *kr);
 
   // Specific routines
           bool SetColumnRanks(PGLOBAL g);
@@ -119,6 +119,7 @@ class TDBMYSQL : public TDBASE {
   // Members
   MYSQLC      Myc;            // MySQL connection class
   MYSQL_BIND *Bind;           // To the MySQL bind structure array
+  PSTRG       Query;          // Constructed SQL query
   char       *Host;           // Host machine to use
   char       *User;           // User logon info
   char       *Pwd;            // Password logon info
@@ -126,8 +127,6 @@ class TDBMYSQL : public TDBASE {
   char       *Tabname;        // External table name
   char       *Srcdef;         // The source table SQL definition
   char       *Server;         // The server ID
-  char       *Query;          // Points to SQL query
-  char       *Qbuf;           // Used for not prepared insert
   char       *Qrystr;         // The original query
   bool        Fetched;        // True when fetch was done
   bool        Isview;         // True if this table is a MySQL view
@@ -181,11 +180,11 @@ class TDBMYEXC : public TDBMYSQL {
  public:
   // Constructors
   TDBMYEXC(PMYDEF tdp); 
-  TDBMYEXC(PGLOBAL g, PTDBMYX tdbp);
+  TDBMYEXC(PTDBMYX tdbp);
 
   // Implementation
   virtual AMT  GetAmType(void) {return TYPE_AM_MYX;}
-  virtual PTDB Duplicate(PGLOBAL g) {return (PTDB)new(g) TDBMYEXC(g, this);}
+  virtual PTDB Duplicate(PGLOBAL g) {return (PTDB)new(g) TDBMYEXC(this);}
 
   // Methods
   virtual PTDB CopyOne(PTABS t);

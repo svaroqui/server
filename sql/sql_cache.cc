@@ -328,8 +328,9 @@ TODO list:
       (This could be done with almost no speed penalty)
 */
 
-#include "my_global.h"                          /* NO_EMBEDDED_ACCESS_CHECKS */
+#include <my_global.h>                          /* NO_EMBEDDED_ACCESS_CHECKS */
 #include "sql_priv.h"
+#include "sql_basic_types.h"
 #include "sql_cache.h"
 #include "sql_parse.h"                          // check_table_access
 #include "tztime.h"                             // struct Time_zone
@@ -354,7 +355,7 @@ const uchar *query_state_map;
 #include "emb_qcache.h"
 #endif
 
-#if !defined(EXTRA_DBUG) && !defined(DBUG_OFF)
+#if defined(EXTRA_DEBUG) && !defined(DBUG_OFF)
 #define RW_WLOCK(M) {DBUG_PRINT("lock", ("rwlock wlock 0x%lx",(ulong)(M))); \
   if (!mysql_rwlock_wrlock(M)) DBUG_PRINT("lock", ("rwlock wlock ok")); \
   else DBUG_PRINT("lock", ("rwlock wlock FAILED %d", errno)); }
@@ -397,9 +398,9 @@ const uchar *query_state_map;
 #if defined(ENABLED_DEBUG_SYNC)
 #define QC_DEBUG_SYNC(name)               \
   do {                                    \
-    THD *thd= current_thd;                \
-    if (thd)                              \
-      DEBUG_SYNC(thd, name);              \
+    THD *thd_tmp= current_thd;            \
+    if (thd_tmp)                          \
+      DEBUG_SYNC(thd_tmp, name);          \
   } while (0)
 #else
 #define QC_DEBUG_SYNC(name)
@@ -961,7 +962,7 @@ inline void Query_cache_query::unlock_reading()
 void Query_cache_query::init_n_lock()
 {
   DBUG_ENTER("Query_cache_query::init_n_lock");
-  res=0; wri = 0; len = 0;
+  res=0; wri = 0; len = 0; ready= 0;
   mysql_rwlock_init(key_rwlock_query_cache_query_lock, &lock);
   lock_writing();
   DBUG_PRINT("qcache", ("inited & locked query for block 0x%lx",
@@ -1037,10 +1038,10 @@ uchar *query_cache_query_get_key(const uchar *record, size_t *length,
 /**
   libmysql convenience wrapper to insert data into query cache.
 */
-void query_cache_insert(const char *packet, ulong length,
+void query_cache_insert(void *thd_arg, const char *packet, ulong length,
                         unsigned pkt_nr)
 {
-  THD *thd= current_thd;
+  THD *thd= (THD*) thd_arg;
 
   /*
     Current_thd can be NULL when a new connection is immediately ended
@@ -1052,7 +1053,7 @@ void query_cache_insert(const char *packet, ulong length,
   if (!thd)
     return;
 
-  query_cache.insert(&thd->query_cache_tls,
+  query_cache.insert(thd, &thd->query_cache_tls,
                      packet, length,
                      pkt_nr);
 }
@@ -1063,7 +1064,7 @@ void query_cache_insert(const char *packet, ulong length,
 */
 
 void
-Query_cache::insert(Query_cache_tls *query_cache_tls,
+Query_cache::insert(THD *thd, Query_cache_tls *query_cache_tls,
                     const char *packet, ulong length,
                     unsigned pkt_nr)
 {
@@ -1073,15 +1074,13 @@ Query_cache::insert(Query_cache_tls *query_cache_tls,
   if (is_disabled() || query_cache_tls->first_query_block == NULL)
     DBUG_VOID_RETURN;
 
-  DBUG_ASSERT(current_thd);
-
   QC_DEBUG_SYNC("wait_in_query_cache_insert");
 
   /*
     Lock the cache with try_lock(). try_lock() will fail if
     cache was disabled between the above test and lock.
   */
-  if (try_lock(current_thd, Query_cache::WAIT))
+  if (try_lock(thd, Query_cache::WAIT))
     DBUG_VOID_RETURN;
 
   Query_cache_block *query_block = query_cache_tls->first_query_block;
@@ -1130,16 +1129,15 @@ Query_cache::insert(Query_cache_tls *query_cache_tls,
 
 
 void
-Query_cache::abort(Query_cache_tls *query_cache_tls)
+Query_cache::abort(THD *thd, Query_cache_tls *query_cache_tls)
 {
-  THD *thd;
   DBUG_ENTER("query_cache_abort");
 
   /* See the comment on double-check locking usage above. */
   if (is_disabled() || query_cache_tls->first_query_block == NULL)
     DBUG_VOID_RETURN;
 
-  if (try_lock(current_thd, Query_cache::WAIT))
+  if (try_lock(thd, Query_cache::WAIT))
     DBUG_VOID_RETURN;
 
   /*
@@ -1149,7 +1147,6 @@ Query_cache::abort(Query_cache_tls *query_cache_tls)
   Query_cache_block *query_block= query_cache_tls->first_query_block;
   if (query_block)
   {
-    thd= current_thd;
     THD_STAGE_INFO(thd, stage_storing_result_in_query_cache);
     DUMP(this);
     BLOCK_LOCK_WR(query_block);
@@ -1181,12 +1178,12 @@ void Query_cache::end_of_result(THD *thd)
 
   if (thd->killed)
   {
-    query_cache_abort(&thd->query_cache_tls);
+    query_cache_abort(thd, &thd->query_cache_tls);
     DBUG_VOID_RETURN;
   }
 
 #ifdef EMBEDDED_LIBRARY
-  insert(query_cache_tls, (char*)thd,
+  insert(thd, query_cache_tls, (char*)thd,
                      emb_count_querycache_size(thd), 0);
 #endif
 
@@ -1230,6 +1227,7 @@ void Query_cache::end_of_result(THD *thd)
       query_cache.split_block(last_result_block,len);
 
     header->found_rows(limit_found_rows);
+    header->set_results_ready(); // signal for plugin
     header->result()->type= Query_cache_block::RESULT;
 
     /* Drop the writer. */
@@ -1299,14 +1297,6 @@ ulong Query_cache::resize(ulong query_cache_size_arg)
 			query_cache_size_arg));
   DBUG_ASSERT(initialized);
 
-  if (global_system_variables.query_cache_type == 0)
-  {
-    DBUG_ASSERT(query_cache_size_arg == 0);
-    if (query_cache_size_arg != 0)
-      my_error(ER_QUERY_CACHE_IS_DISABLED, MYF(0));
-    DBUG_RETURN(0);
-  }
-
   lock_and_suspend();
 
   /*
@@ -1344,7 +1334,7 @@ ulong Query_cache::resize(ulong query_cache_size_arg)
     m_cache_status is internal query cache switch so switching it on/off
     will not be reflected on global_system_variables.query_cache_type
   */
-  if (new_query_cache_size)
+  if (new_query_cache_size && global_system_variables.query_cache_type != 0)
   {
     DBUG_EXECUTE("check_querycache",check_integrity(1););
     m_cache_status= OK;                         // size > 0 => enable cache
@@ -1392,6 +1382,21 @@ void Query_cache::store_query(THD *thd, TABLE_LIST *tables_used)
     DBUG_PRINT("qcache", ("Ignoring not SELECT command"));
     DBUG_VOID_RETURN;
   }
+
+  /*
+    Do not store queries while tracking transaction state.
+    The tracker already flags queries that actually have
+    transaction tracker items, but this will make behavior
+    more straight forward.
+  */
+#ifndef EMBEDDED_LIBRARY
+  if (thd->variables.session_track_transaction_info != TX_TRACK_NONE)
+  {
+    DBUG_PRINT("qcache", ("Do not work with transaction tracking"));
+    DBUG_VOID_RETURN;
+  }
+#endif //EMBEDDED_LIBRARY
+
 
   /* The following assert fails if we haven't called send_result_to_client */
   DBUG_ASSERT(thd->base_query.is_alloced() ||
@@ -1731,6 +1736,20 @@ Query_cache::send_result_to_client(THD *thd, char *org_sql, uint query_length)
     goto err;
   }
 
+  /*
+    Don't allow serving from Query_cache while tracking transaction
+    state. This is a safeguard in case an otherwise matching query
+    was added to the cache before tracking was turned on.
+  */
+#ifndef EMBEDDED_LIBRARY
+  if (thd->variables.session_track_transaction_info != TX_TRACK_NONE)
+  {
+    DBUG_PRINT("qcache", ("Do not work with transaction tracking"));
+    goto err;
+  }
+#endif //EMBEDDED_LIBRARY
+
+
   thd->query_cache_is_applicable= 1;
   sql= org_sql; sql_end= sql + query_length;
 
@@ -1945,6 +1964,13 @@ def_week_frmt: %lu, in_trans: %d, autocommit: %d",
                           (int)flags.autocommit));
   memcpy((uchar *)(sql + (tot_length - QUERY_CACHE_FLAGS_SIZE)),
 	 (uchar*) &flags, QUERY_CACHE_FLAGS_SIZE);
+
+#ifdef WITH_WSREP
+  bool once_more;
+  once_more= true;
+lookup:
+#endif /* WITH_WSREP */
+
   query_block = (Query_cache_block *)  my_hash_search(&queries, (uchar*) sql,
                                                       tot_length);
   /* Quick abort on unlocked data */
@@ -1956,6 +1982,19 @@ def_week_frmt: %lu, in_trans: %d, autocommit: %d",
     goto err_unlock;
   }
   DBUG_PRINT("qcache", ("Query in query hash 0x%lx", (ulong)query_block));
+
+#ifdef WITH_WSREP
+  if (once_more && WSREP_CLIENT(thd) && wsrep_must_sync_wait(thd))
+  {
+    unlock();
+    if (wsrep_sync_wait(thd))
+      goto err;
+    if (try_lock(thd, Query_cache::TIMEOUT))
+      goto err;
+    once_more= false;
+    goto lookup;
+  }
+#endif /* WITH_WSREP */
 
   /* Now lock and test that nothing changed while blocks was unlocked */
   BLOCK_LOCK_RD(query_block);
@@ -1991,36 +2030,32 @@ def_week_frmt: %lu, in_trans: %d, autocommit: %d",
   for (; block_table != block_table_end; block_table++)
   {
     TABLE_LIST table_list;
-    TABLE *tmptable;
+    TMP_TABLE_SHARE *tmptable;
     Query_cache_table *table = block_table->parent;
 
     /*
-      Check that we have not temporary tables with same names of tables
-      of this query. If we have such tables, we will not send data from
-      query cache, because temporary tables hide real tables by which
+      Check that we do not have temporary tables with same names as that of
+      base tables from this query. If we have such tables, we will not send
+      data from query cache, because temporary tables hide real tables by which
       query in query cache was made.
     */
-    for (tmptable= thd->temporary_tables; tmptable ; tmptable= tmptable->next)
+    if ((tmptable=
+         thd->find_tmp_table_share_w_base_key((char *) table->data(),
+                                              table->key_length())))
     {
-      if (tmptable->s->table_cache_key.length - TMP_TABLE_KEY_EXTRA == 
-          table->key_length() &&
-          !memcmp(tmptable->s->table_cache_key.str, table->data(),
-                  table->key_length()))
-      {
-        DBUG_PRINT("qcache",
-                   ("Temporary table detected: '%s.%s'",
-                    tmptable->s->db.str, tmptable->alias.c_ptr()));
-        unlock();
-        /*
-          We should not store result of this query because it contain
-          temporary tables => assign following variable to make check
-          faster.
-        */
-        thd->query_cache_is_applicable= 0;      // Query can't be cached
-        thd->lex->safe_to_cache_query= 0;       // For prepared statements
-        BLOCK_UNLOCK_RD(query_block);
-        DBUG_RETURN(-1);
-      }
+      DBUG_PRINT("qcache",
+                 ("Temporary table detected: '%s.%s'",
+                  tmptable->db.str, tmptable->table_name.str));
+      unlock();
+      /*
+        We should not store result of this query because it contain
+        temporary tables => assign following variable to make check
+        faster.
+      */
+      thd->query_cache_is_applicable= 0;        // Query can't be cached
+      thd->lex->safe_to_cache_query= 0;         // For prepared statements
+      BLOCK_UNLOCK_RD(query_block);
+      DBUG_RETURN(-1);
     }
 
     bzero((char*) &table_list,sizeof(table_list));
@@ -2352,7 +2387,7 @@ void Query_cache::invalidate(THD *thd, char *db)
           }
           /* 
             The used tables are linked in a circular list;
-            loop until we return to the begining.
+            loop until we return to the beginning.
           */
         } while (table_block != tables_blocks);
         /*
@@ -3293,7 +3328,7 @@ Query_cache::invalidate_query_block_list(THD *thd,
 }
 
 /*
-  Register given table list begining with given position in tables table of
+  Register given table list beginning with given position in tables table of
   block
 
   SYNOPSIS
@@ -3338,8 +3373,8 @@ Query_cache::register_tables_from_list(THD *thd, TABLE_LIST *tables_used,
       /*
         There are not callback function for for VIEWs
       */
-      if (!insert_table(key_length, key, (*block_table),
-                        tables_used->view_db.length + 1, 0,
+      if (!insert_table(thd, key_length, key, (*block_table),
+                        tables_used->view_db.length, 0,
                         HA_CACHE_TBL_NONTRANSACT, 0, 0, TRUE))
         DBUG_RETURN(0);
       /*
@@ -3357,7 +3392,7 @@ Query_cache::register_tables_from_list(THD *thd, TABLE_LIST *tables_used,
                   (ulong) tables_used->table->s->table_cache_key.length,
                   (ulong) tables_used->table->s->table_cache_key.str));
 
-      if (!insert_table(tables_used->table->s->table_cache_key.length,
+      if (!insert_table(thd, tables_used->table->s->table_cache_key.length,
                         tables_used->table->s->table_cache_key.str,
                         (*block_table),
                         tables_used->db_length, 0,
@@ -3423,7 +3458,7 @@ my_bool Query_cache::register_all_tables(THD *thd,
 */
 
 my_bool
-Query_cache::insert_table(uint key_len, const char *key,
+Query_cache::insert_table(THD *thd, uint key_len, const char *key,
 			  Query_cache_block_table *node,
 			  uint32 db_length, uint8 suffix_length_arg,
                           uint8 cache_type,
@@ -3434,8 +3469,6 @@ Query_cache::insert_table(uint key_len, const char *key,
   DBUG_ENTER("Query_cache::insert_table");
   DBUG_PRINT("qcache", ("insert table node 0x%lx, len %d",
 		      (ulong)node, key_len));
-
-  THD *thd= current_thd;
 
   Query_cache_block *table_block=
     (hash ?
@@ -4338,7 +4371,7 @@ my_bool Query_cache::move_by_type(uchar **border,
     {
       Query_cache_block_table *block_table = new_block->table(j);
 
-      // use aligment from begining of table if 'next' is in same block
+      // use aligment from beginning of table if 'next' is in same block
       if ((beg_of_table_table <= block_table->next) &&
 	  (block_table->next < end_of_table_table))
 	((Query_cache_block_table *)(beg_of_new_table_table + 
@@ -4348,7 +4381,7 @@ my_bool Query_cache::move_by_type(uchar **border,
       else
 	block_table->next->prev= block_table;
 
-      // use aligment from begining of table if 'prev' is in same block
+      // use aligment from beginning of table if 'prev' is in same block
       if ((beg_of_table_table <= block_table->prev) &&
 	  (block_table->prev < end_of_table_table))
 	((Query_cache_block_table *)(beg_of_new_table_table + 
@@ -4845,7 +4878,7 @@ my_bool Query_cache::check_integrity(bool locked)
       if (((uchar*)block) + block->length != ((uchar*)block->pnext))
       {
 	DBUG_PRINT("error", 
-		   ("block 0x%lx, type %u, ended at 0x%lx, but next block begining at 0x%lx",
+		   ("block 0x%lx, type %u, ended at 0x%lx, but next block beginning at 0x%lx",
 		    (ulong) block, (uint) block->type, 
 		    (ulong) (((uchar*)block) + block->length),
 		    (ulong) ((uchar*)block->pnext)));

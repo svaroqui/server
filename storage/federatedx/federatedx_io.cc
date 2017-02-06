@@ -28,8 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 /*#define MYSQL_SERVER 1*/
+#include <my_global.h>
 #include "sql_priv.h"
-#include <mysql/plugin.h>
 
 #include "ha_federatedx.h"
 
@@ -53,8 +53,6 @@ static const io_schemes_st federated_io_schemes[] =
   { "mysql", &instantiate_io_mysql },
   { "null", instantiate_io_null } /* must be last element */
 };
-
-const uint federated_io_schemes_count= array_elements(federated_io_schemes);
 
 federatedx_io::federatedx_io(FEDERATEDX_SERVER *aserver)
   : server(aserver), owner_ptr(0), txn_next(0), idle_next(0),

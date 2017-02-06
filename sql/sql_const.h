@@ -17,11 +17,13 @@
   @file
   File containing constants that can be used throughout the server.
 
-  @note This file shall not contain any includes of any kinds.
+  @note This file shall not contain or include any declarations of any kinds.
 */
 
 #ifndef SQL_CONST_INCLUDED
 #define SQL_CONST_INCLUDED
+
+#include <mysql_version.h>
 
 #define LIBLEN FN_REFLEN-FN_LEN			/* Max l{ngd p} dev */
 /* extra 4+4 bytes for slave tmp tables */
@@ -99,6 +101,8 @@
 #define DISK_BUFFER_SIZE	(uint) (IO_SIZE*16) /* Size of diskbuffer */
 
 #define FRM_VER_TRUE_VARCHAR (FRM_VER+4) /* 10 */
+#define FRM_VER_EXPRESSSIONS (FRM_VER+5) /* 11 */
+#define FRM_VER_CURRENT  FRM_VER_EXPRESSSIONS
 
 /***************************************************************************
   Configuration parameters
@@ -111,7 +115,7 @@
 #define MAX_FIELDS_BEFORE_HASH	32
 #define USER_VARS_HASH_SIZE     16
 #define TABLE_OPEN_CACHE_MIN    400
-#define TABLE_OPEN_CACHE_DEFAULT 400
+#define TABLE_OPEN_CACHE_DEFAULT 2000
 #define TABLE_DEF_CACHE_DEFAULT 400
 /**
   We must have room for at least 400 table definitions in the table
@@ -142,15 +146,15 @@
 */
 #define STACK_MIN_SIZE          16000   // Abort if less stack during eval.
 
-#define STACK_MIN_SIZE_FOR_OPEN 1024*80
+#define STACK_MIN_SIZE_FOR_OPEN (1024*80)
 #define STACK_BUFF_ALLOC        352     ///< For stack overrun checks
 #ifndef MYSQLD_NET_RETRY_COUNT
 #define MYSQLD_NET_RETRY_COUNT  10	///< Abort read after this many int.
 #endif
 
-#define QUERY_ALLOC_BLOCK_SIZE		8192
-#define QUERY_ALLOC_PREALLOC_SIZE   	8192
-#define TRANS_ALLOC_BLOCK_SIZE		4096
+#define QUERY_ALLOC_BLOCK_SIZE		16384
+#define QUERY_ALLOC_PREALLOC_SIZE   	24576
+#define TRANS_ALLOC_BLOCK_SIZE		8192
 #define TRANS_ALLOC_PREALLOC_SIZE	4096
 #define RANGE_ALLOC_BLOCK_SIZE		4096
 #define ACL_ALLOC_BLOCK_SIZE		1024
@@ -233,12 +237,14 @@
   that does not respond to "initial server greeting" timely
 */
 #define CONNECT_TIMEOUT		10
+ /* Wait 5 minutes before removing thread from thread cache */
+#define THREAD_CACHE_TIMEOUT	5*60
 
 /* The following can also be changed from the command line */
 #define DEFAULT_CONCURRENCY	10
 #define DELAYED_LIMIT		100		/**< pause after xxx inserts */
 #define DELAYED_QUEUE_SIZE	1000
-#define DELAYED_WAIT_TIMEOUT	5*60		/**< Wait for delayed insert */
+#define DELAYED_WAIT_TIMEOUT	(5*60)		/**< Wait for delayed insert */
 #define MAX_CONNECT_ERRORS	100		///< errors before disabling host
 
 #define LONG_TIMEOUT ((ulong) 3600L*24L*365L)

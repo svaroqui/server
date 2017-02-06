@@ -1,11 +1,11 @@
 /************* RelDef CPP Program Source Code File (.CPP) **************/
-/* PROGRAM NAME: REFDEF                                                */
+/* PROGRAM NAME: RELDEF                                                */
 /* -------------                                                       */
-/*  Version 1.4                                                        */
+/*  Version 1.5                                                        */
 /*                                                                     */
 /* COPYRIGHT:                                                          */
 /* ----------                                                          */
-/*  (C) Copyright to the author Olivier BERTRAND          2004-2014    */
+/*  (C) Copyright to the author Olivier BERTRAND          2004-2016    */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -17,7 +17,7 @@
 /*  Include relevant MariaDB header file.                              */
 /***********************************************************************/
 #include "my_global.h"
-#if defined(WIN32)
+#if defined(__WIN__)
 #include <sqlext.h>
 #else
 #include <dlfcn.h>          // dlopen(), dlclose(), dlsym() ...
@@ -35,9 +35,9 @@
 /***********************************************************************/
 #include "global.h"
 #include "plgdbsem.h"
-#include "mycat.h"
 #include "reldef.h"
 #include "colblk.h"
+#include "tabcol.h"
 #include "filamap.h"
 #include "filamfix.h"
 #include "filamvct.h"
@@ -48,9 +48,17 @@
 #include "valblk.h"
 #include "tabmul.h"
 #include "ha_connect.h"
+#include "mycat.h"
 
-extern "C" int     trace;
-extern "C" USETEMP Use_Temp;
+#if !defined(__WIN__)
+extern handlerton *connect_hton;
+#endif   // !__WIN__
+
+/***********************************************************************/
+/*  External function.                                                 */
+/***********************************************************************/
+USETEMP UseTemp(void);
+char   *GetPluginDir(void);
 
 /* --------------------------- Class RELDEF -------------------------- */
 
@@ -66,6 +74,14 @@ RELDEF::RELDEF(void)
   Cat = NULL;
   Hc = NULL;
   } // end of RELDEF constructor
+
+/***********************************************************************/
+/*  This function return a pointer to the Table Option Struct.         */
+/***********************************************************************/
+PTOS RELDEF::GetTopt(void)
+	{
+	return Hc->GetTableOptionStruct();
+	} // end of GetTopt
 
 /***********************************************************************/
 /*  This function sets an integer table information.                   */
@@ -147,10 +163,9 @@ char *RELDEF::GetStringCatInfo(PGLOBAL g, PSZ what, PSZ sdef)
 	if (s) {
     if (!Hc->IsPartitioned() ||
         (stricmp(what, "filename") && stricmp(what, "tabname")
-                                   && stricmp(what, "connect"))) {
-		  sval= (char*)PlugSubAlloc(g, NULL, strlen(s) + 1);
-		  strcpy(sval, s);
-    } else
+                                   && stricmp(what, "connect")))
+		  sval= PlugDup(g, s);
+    else
       sval= s;
 
   } else if (!stricmp(what, "filename")) {
@@ -196,17 +211,20 @@ TABDEF::TABDEF(void)
   Degree = 0;
   Pseudo = 0;
   Read_Only = false;
+  m_data_charset = NULL;
+  csname = NULL;
   } // end of TABDEF constructor
 
 /***********************************************************************/
 /*  Define: initialize the table definition block from XDB file.       */
 /***********************************************************************/
-bool TABDEF::Define(PGLOBAL g, PCATLG cat, LPCSTR name, LPCSTR am)
+bool TABDEF::Define(PGLOBAL g, PCATLG cat, 
+	                  LPCSTR name, LPCSTR schema, LPCSTR am)
   {
   int   poff = 0;
 
-  Name = (PSZ)PlugSubAlloc(g, NULL, strlen(name) + 1);
-  strcpy(Name, name);
+  Name = (PSZ)name;
+	Schema = (PSZ)schema;
   Cat = cat;
   Hc = ((MYCAT*)cat)->GetHandler();
   Catfunc = GetFuncID(GetStringCatInfo(g, "Catfunc", NULL));
@@ -218,6 +236,7 @@ bool TABDEF::Define(PGLOBAL g, PCATLG cat, LPCSTR name, LPCSTR am)
   m_data_charset= data_charset_name ?
                   get_charset_by_csname(data_charset_name, MY_CS_PRIMARY, 0):
                   NULL;
+  csname = GetStringCatInfo(g, "Table_charset", NULL);
 
   // Get The column definitions
   if ((poff = GetColCatInfo(g)) < 0)
@@ -232,7 +251,7 @@ bool TABDEF::Define(PGLOBAL g, PCATLG cat, LPCSTR name, LPCSTR am)
 /***********************************************************************/
 PSZ TABDEF::GetPath(void)
   {
-  return (Database) ? (PSZ)Database : Hc->GetDataPath();
+  return (Database) ? (PSZ)Database : (Hc) ? Hc->GetDataPath() : NULL;
   } // end of GetPath
 
 /***********************************************************************/
@@ -241,7 +260,8 @@ PSZ TABDEF::GetPath(void)
 int TABDEF::GetColCatInfo(PGLOBAL g)
 	{
 	char		*type= GetStringCatInfo(g, "Type", "*");
-	int      i, loff, poff, nof, nlg;
+  char     c, fty, eds;
+	int      i, n, loff, poff, nof, nlg;
 	void    *field= NULL;
   TABTYPE  tc;
   PCOLDEF  cdp, lcdp= NULL, tocols= NULL;
@@ -274,7 +294,7 @@ int TABDEF::GetColCatInfo(PGLOBAL g)
 				nlg+= nof;
       case TAB_DIR:
       case TAB_XML:
-        poff= loff + 1;
+				poff= loff + (pcf->Flags & U_VIRTUAL ? 0 : 1);
         break;
       case TAB_INI:
       case TAB_MAC:
@@ -285,7 +305,7 @@ int TABDEF::GetColCatInfo(PGLOBAL g)
       case TAB_OEM:
         poff = 0;      // Offset represents an independant flag
         break;
-      default:         // VCT PLG ODBC MYSQL WMI...
+      default:         // VCT PLG ODBC JDBC MYSQL WMI...
         poff = 0;			 // NA
         break;
 			} // endswitch tc
@@ -308,7 +328,7 @@ int TABDEF::GetColCatInfo(PGLOBAL g)
 
     if ((nof= cdp->Define(g, NULL, pcf, poff)) < 0)
       return -1;						 // Error, probably unhandled type
-		else if (nof)
+		else
 			loff= cdp->GetOffset();
 
 		switch (tc) {
@@ -316,20 +336,52 @@ int TABDEF::GetColCatInfo(PGLOBAL g)
 				cdp->SetOffset(0);		 // Not to have shift
 			case TAB_BIN:
 				// BIN/VEC are packed by default
-				if (nof)
+        if (nof) {
 					// Field width is the internal representation width
 					// that can also depend on the column format
-					switch (cdp->Fmt ? *cdp->Fmt : 'X') {
-						case 'C':         break;
+          fty = cdp->Decode ? 'C' : 'X';
+          eds = 0;
+          n = 0;
+
+          if (cdp->Fmt && !cdp->Decode) {
+            for (i = 0; cdp->Fmt[i]; i++) {
+              c = toupper(cdp->Fmt[i]);
+
+              if (isdigit(c))
+                n = (n * 10 + (c - '0'));
+              else if (c == 'L' || c == 'B' || c == 'H')
+                eds = c;
+              else
+                fty = c;
+
+              } // endfor i
+
+          } // endif Fmt
+
+          if (n)
+            nof = n;
+          else switch (fty) {
+						case 'X':
+              if (eds && IsTypeChar(cdp->Buf_Type))
+                nof = sizeof(longlong);
+              else
+                nof= cdp->Clen;
+
+              break;
+						case 'C':                         break;
 						case 'R':
-						case 'F':
-						case 'L':
-						case 'I':	nof= 4; break;
-						case 'D':	nof= 8; break;
-						case 'S':	nof= 2; break;
-						case 'T':	nof= 1; break;
-						default:  nof= cdp->Clen;
-						} // endswitch Fmt
+						case 'F': nof = sizeof(float);    break;
+						case 'I':	nof = sizeof(int);      break;
+						case 'D':	nof = sizeof(double);   break;
+						case 'S':	nof = sizeof(short);    break;
+						case 'T':	nof = sizeof(char);     break;
+						case 'G':	nof = sizeof(longlong); break;
+						default:  /* Wrong format */
+              sprintf(g->Message, "Invalid format %c", fty);
+              return -1;
+						} // endswitch fty
+
+          } // endif nof
 
       default:
 				break;
@@ -355,20 +407,16 @@ int TABDEF::GetColCatInfo(PGLOBAL g)
 		// not specified (for instance if quoted is specified)
 //	if ((ending= Hc->GetIntegerOption("Ending")) < 0) {
 		if ((ending= Hc->GetIntegerOption("Ending")) <= 0) {
-#if defined(WIN32)
-			ending= 2;
-#else
-			ending= 1;
-#endif
+      ending= (tc == TAB_BIN || tc == TAB_VEC) ? 0 : CRLF;
 			Hc->SetIntegerOption("Ending", ending);
 			} // endif ending
 
 		// Calculate the default record size
 		switch (tc) {
       case TAB_FIX:
+      case TAB_BIN:
         recln= nlg + ending;     // + length of line ending
         break;
-      case TAB_BIN:
       case TAB_VEC:
         recln= nlg;
 	
@@ -392,7 +440,11 @@ int TABDEF::GetColCatInfo(PGLOBAL g)
       } // endswitch tc
 
 		// lrecl must be at least recln to avoid buffer overflow
-		recln= MY_MAX(recln, Hc->GetIntegerOption("Lrecl"));
+		if (trace)
+			htrc("Lrecl: Calculated=%d defined=%d\n", 
+			  recln, Hc->GetIntegerOption("Lrecl"));
+
+		recln = MY_MAX(recln, Hc->GetIntegerOption("Lrecl"));
 		Hc->SetIntegerOption("Lrecl", recln);
 		((PDOSDEF)this)->SetLrecl(recln);
 		} // endif Lrecl
@@ -419,20 +471,31 @@ void TABDEF::SetIndexInfo(void)
 PTABDEF OEMDEF::GetXdef(PGLOBAL g)
   {
   typedef PTABDEF (__stdcall *XGETDEF) (PGLOBAL, void *);
-  char    c, getname[40] = "Get";
+  char    c, soname[_MAX_PATH], getname[40] = "Get";
   PTABDEF xdefp;
   XGETDEF getdef = NULL;
   PCATLG  cat = Cat;
 
-#if defined(WIN32)
+  /*********************************************************************/
+  /*  Ensure that the .dll doesn't have a path.                        */
+  /*  This is done to ensure that only approved dll from the system    */
+  /*  directories are used (to make this even remotely secure).        */
+  /*********************************************************************/
+  if (check_valid_path(Module, strlen(Module))) {
+    strcpy(g->Message, "Module cannot contain a path");
+    return NULL;
+  } else
+    PlugSetPath(soname, Module, GetPluginDir());
+    
+#if defined(__WIN__)
   // Is the DLL already loaded?
-  if (!Hdll && !(Hdll = GetModuleHandle(Module)))
+  if (!Hdll && !(Hdll = GetModuleHandle(soname)))
     // No, load the Dll implementing the function
-    if (!(Hdll = LoadLibrary(Module))) {
+    if (!(Hdll = LoadLibrary(soname))) {
       char  buf[256];
       DWORD rc = GetLastError();
 
-      sprintf(g->Message, MSG(DLL_LOAD_ERROR), rc, Module);
+      sprintf(g->Message, MSG(DLL_LOAD_ERROR), rc, soname);
       FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
                     FORMAT_MESSAGE_IGNORE_INSERTS, NULL, rc, 0,
                     (LPTSTR)buf, sizeof(buf), NULL);
@@ -453,16 +516,35 @@ PTABDEF OEMDEF::GetXdef(PGLOBAL g)
     FreeLibrary((HMODULE)Hdll);
     return NULL;
     } // endif getdef
-#else   // !WIN32
+#else   // !__WIN__
   const char *error = NULL;
-  // Is the library already loaded?
-//  if (!Hdll && !(Hdll = ???))
-  // Load the desired shared library
-  if (!(Hdll = dlopen(Module, RTLD_LAZY))) {
+    
+#if 0  // Don't know what all this stuff does
+	Dl_info dl_info;
+
+	// The OEM lib must retrieve exported CONNECT variables
+  if (dladdr(&connect_hton, &dl_info)) {
+    if (dlopen(dl_info.dli_fname, RTLD_NOLOAD | RTLD_NOW | RTLD_GLOBAL) == 0) {
+      error = dlerror();
+      sprintf(g->Message, "dlopen failed: %s, OEM not supported", SVP(error));
+      return NULL;
+      } // endif dlopen
+    
+  } else {
     error = dlerror();
-    sprintf(g->Message, MSG(SHARED_LIB_ERR), Module, SVP(error));
+    sprintf(g->Message, "dladdr failed: %s, OEM not supported", SVP(error));
     return NULL;
-    } // endif Hdll
+  } // endif dladdr
+#endif // 0
+
+  // Is the library already loaded?
+  if (!Hdll)
+    // Load the desired shared library
+    if (!(Hdll = dlopen(soname, RTLD_LAZY))) {
+      error = dlerror();
+      sprintf(g->Message, MSG(SHARED_LIB_ERR), soname, SVP(error));
+      return NULL;
+      } // endif Hdll
 
   // The exported name is always in uppercase
   for (int i = 0; ; i++) {
@@ -478,7 +560,7 @@ PTABDEF OEMDEF::GetXdef(PGLOBAL g)
     dlclose(Hdll);
     return NULL;
     } // endif getdef
-#endif  // !WIN32
+#endif  // !__WIN__
 
   // Just in case the external Get function does not set error messages
   sprintf(g->Message, MSG(DEF_ALLOC_ERROR), Subtype);
@@ -495,7 +577,7 @@ PTABDEF OEMDEF::GetXdef(PGLOBAL g)
     } // endif Cbuf
 
   // Here "OEM" should be replace by a more useful value
-  if (xdefp->Define(g, cat, Name, "OEM"))
+  if (xdefp->Define(g, cat, Name, Schema, "OEM"))
     return NULL;
 
   // Ok, return external block
@@ -518,7 +600,7 @@ bool OEMDEF::DeleteTableFile(PGLOBAL g)
 /***********************************************************************/
 /*  Define: initialize the table definition block from XDB file.       */
 /***********************************************************************/
-bool OEMDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
+bool OEMDEF::DefineAM(PGLOBAL g, LPCSTR, int)
   {
   Module = GetStringCatInfo(g, "Module", "");
   Subtype = GetStringCatInfo(g, "Subtype", Module);
@@ -571,7 +653,7 @@ PTDB OEMDEF::GetTable(PGLOBAL g, MODE mode)
   PTXF    txfp = NULL;
   PDOSDEF defp = (PDOSDEF)Pxdef;
   bool    map = defp->Mapped && mode != MODE_INSERT &&
-                !(Use_Temp == TMP_FORCE &&
+                !(UseTemp() == TMP_FORCE &&
                 (mode == MODE_UPDATE || mode == MODE_DELETE));
   int     cmpr = defp->Compressed;
 
@@ -685,10 +767,9 @@ COLDEF::COLDEF(void) : COLCRT()
 /***********************************************************************/
 /*  Define: initialize a column definition from a COLINFO structure.   */
 /***********************************************************************/
-int COLDEF::Define(PGLOBAL g, void *memp, PCOLINFO cfp, int poff)
+int COLDEF::Define(PGLOBAL g, void *, PCOLINFO cfp, int poff)
   {
-  Name = (PSZ)PlugSubAlloc(g, memp, strlen(cfp->Name) + 1);
-  strcpy(Name, cfp->Name);
+  Name = (PSZ)PlugDup(g, cfp->Name);
 
   if (!(cfp->Flags & U_SPECIAL)) {
     Poff = poff;
@@ -710,22 +791,17 @@ int COLDEF::Define(PGLOBAL g, void *memp, PCOLINFO cfp, int poff)
     Key = cfp->Key;
     Freq = cfp->Freq;
 
-    if (cfp->Remark && *cfp->Remark) {
-      Desc = (PSZ)PlugSubAlloc(g, memp, strlen(cfp->Remark) + 1);
-      strcpy(Desc, cfp->Remark);
-      } // endif Remark
+    if (cfp->Remark && *cfp->Remark)
+      Desc = (PSZ)PlugDup(g, cfp->Remark);
 
-    if (cfp->Datefmt) {
-      Decode = (PSZ)PlugSubAlloc(g, memp, strlen(cfp->Datefmt) + 1);
-      strcpy(Decode, cfp->Datefmt);
-      } // endif Datefmt
+    if (cfp->Datefmt)
+      Decode = (PSZ)PlugDup(g, cfp->Datefmt);
 
-    } // endif special
+  } else
+    Offset = poff;
 
-  if (cfp->Fieldfmt) {
-    Fmt = (PSZ)PlugSubAlloc(g, memp, strlen(cfp->Fieldfmt) + 1);
-    strcpy(Fmt, cfp->Fieldfmt);
-    } // endif Fieldfmt
+  if (cfp->Fieldfmt)
+    Fmt = (PSZ)PlugDup(g, cfp->Fieldfmt);
 
   Flags = cfp->Flags;
   return (Flags & (U_VIRTUAL|U_SPECIAL)) ? 0 : Long;

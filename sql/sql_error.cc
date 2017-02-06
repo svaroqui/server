@@ -41,6 +41,7 @@ This file contains the implementation of error and warnings related
 
 ***********************************************************************/
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_error.h"
@@ -319,7 +320,7 @@ Sql_condition::set_sqlstate(const char* sqlstate)
 }
 
 Diagnostics_area::Diagnostics_area(bool initialize)
-  : m_main_wi(0, false, initialize)
+  : is_bulk_execution(0), m_main_wi(0, false, initialize)
 {
   push_warning_info(&m_main_wi);
 
@@ -329,7 +330,8 @@ Diagnostics_area::Diagnostics_area(bool initialize)
 Diagnostics_area::Diagnostics_area(ulonglong warning_info_id,
                                    bool allow_unlimited_warnings,
                                    bool initialize)
-  : m_main_wi(warning_info_id, allow_unlimited_warnings, initialize)
+  : is_bulk_execution(0),
+  m_main_wi(warning_info_id, allow_unlimited_warnings, initialize)
 {
   push_warning_info(&m_main_wi);
 
@@ -346,6 +348,7 @@ void
 Diagnostics_area::reset_diagnostics_area()
 {
   DBUG_ENTER("reset_diagnostics_area");
+  m_skip_flush= FALSE;
 #ifdef DBUG_OFF
   m_can_overwrite_status= FALSE;
   /** Don't take chances in production */
@@ -374,22 +377,33 @@ Diagnostics_area::set_ok_status(ulonglong affected_rows,
                                 const char *message)
 {
   DBUG_ENTER("set_ok_status");
-  DBUG_ASSERT(! is_set());
+  DBUG_ASSERT(!is_set() || (m_status == DA_OK_BULK && is_bulk_op()));
   /*
     In production, refuse to overwrite an error or a custom response
     with an OK packet.
   */
   if (is_error() || is_disabled())
     return;
-
-  m_statement_warn_count= current_statement_warn_count();
-  m_affected_rows= affected_rows;
+  /*
+    When running a bulk operation, m_status will be DA_OK for the first
+    operation and set to DA_OK_BULK for all following operations.
+  */
+  if (m_status == DA_OK_BULK)
+  {
+    m_statement_warn_count+= current_statement_warn_count();
+    m_affected_rows+= affected_rows;
+  }
+  else
+  {
+    m_statement_warn_count= current_statement_warn_count();
+    m_affected_rows= affected_rows;
+    m_status= (is_bulk_op() ? DA_OK_BULK : DA_OK);
+  }
   m_last_insert_id= last_insert_id;
   if (message)
     strmake_buf(m_message, message);
   else
     m_message[0]= '\0';
-  m_status= DA_OK;
   DBUG_VOID_RETURN;
 }
 
@@ -509,8 +523,10 @@ Diagnostics_area::set_error_status(uint sql_errno,
 void
 Diagnostics_area::disable_status()
 {
+  DBUG_ENTER("disable_status");
   DBUG_ASSERT(! is_set());
   m_status= DA_DISABLED;
+  DBUG_VOID_RETURN;
 }
 
 Warning_info::Warning_info(ulonglong warn_id_arg,
@@ -813,23 +829,30 @@ const LEX_STRING warning_level_names[]=
 bool mysqld_show_warnings(THD *thd, ulong levels_to_show)
 {
   List<Item> field_list;
-  DBUG_ENTER("mysqld_show_warnings");
-
-  DBUG_ASSERT(thd->get_stmt_da()->is_warning_info_read_only());
-
-  field_list.push_back(new Item_empty_string("Level", 7));
-  field_list.push_back(new Item_return_int("Code",4, MYSQL_TYPE_LONG));
-  field_list.push_back(new Item_empty_string("Message",MYSQL_ERRMSG_SIZE));
-
-  if (thd->protocol->send_result_set_metadata(&field_list,
-                                 Protocol::SEND_NUM_ROWS | Protocol::SEND_EOF))
-    DBUG_RETURN(TRUE);
-
+  MEM_ROOT *mem_root= thd->mem_root;
   const Sql_condition *err;
   SELECT_LEX *sel= &thd->lex->select_lex;
   SELECT_LEX_UNIT *unit= &thd->lex->unit;
   ulonglong idx= 0;
   Protocol *protocol=thd->protocol;
+  DBUG_ENTER("mysqld_show_warnings");
+
+  DBUG_ASSERT(thd->get_stmt_da()->is_warning_info_read_only());
+
+  field_list.push_back(new (mem_root)
+                       Item_empty_string(thd, "Level", 7),
+                       mem_root);
+  field_list.push_back(new (mem_root)
+                       Item_return_int(thd, "Code", 4, MYSQL_TYPE_LONG),
+                       mem_root);
+  field_list.push_back(new (mem_root)
+                       Item_empty_string(thd, "Message", MYSQL_ERRMSG_SIZE),
+                       mem_root);
+
+  if (protocol->send_result_set_metadata(&field_list,
+                                         Protocol::SEND_NUM_ROWS |
+                                         Protocol::SEND_EOF))
+    DBUG_RETURN(TRUE);
 
   unit->set_limit(sel);
 

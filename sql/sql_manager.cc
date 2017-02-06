@@ -21,9 +21,9 @@
  *   o Berkeley DB: removing unneeded log files.
  */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "sql_manager.h"
-#include "unireg.h"                    // REQUIRED: for other includes
 #include "sql_base.h"                           // flush_tables
 
 static bool volatile manager_thread_in_use;

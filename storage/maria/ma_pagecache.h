@@ -76,20 +76,32 @@ enum pagecache_write_mode
 /* page number for maria */
 typedef ulonglong pgcache_page_no_t;
 
+/* args for read/write hooks */
+typedef struct st_pagecache_io_hook_args
+{
+  uchar * page;
+  pgcache_page_no_t pageno;
+  uchar * data;
+
+  uchar *crypt_buf; /* when using encryption */
+} PAGECACHE_IO_HOOK_ARGS;
+
 /* file descriptor for Maria */
 typedef struct st_pagecache_file
 {
   File file;
+
   /** Cannot be NULL */
-  my_bool (*read_callback)(uchar *page, pgcache_page_no_t offset,
-                           uchar *data);
+  my_bool (*pre_read_hook)(PAGECACHE_IO_HOOK_ARGS *args);
+  my_bool (*post_read_hook)(int error, PAGECACHE_IO_HOOK_ARGS *args);
+
   /** Cannot be NULL */
-  my_bool (*write_callback)(uchar *page, pgcache_page_no_t offset,
-                            uchar *data);
-  void (*write_fail)(uchar *data);
+  my_bool (*pre_write_hook)(PAGECACHE_IO_HOOK_ARGS *args);
+  void (*post_write_hook)(int error, PAGECACHE_IO_HOOK_ARGS *args);
+
   /** Cannot be NULL */
-  my_bool (*flush_log_callback)(uchar *page, pgcache_page_no_t offset,
-                                uchar *data);
+  my_bool (*flush_log_callback)(PAGECACHE_IO_HOOK_ARGS *args);
+
   uchar *callback_data;
 } PAGECACHE_FILE;
 
@@ -119,21 +131,21 @@ typedef struct st_pagecache_hash_link PAGECACHE_HASH_LINK;
 typedef struct st_pagecache
 {
   size_t mem_size;               /* specified size of the cache memory       */
-  ulong min_warm_blocks;         /* min number of warm blocks;               */
-  ulong age_threshold;           /* age threshold for hot blocks             */
+  size_t min_warm_blocks;        /* min number of warm blocks;               */
+  size_t age_threshold;          /* age threshold for hot blocks             */
   ulonglong time;                /* total number of block link operations    */
-  ulong hash_entries;            /* max number of entries in the hash table  */
-  ulong changed_blocks_hash_size; /* Number of hash buckets for file blocks   */
-  long hash_links;               /* max number of hash links                 */
-  long hash_links_used;   /* number of hash links taken from free links pool */
-  long disk_blocks;              /* max number of blocks in the cache        */
-  ulong blocks_used;           /* maximum number of concurrently used blocks */
-  ulong blocks_unused;           /* number of currently unused blocks        */
-  ulong blocks_changed;          /* number of currently dirty blocks         */
-  ulong warm_blocks;             /* number of blocks in warm sub-chain       */
-  ulong cnt_for_resize_op;       /* counter to block resize operation        */
-  ulong blocks_available;     /* number of blocks available in the LRU chain */
-  long blocks;                   /* max number of blocks in the cache        */
+  size_t hash_entries;           /* max number of entries in the hash table  */
+  size_t changed_blocks_hash_size;/* Number of hash buckets for file blocks   */
+  ssize_t hash_links;            /* max number of hash links                 */
+  ssize_t hash_links_used;       /* number of hash links taken from free links pool */
+  ssize_t disk_blocks;           /* max number of blocks in the cache        */
+  size_t blocks_used;            /* maximum number of concurrently used blocks */
+  size_t blocks_unused;          /* number of currently unused blocks        */
+  size_t blocks_changed;         /* number of currently dirty blocks         */
+  size_t warm_blocks;            /* number of blocks in warm sub-chain       */
+  size_t cnt_for_resize_op;      /* counter to block resize operation        */
+  size_t blocks_available;       /* number of blocks available in the LRU chain */
+  ssize_t blocks;                /* max number of blocks in the cache        */
   uint32 block_size;             /* size of the page buffer of a cache block */
   PAGECACHE_HASH_LINK **hash_root;/* arr. of entries into hash table buckets */
   PAGECACHE_HASH_LINK *hash_link_root;/* memory for hash table links         */
@@ -158,12 +170,12 @@ typedef struct st_pagecache
   */
 
   ulonglong param_buff_size;    /* size the memory allocated for the cache  */
-  ulong param_block_size;       /* size of the blocks in the key cache      */
-  ulong param_division_limit;   /* min. percentage of warm blocks           */
-  ulong param_age_threshold;    /* determines when hot block is downgraded  */
+  size_t param_block_size;       /* size of the blocks in the key cache      */
+  size_t param_division_limit;   /* min. percentage of warm blocks           */
+  size_t param_age_threshold;    /* determines when hot block is downgraded  */
 
   /* Statistics variables. These are reset in reset_pagecache_counters().    */
-  ulong global_blocks_changed;	/* number of currently dirty blocks          */
+  size_t global_blocks_changed;	/* number of currently dirty blocks          */
   ulonglong global_cache_w_requests;/* number of write requests (write hits) */
   ulonglong global_cache_write;     /* number of writes from cache to files  */
   ulonglong global_cache_r_requests;/* number of read requests (read hits)   */
@@ -196,11 +208,11 @@ typedef enum pagecache_flush_filter_result
 /* The default key cache */
 extern PAGECACHE dflt_pagecache_var, *dflt_pagecache;
 
-extern ulong init_pagecache(PAGECACHE *pagecache, size_t use_mem,
+extern size_t init_pagecache(PAGECACHE *pagecache, size_t use_mem,
                             uint division_limit, uint age_threshold,
                             uint block_size, uint changed_blocks_hash_size,
                             myf my_read_flags);
-extern ulong resize_pagecache(PAGECACHE *pagecache,
+extern size_t resize_pagecache(PAGECACHE *pagecache,
                               size_t use_mem, uint division_limit,
                               uint age_threshold, uint changed_blocks_hash_size);
 extern void change_pagecache_param(PAGECACHE *pagecache, uint division_limit,
@@ -270,12 +282,8 @@ extern void pagecache_set_write_on_delete_by_link(PAGECACHE_BLOCK_LINK *block);
 /* PCFLUSH_ERROR and PCFLUSH_PINNED. */
 #define PCFLUSH_PINNED_AND_ERROR (PCFLUSH_ERROR|PCFLUSH_PINNED)
 
-#define pagecache_file_init(F,RC,WC,WF,GLC,D) \
-  do{ \
-    (F).read_callback= (RC); (F).write_callback= (WC); \
-    (F).write_fail= (WF); \
-    (F).flush_log_callback= (GLC); (F).callback_data= (uchar*)(D); \
-  } while(0)
+// initialize file with empty hooks
+void pagecache_file_set_null_hooks(PAGECACHE_FILE*);
 
 #define flush_pagecache_blocks(A,B,C)                   \
   flush_pagecache_blocks_with_filter(A,B,C,NULL,NULL)

@@ -31,9 +31,9 @@ Table	Create Table
 foo	CREATE TABLE `foo` (
   `a` int(11) DEFAULT NULL,
   `b` varchar(10) DEFAULT NULL,
-  `c` blob,
+  `c` blob DEFAULT NULL,
   KEY `b` (`b`)
-) ENGINE=TokuDB DEFAULT CHARSET=latin1 `compression`='tokudb_zlib'
+) ENGINE=TokuDB DEFAULT CHARSET=latin1
 select * from foo;
 a	b	c
 1	bb	cccc

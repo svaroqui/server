@@ -66,6 +66,7 @@
     <CustomAction Id="LaunchUrl" BinaryKey="WixCA" DllEntry="WixShellExec"  Execute="immediate" Return="check" Impersonate="yes" />
 
 
+
     <!-- 
       User interface dialogs 
      -->
@@ -460,11 +461,26 @@
       <!-- Data directory with some reasonable security settings -->
       <Component Id="C.datadir" Guid="*" Directory="DATADIR">
         <RegistryValue Root='HKLM'
-           Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@'
+           Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@'
            Name='DATADIR' Value='[DATADIR]' Type='string' KeyPath='yes'/>
+          <CreateFolder>
+            <util:PermissionEx User="NetworkService" GenericAll="yes" />
+          </CreateFolder>
+      </Component>
+
+      <Component Id="C.datadir.permissions" Directory="DATADIR">
+         <Condition>
+          <!--
+             Skip setting permissions for LogonUser, if package is installed by
+             service user (e.g LocalSystem)
+          -->
+          <![CDATA[ (UserSID <> "S-1-5-18") AND (UserSID <> "S-1-5-19") AND (UserSID <> "S-1-5-20") ]]>
+         </Condition>
+         <RegistryValue Root='HKLM'
+           Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@'
+           Name='InstalledBy' Value='[USER_DOMAIN]\[LogonUser]' Type='string' KeyPath='yes'/>
         <CreateFolder>
-          <util:PermissionEx User="[LogonUser]" GenericAll="yes" />
-          <util:PermissionEx User="NetworkService" GenericAll="yes" />
+          <util:PermissionEx User="[LogonUser]" Domain="[USER_DOMAIN]" GenericAll="yes" />
         </CreateFolder>
       </Component>
 
@@ -472,7 +488,7 @@
       <Component Id="C.service" Guid="*" Directory="DATADIR">
         <Condition>SERVICENAME</Condition>
         <RegistryValue Root='HKLM'
-           Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@'
+           Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@'
            Name='SERVICENAME' Value='[SERVICENAME]' Type='string' KeyPath='yes'/>
         <ServiceControl Id='DBInstanceServiceStop' Name='[SERVICENAME]'  Stop='both' Remove='uninstall' Wait='yes'/>
         <ServiceControl Id='DBInstanceServiceStart' Name='[SERVICENAME]' Start='install' Wait='yes'/>
@@ -481,7 +497,7 @@
       <Component Id="C.myiniconfig" Guid="*" Directory="DATADIR">
       <Condition>STDCONFIG</Condition>
         <RegistryValue Root='HKLM'
-           Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@'
+           Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@'
            Name='STDCONFIG' Value='1' Type='string' KeyPath='yes'/>
         <IniFile Id="Ini1"
             Action="createLine"
@@ -517,7 +533,7 @@
       <Component Id="C.feedback" Guid="*" Directory="DATADIR">
         <Condition>FEEDBACK</Condition>
         <RegistryValue Root='HKLM'
-           Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@'
+           Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@'
            Name='FEEDBACK' Value='1' Type='string' KeyPath='yes'/>
         <IniFile Id="Ini5"
             Action="createLine"
@@ -531,7 +547,7 @@
       <Component Id="C.utf8" Guid="*" Directory="DATADIR">
         <Condition>UTF8</Condition>
         <RegistryValue Root='HKLM'
-           Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@'
+           Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@'
            Name='UTF8' Value='1' Type='string' KeyPath='yes'/>
         <IniFile Id="Ini6"
             Action="createLine"
@@ -540,17 +556,6 @@
             Name="my.ini"
             Key="character-set-server"
             Value="utf8" />
-      </Component>
-
-      <!--- Grant service account permission to the database folder (Windows 7 and later) -->
-      <Component Id="C.serviceaccount.permission" Guid="*" Directory='DATADIR' Transitive='yes'>
-        <Condition><![CDATA[SERVICENAME AND (VersionNT > 600)]]></Condition>
-        <RegistryValue Root='HKLM'
-             Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@'
-             Name='servicepermission' Value='1' Type='string' KeyPath='yes'/>
-        <CreateFolder>
-          <util:PermissionEx User="NT SERVICE\[SERVICENAME]" GenericAll="yes" />
-        </CreateFolder>
       </Component>
 
       <!-- Shortcuts in program menu (mysql client etc) -->
@@ -785,7 +790,7 @@
 
     <Feature Id='StoreInstallLocation' Level='1' Absent='disallow' Display='hidden'>
       <Component Directory='INSTALLDIR' Guid='*' Id='C.storeinstalllocation'>
-        <RegistryValue Root='HKLM' Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@' 
+        <RegistryValue Root='HKLM' Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@' 
                        Name='INSTALLDIR' Value='[INSTALLDIR]' Type='string'  KeyPath='yes'/>
       </Component>
     </Feature>
@@ -794,7 +799,7 @@
 
     <Property Id='$(var.STOREDVAR)' Secure='yes'>
       <RegistrySearch Id='$(var.STOREDVAR)Property' Root='HKLM'
-                      Key='SOFTWARE\@MANUFACTURER@\@CPACK_WIX_PACKAGE_NAME@'
+                      Key='SOFTWARE\Monty Program AB\@CPACK_WIX_PACKAGE_NAME@'
                       Name='$(var.STOREDVAR)' Type='raw' />
     </Property>
     <CustomAction Id='SaveCmdLineValue_$(var.STOREDVAR)' Property='CMDLINE_$(var.STOREDVAR)'
@@ -862,6 +867,7 @@
     <Property Id="ARPSYSTEMCOMPONENT" Value="1" Secure="yes" />
     <Property Id="ARPINSTALLLOCATION" Secure="yes"/>
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLDIR]" After="InstallValidate"  Sequence="execute"/>
+    <SetProperty Id="USER_DOMAIN" Value="[%USERDOMAIN]" After="LaunchConditions" Sequence="first" />
     <Feature Id='ARPRegistryEntries'
           Title='Add or remove program entries'
           Description='Add or remove program entries'
@@ -908,6 +914,9 @@
     <Condition Message=
        'Setting the ALLUSERS property is not allowed because [ProductName] is a per-machine application. Setup will now exit.'>
       <![CDATA[ALLUSERS = "1"]]>
+    </Condition>
+	<Condition Message='This application is only supported on Windows Vista, Windows Server 2008, or higher.'>
+      <![CDATA[Installed OR (VersionNT >= 600)]]>
     </Condition>
   </Fragment>
 </Wix>

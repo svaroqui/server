@@ -19,8 +19,6 @@
 #include "heapdef.h"
 #include <m_ctype.h>
 
-
-
 /*
   Find out how many rows there is in the given range
 
@@ -120,7 +118,7 @@ uchar *hp_search(HP_INFO *info, HP_KEYDEF *keyinfo, const uchar *key,
       {
 	switch (nextflag) {
 	case 0:					/* Search after key */
-	  DBUG_PRINT("exit", ("found key at 0x%lx", (long) pos->ptr_to_rec));
+	  DBUG_PRINT("exit", ("found key at %p", pos->ptr_to_rec));
 	  info->current_hash_ptr=pos;
 	  DBUG_RETURN(info->current_ptr= pos->ptr_to_rec);
 	case 1:					/* Search next */
@@ -515,8 +513,6 @@ ulong hp_rec_hashnr(register HP_KEYDEF *keydef, register const uchar *rec)
     keydef		Key definition
     rec1		Record to compare
     rec2		Other record to compare
-    diff_if_only_endspace_difference
-			Different number of end space is significant    
 
   NOTES
     diff_if_only_endspace_difference is used to allow us to insert
@@ -527,8 +523,7 @@ ulong hp_rec_hashnr(register HP_KEYDEF *keydef, register const uchar *rec)
     <> 0 	Key differes
 */
 
-int hp_rec_key_cmp(HP_KEYDEF *keydef, const uchar *rec1, const uchar *rec2,
-                   my_bool diff_if_only_endspace_difference)
+int hp_rec_key_cmp(HP_KEYDEF *keydef, const uchar *rec1, const uchar *rec2)
 {
   HA_KEYSEG *seg,*endseg;
 
@@ -563,7 +558,7 @@ int hp_rec_key_cmp(HP_KEYDEF *keydef, const uchar *rec1, const uchar *rec2,
       }
       if (seg->charset->coll->strnncollsp(seg->charset,
       					  pos1,char_length1,
-					  pos2,char_length2, 0))
+					  pos2,char_length2))
 	return 1;
     }
     else if (seg->type == HA_KEYTYPE_VARTEXT1)  /* Any VARCHAR segments */
@@ -603,9 +598,7 @@ int hp_rec_key_cmp(HP_KEYDEF *keydef, const uchar *rec1, const uchar *rec2,
 
       if (cs->coll->strnncollsp(seg->charset,
                                 pos1, char_length1,
-                                pos2, char_length2,
-                                seg->flag & HA_END_SPACE_ARE_EQUAL ?
-                                0 : diff_if_only_endspace_difference))
+                                pos2, char_length2))
 	return 1;
     }
     else
@@ -673,7 +666,7 @@ int hp_key_cmp(HP_KEYDEF *keydef, const uchar *rec, const uchar *key)
       
       if (seg->charset->coll->strnncollsp(seg->charset,
 					  (uchar*) pos, char_length_rec,
-					  (uchar*) key, char_length_key, 0))
+					  (uchar*) key, char_length_key))
 	return 1;
     }
     else if (seg->type == HA_KEYTYPE_VARTEXT1)  /* Any VARCHAR segments */
@@ -701,7 +694,7 @@ int hp_key_cmp(HP_KEYDEF *keydef, const uchar *rec, const uchar *key)
 
       if (cs->coll->strnncollsp(seg->charset,
                                 (uchar*) pos, char_length_rec,
-                                (uchar*) key, char_length_key, 0))
+                                (uchar*) key, char_length_key))
 	return 1;
     }
     else
@@ -878,12 +871,8 @@ uint hp_rb_pack_key(HP_KEYDEF *keydef, uchar *key, const uchar *old,
       /* Convert NULL from MySQL representation into HEAP's. */
       if (!(*key++= (char) 1 - *old++))
       {
-        /*
-          Skip length part of a variable length field.
-          Length of key-part used with heap_rkey() always 2.
-          See also hp_hashnr().
-        */
-        if (seg->flag & (HA_VAR_LENGTH_PART | HA_BLOB_PART))
+	/* Add key pack length (2) to key for VARCHAR segments */
+        if (seg->type == HA_KEYTYPE_VARTEXT1)
           old+= 2;
         continue;
       }

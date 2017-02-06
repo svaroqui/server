@@ -281,8 +281,7 @@ void JOIN_CACHE::collect_info_on_key_args()
         Item *ref_item= ref->items[i]; 
         if (!(tab->table->map & ref_item->used_tables()))
 	  continue;
-	 ref_item->walk(&Item::add_field_to_set_processor, 1,
-                        (uchar *) tab->table);
+	 ref_item->walk(&Item::add_field_to_set_processor, 1, tab->table);
       }
       if ((key_args= bitmap_bits_set(&tab->table->tmp_set)))
       {
@@ -318,7 +317,7 @@ void JOIN_CACHE::collect_info_on_key_args()
     The allocated arrays are adjacent.
   
   NOTES
-    The memory is allocated in join->thd->memroot
+    The memory is allocated in join->thd->mem_root
 
   RETURN VALUE
     pointer to the first array  
@@ -328,8 +327,8 @@ int JOIN_CACHE::alloc_fields()
 {
   uint ptr_cnt= external_key_arg_fields+blobs+1;
   uint fields_size= sizeof(CACHE_FIELD)*fields;
-  field_descr= (CACHE_FIELD*) sql_alloc(fields_size +
-                                        sizeof(CACHE_FIELD*)*ptr_cnt);
+  field_descr= (CACHE_FIELD*) join->thd->alloc(fields_size +
+                                               sizeof(CACHE_FIELD*)*ptr_cnt);
   blob_ptr= (CACHE_FIELD **) ((uchar *) field_descr + fields_size);
   return (field_descr == NULL);
 }  
@@ -1305,7 +1304,7 @@ uint JOIN_CACHE::write_record_data(uchar * link, bool *is_full)
         uint blob_len= blob_field->get_length();
         (*copy_ptr)->blob_length= blob_len;
         len+= blob_len;
-        blob_field->get_ptr(&(*copy_ptr)->str);
+        (*copy_ptr)->str= blob_field->get_ptr();
       }
     }
   }
@@ -2206,7 +2205,7 @@ finish:
     for a match for any record from join_tab. To iterate over the candidates
     for a match the virtual function get_next_candidate_for_match is used,
     while the virtual function prepare_look_for_matches is called to prepare
-    for such iteration proccess.     
+    for such iteration process.     
 
   NOTES
     The function produces all matching extensions for the records in the 
@@ -2582,6 +2581,8 @@ void JOIN_CACHE::save_explain_data(EXPLAIN_BKA_TYPE *explain)
 {
   explain->incremental= MY_TEST(prev_cache);
 
+  explain->join_buffer_size= get_join_buffer_size();
+
   switch (get_join_alg()) {
   case BNL_JOIN_ALG:
     explain->join_alg= "BNL";
@@ -2618,7 +2619,8 @@ static void add_mrr_explain_info(String *str, uint mrr_mode, handler *file)
                                            sizeof(mrr_str_buf));
   if (len > 0)
   {
-    str->append(STRING_WITH_LEN("; "));
+    if (str->length())
+      str->append(STRING_WITH_LEN("; "));
     str->append(mrr_str_buf, len);
   }
 }
@@ -2677,7 +2679,7 @@ int JOIN_CACHE_HASHED::init(bool for_explain)
   if ((rc= JOIN_CACHE::init(for_explain)) || for_explain)
     DBUG_RETURN (rc); 
 
-  if (!(key_buff= (uchar*) sql_alloc(key_length)))
+  if (!(key_buff= (uchar*) join->thd->alloc(key_length)))
     DBUG_RETURN(1);
 
   /* Take into account a reference to the next record in the key chain */
@@ -3369,7 +3371,6 @@ int JOIN_TAB_SCAN::next()
   int skip_rc;
   READ_RECORD *info= &join_tab->read_record;
   SQL_SELECT *select= join_tab->cache_select;
-  TABLE *table= join_tab->table;
   THD *thd= join->thd;
 
   if (is_first_record)
@@ -3380,8 +3381,6 @@ int JOIN_TAB_SCAN::next()
   if (!err)
   {
     join_tab->tracker->r_rows++;
-    if (table->vfield)
-      update_virtual_fields(thd, table);
   }
 
   while (!err && select && (skip_rc= select->skip_record(thd)) <= 0)
@@ -3396,8 +3395,6 @@ int JOIN_TAB_SCAN::next()
     if (!err)
     {
       join_tab->tracker->r_rows++;
-      if (table->vfield)
-        update_virtual_fields(thd, table);
     }
   }
 
@@ -3921,8 +3918,6 @@ int JOIN_TAB_SCAN_MRR::next()
     DBUG_ASSERT(cache->buff <= (uchar *) (*ptr) &&
                 (uchar *) (*ptr) <= cache->end_pos);
     */
-    if (join_tab->table->vfield)
-      update_virtual_fields(join->thd, join_tab->table);
   }
   return rc;
 }

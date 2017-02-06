@@ -1,4 +1,5 @@
-/* Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2005, 2010, Oracle and/or its affiliates.
+   Copyright (c) 2012, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -76,7 +77,7 @@ typedef struct system_status_var STATUS_VAR;
 
 typedef enum { WITHOUT_DB_NAME, WITH_DB_NAME } enum_with_db_name;
 int show_create_table(THD *thd, TABLE_LIST *table_list, String *packet,
-                      HA_CREATE_INFO  *create_info_arg,
+                      Table_specification_st *create_info_arg,
                       enum_with_db_name with_db_name);
 
 int copy_event_to_schema_table(THD *thd, TABLE *sch_table, TABLE *event_table);
@@ -85,10 +86,13 @@ bool append_identifier(THD *thd, String *packet, const char *name,
 		       uint length);
 void mysqld_list_fields(THD *thd,TABLE_LIST *table, const char *wild);
 int mysqld_dump_create_info(THD *thd, TABLE_LIST *table_list, int fd);
+bool mysqld_show_create_get_fields(THD *thd, TABLE_LIST *table_list,
+                                   List<Item> *field_list, String *buffer);
 bool mysqld_show_create(THD *thd, TABLE_LIST *table_list);
+void mysqld_show_create_db_get_fields(THD *thd, List<Item> *field_list);
 bool mysqld_show_create_db(THD *thd, LEX_STRING *db_name,
                            LEX_STRING *orig_db_name,
-                           HA_CREATE_INFO *create);
+                           const DDL_options_st &options);
 
 void mysqld_list_processes(THD *thd,const char *user,bool verbose);
 int mysqld_show_status(THD *thd);
@@ -98,7 +102,7 @@ bool mysqld_show_authors(THD *thd);
 bool mysqld_show_contributors(THD *thd);
 bool mysqld_show_privileges(THD *thd);
 char *make_backup_log_name(char *buff, const char *name, const char* log_ext);
-void calc_sum_of_all_status(STATUS_VAR *to);
+uint calc_sum_of_all_status(STATUS_VAR *to);
 void append_definer(THD *thd, String *buffer, const LEX_STRING *definer_user,
                     const LEX_STRING *definer_host);
 int add_status_vars(SHOW_VAR *list);
@@ -112,9 +116,12 @@ void view_store_options(THD *thd, TABLE_LIST *table, String *buff);
 void init_fill_schema_files_row(TABLE* table);
 bool schema_table_store_record(THD *thd, TABLE *table);
 void initialize_information_schema_acl();
-COND *make_cond_for_info_schema(COND *cond, TABLE_LIST *table);
+COND *make_cond_for_info_schema(THD *thd, COND *cond, TABLE_LIST *table);
 
-ST_SCHEMA_TABLE *find_schema_table(THD *thd, const char* table_name);
+ST_SCHEMA_TABLE *find_schema_table(THD *thd, const char* table_name, bool *in_plugin);
+static inline ST_SCHEMA_TABLE *find_schema_table(THD *thd, const char* table_name)
+{ bool unused; return find_schema_table(thd, table_name, &unused); }
+
 ST_SCHEMA_TABLE *get_schema_table(enum enum_schema_tables schema_table_idx);
 int make_schema_select(THD *thd,  SELECT_LEX *sel,
                        ST_SCHEMA_TABLE *schema_table);
@@ -123,6 +130,12 @@ bool get_schema_tables_result(JOIN *join,
                               enum enum_schema_table_state executed_place);
 enum enum_schema_tables get_schema_table_idx(ST_SCHEMA_TABLE *schema_table);
 TABLE *create_schema_table(THD *thd, TABLE_LIST *table_list);
+
+const char* get_one_variable(THD *thd, const SHOW_VAR *variable,
+                             enum_var_type value_type, SHOW_TYPE show_type,
+                             system_status_var *status_var,
+                             const CHARSET_INFO **charset, char *buff,
+                             size_t *length);
 
 /* These functions were under INNODB_COMPATIBILITY_HOOKS */
 int get_quote_char_for_identifier(THD *thd, const char *name, uint length);

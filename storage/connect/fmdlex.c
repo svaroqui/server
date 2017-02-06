@@ -1,3 +1,5 @@
+#include <setjmp.h>
+
 #define yyFlexLexer fmdfFlexLexer
 #define yy_create_buffer fmdf_create_buffer
 #define yy_delete_buffer fmdf_delete_buffer
@@ -20,11 +22,12 @@
  */
 
 #define FLEX_SCANNER
-#if WIN32
+#ifdef __WIN__
 #define __STDC__ 1
+#define isatty  _isatty
 #endif
 #include <stdio.h>
-#ifndef WIN32
+#ifndef __WIN__
 #include <unistd.h>
 #endif
 
@@ -505,13 +508,16 @@ YY_MALLOC_DECL
 #define YY_BREAK break;
 #endif
 
+static jmp_buf env;
+
 YY_DECL
   {
   register yy_state_type yy_current_state;
   register char *yy_cp, *yy_bp;
   register int yy_act;
 
-
+	if (setjmp(env))
+		return -1;
 
   /*************************************************************************/
   /* Flex parser to analyze date format and produce input and/or output    */
@@ -1315,7 +1321,7 @@ char msg[];
 #endif
   {
   (void) fprintf( stderr, "%s\n", msg );
-  exit( 1 );
+  longjmp(env, 1 );
   }
 
 

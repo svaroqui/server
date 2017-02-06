@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 2005, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2005, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
 Copyright (c) 2014, SkySQL Ab. All Rights Reserved.
 
@@ -37,30 +37,40 @@ using namespace std;
 # include "page0zip.ic"
 #endif
 #undef THIS_MODULE
+#include "buf0checksum.h"
 #include "page0page.h"
+#ifndef UNIV_INNOCHECKSUM
 #include "mtr0log.h"
-#include "ut0sort.h"
 #include "dict0dict.h"
 #include "btr0cur.h"
-#include "page0types.h"
 #include "log0recv.h"
+#endif /* !UNIV_INNOCHECKSUM */
 #include "zlib.h"
+#include "fil0fil.h"
+#include "ut0sort.h"
+#include "page0types.h"
 #ifndef UNIV_HOTBACKUP
+#ifndef UNIV_INNOCHECKSUM
 # include "buf0buf.h"
-# include "buf0lru.h"
 # include "btr0sea.h"
 # include "dict0boot.h"
 # include "lock0lock.h"
 # include "srv0mon.h"
 # include "srv0srv.h"
+#endif /* !UNIV_INNOCHECKSUM */
+# include "buf0lru.h"
 # include "ut0crc32.h"
 #else /* !UNIV_HOTBACKUP */
-# include "buf0checksum.h"
 # define lock_move_reorganize_page(block, temp_block)	((void) 0)
 # define buf_LRU_stat_inc_unzip()			((void) 0)
 #endif /* !UNIV_HOTBACKUP */
 
+#ifdef UNIV_INNOCHECKSUM
+#include "mach0data.h"
+#endif /* UNIV_INNOCHECKSUM */
+
 #ifndef UNIV_HOTBACKUP
+#ifndef UNIV_INNOCHECKSUM
 /** Statistics on compression, indexed by page_zip_des_t::ssize - 1 */
 UNIV_INTERN page_zip_stat_t		page_zip_stat[PAGE_ZIP_SSIZE_MAX];
 /** Statistics on compression, indexed by index->id */
@@ -70,6 +80,7 @@ UNIV_INTERN ib_mutex_t			page_zip_stat_per_index_mutex;
 #ifdef HAVE_PSI_INTERFACE
 UNIV_INTERN mysql_pfs_key_t		page_zip_stat_per_index_mutex_key;
 #endif /* HAVE_PSI_INTERFACE */
+#endif /* !UNIV_INNOCHECKSUM */
 #endif /* !UNIV_HOTBACKUP */
 
 /* Compression level to be used by zlib. Settable by user. */
@@ -77,10 +88,12 @@ UNIV_INTERN uint	page_zip_level = DEFAULT_COMPRESSION_LEVEL;
 
 /* Whether or not to log compressed page images to avoid possible
 compression algorithm changes in zlib. */
-UNIV_INTERN my_bool	page_zip_log_pages = true;
+UNIV_INTERN my_bool	page_zip_log_pages = false;
 
 /* Please refer to ../include/page0zip.ic for a description of the
 compressed page format. */
+
+#ifndef UNIV_INNOCHECKSUM
 
 /* The infimum and supremum records are omitted from the compressed page.
 On compress, we compare that the records are there, and on uncompress we
@@ -105,6 +118,8 @@ static const byte supremum_extra_data[] = {
 	0x65, 0x6d, 0x75, 0x6d	/* "supremum" */
 };
 
+#endif /* !UNIV_INNOCHECKSUM */
+
 /** Assert that a block of memory is filled with zero bytes.
 Compare at most sizeof(field_ref_zero) bytes.
 @param b	in: memory block
@@ -120,7 +135,7 @@ Compare at most sizeof(field_ref_zero) bytes.
 independently of any UNIV_ debugging conditions. */
 #if defined UNIV_DEBUG || defined UNIV_ZIP_DEBUG
 # include <stdarg.h>
-__attribute__((format (printf, 1, 2)))
+MY_ATTRIBUTE((format (printf, 1, 2)))
 /**********************************************************************//**
 Report a failure to decompress or compress.
 @return	number of characters printed */
@@ -151,6 +166,7 @@ page_zip_fail_func(
 # define page_zip_fail(fmt_args) /* empty */
 #endif /* UNIV_DEBUG || UNIV_ZIP_DEBUG */
 
+#ifndef UNIV_INNOCHECKSUM
 #ifndef UNIV_HOTBACKUP
 /**********************************************************************//**
 Determine the guaranteed free space on an empty page.
@@ -659,8 +675,8 @@ page_zip_dir_encode(
 #if PAGE_ZIP_DIR_SLOT_MASK & (PAGE_ZIP_DIR_SLOT_MASK + 1)
 # error "PAGE_ZIP_DIR_SLOT_MASK is not 1 less than a power of 2"
 #endif
-#if PAGE_ZIP_DIR_SLOT_MASK < UNIV_PAGE_SIZE_DEF - 1
-# error "PAGE_ZIP_DIR_SLOT_MASK < UNIV_PAGE_SIZE_MAX - 1"
+#if PAGE_ZIP_DIR_SLOT_MASK < UNIV_PAGE_ZIP_SIZE_MAX - 1
+# error "PAGE_ZIP_DIR_SLOT_MASK < UNIV_ZIP_SIZE_MAX - 1"
 #endif
 		if (UNIV_UNLIKELY(rec_get_n_owned_new(rec))) {
 			offs |= PAGE_ZIP_DIR_SLOT_OWNED;
@@ -739,8 +755,8 @@ static
 void
 page_zip_free(
 /*==========*/
-	void*	opaque __attribute__((unused)),	/*!< in: memory heap */
-	void*	address __attribute__((unused)))/*!< in: object to free */
+	void*	opaque MY_ATTRIBUTE((unused)),	/*!< in: memory heap */
+	void*	address MY_ATTRIBUTE((unused)))/*!< in: object to free */
 {
 }
 
@@ -912,7 +928,7 @@ page_zip_compress_sec(
 			rec - REC_N_NEW_EXTRA_BYTES
 			- c_stream->next_in);
 
-		if (UNIV_LIKELY(c_stream->avail_in)) {
+		if (UNIV_LIKELY(c_stream->avail_in != 0)) {
 			UNIV_MEM_ASSERT_RW(c_stream->next_in,
 					   c_stream->avail_in);
 			err = deflate(c_stream, Z_NO_FLUSH);
@@ -1007,7 +1023,7 @@ page_zip_compress_clust_ext(
 
 			c_stream->avail_in = static_cast<uInt>(
 				src - c_stream->next_in);
-			if (UNIV_LIKELY(c_stream->avail_in)) {
+			if (UNIV_LIKELY(c_stream->avail_in != 0)) {
 				err = deflate(c_stream, Z_NO_FLUSH);
 				if (UNIV_UNLIKELY(err != Z_OK)) {
 
@@ -1233,10 +1249,6 @@ page_zip_compress(
 	variable multiple times in this function since it can be changed at
 	anytime. */
 	my_bool		cmp_per_index_enabled = srv_cmp_per_index_enabled;
-
-	if (!page) {
-		return(FALSE);
-	}
 
 	ut_a(page_is_comp(page));
 	ut_a(fil_page_get_type(page) == FIL_PAGE_INDEX);
@@ -1601,7 +1613,7 @@ page_zip_fields_free(
 {
 	if (index) {
 		dict_table_t*	table = index->table;
-		os_fast_mutex_free(&index->zip_pad.mutex);
+		dict_index_zip_pad_mutex_destroy(index);
 		mem_heap_free(index->heap);
 
 		dict_mem_table_free(table);
@@ -1652,7 +1664,7 @@ page_zip_fields_decode(
 	}
 
 	table = dict_mem_table_create("ZIP_DUMMY", DICT_HDR_SPACE, n,
-				      DICT_TF_COMPACT, 0, true);
+				      DICT_TF_COMPACT, 0);
 	index = dict_mem_index_create("ZIP_DUMMY", "ZIP_DUMMY",
 				      DICT_HDR_SPACE, 0, n);
 	index->table = table;
@@ -4798,7 +4810,8 @@ page_zip_parse_compress(
 	ulint	size;
 	ulint	trailer_size;
 
-	ut_ad(ptr && end_ptr);
+	ut_ad(ptr != NULL);
+	ut_ad(end_ptr != NULL);
 	ut_ad(!page == !page_zip);
 
 	if (UNIV_UNLIKELY(ptr + (2 + 2) > end_ptr)) {
@@ -4843,6 +4856,7 @@ corrupt:
 
 	return(ptr + 8 + size + trailer_size);
 }
+#endif /* !UNIV_INNOCHECKSUM */
 
 /**********************************************************************//**
 Calculate the compressed page checksum.
@@ -4918,8 +4932,19 @@ page_zip_verify_checksum(
 	stored = static_cast<ib_uint32_t>(mach_read_from_4(
 		static_cast<const unsigned char*>(data) + FIL_PAGE_SPACE_OR_CHKSUM));
 
-	/* declare empty pages non-corrupted */
-	if (stored == 0) {
+	ulint	page_no = mach_read_from_4(static_cast<const unsigned char*>					(data) + FIL_PAGE_OFFSET);
+	ulint	space_id = mach_read_from_4(static_cast<const unsigned char*>
+				(data) + FIL_PAGE_SPACE_ID);
+
+#if FIL_PAGE_LSN % 8
+#error "FIL_PAGE_LSN must be 64 bit aligned"
+#endif
+
+	/* Check if page is empty */
+	if (stored == 0
+	    && *reinterpret_cast<const ib_uint64_t*>(static_cast<const char*>(
+		data)
+		+ FIL_PAGE_LSN) == 0) {
 		/* make sure that the page is really empty */
 		ulint i;
 		for (i = 0; i < size; i++) {
@@ -4927,44 +4952,117 @@ page_zip_verify_checksum(
 				return(FALSE);
 			}
 		}
+		/* Empty page */
+		return(TRUE);
+	}
 
+	const srv_checksum_algorithm_t	curr_algo =
+		static_cast<srv_checksum_algorithm_t>(srv_checksum_algorithm);
+
+	if (curr_algo == SRV_CHECKSUM_ALGORITHM_NONE) {
 		return(TRUE);
 	}
 
 	calc = static_cast<ib_uint32_t>(page_zip_calc_checksum(
-		data, size, static_cast<srv_checksum_algorithm_t>(
-			srv_checksum_algorithm)));
+		data, size, curr_algo));
 
 	if (stored == calc) {
 		return(TRUE);
 	}
 
-	switch ((srv_checksum_algorithm_t) srv_checksum_algorithm) {
+	switch (curr_algo) {
 	case SRV_CHECKSUM_ALGORITHM_STRICT_CRC32:
-	case SRV_CHECKSUM_ALGORITHM_STRICT_INNODB:
-	case SRV_CHECKSUM_ALGORITHM_STRICT_NONE:
-		return(stored == calc);
 	case SRV_CHECKSUM_ALGORITHM_CRC32:
+
 		if (stored == BUF_NO_CHECKSUM_MAGIC) {
+			if (curr_algo
+			    == SRV_CHECKSUM_ALGORITHM_STRICT_CRC32) {
+				page_warn_strict_checksum(
+					curr_algo,
+					SRV_CHECKSUM_ALGORITHM_NONE,
+					space_id, page_no);
+			}
+
 			return(TRUE);
 		}
-		crc32 = calc;
+
 		innodb = static_cast<ib_uint32_t>(page_zip_calc_checksum(
 			data, size, SRV_CHECKSUM_ALGORITHM_INNODB));
-		break;
-	case SRV_CHECKSUM_ALGORITHM_INNODB:
-		if (stored == BUF_NO_CHECKSUM_MAGIC) {
+
+		if (stored == innodb) {
+			if (curr_algo
+			    == SRV_CHECKSUM_ALGORITHM_STRICT_CRC32) {
+				page_warn_strict_checksum(
+					curr_algo,
+					SRV_CHECKSUM_ALGORITHM_INNODB,
+					space_id, page_no);
+			}
+
 			return(TRUE);
 		}
+
+		break;
+	case SRV_CHECKSUM_ALGORITHM_STRICT_INNODB:
+	case SRV_CHECKSUM_ALGORITHM_INNODB:
+
+		if (stored == BUF_NO_CHECKSUM_MAGIC) {
+			if (curr_algo
+			    == SRV_CHECKSUM_ALGORITHM_STRICT_INNODB) {
+				page_warn_strict_checksum(
+					curr_algo,
+					SRV_CHECKSUM_ALGORITHM_NONE,
+					space_id, page_no);
+			}
+
+			return(TRUE);
+		}
+
 		crc32 = static_cast<ib_uint32_t>(page_zip_calc_checksum(
 			data, size, SRV_CHECKSUM_ALGORITHM_CRC32));
-		innodb = calc;
+
+		if (stored == crc32) {
+			if (curr_algo
+			    == SRV_CHECKSUM_ALGORITHM_STRICT_INNODB) {
+				page_warn_strict_checksum(
+					curr_algo,
+					SRV_CHECKSUM_ALGORITHM_CRC32,
+					space_id, page_no);
+			}
+
+			return(TRUE);
+		}
+
+		break;
+	case SRV_CHECKSUM_ALGORITHM_STRICT_NONE:
+
+		crc32 = static_cast<ib_uint32_t>(page_zip_calc_checksum(
+			data, size, SRV_CHECKSUM_ALGORITHM_CRC32));
+
+		if (stored == crc32) {
+			page_warn_strict_checksum(
+				curr_algo, SRV_CHECKSUM_ALGORITHM_CRC32,
+				space_id, page_no);
+
+			return(TRUE);
+		}
+
+		innodb = static_cast<ib_uint32_t>(page_zip_calc_checksum(
+			data, size, SRV_CHECKSUM_ALGORITHM_INNODB));
+
+		if (stored == innodb) {
+			page_warn_strict_checksum(
+				curr_algo,
+				SRV_CHECKSUM_ALGORITHM_INNODB,
+				space_id, page_no);
+			return(TRUE);
+		}
+
 		break;
 	case SRV_CHECKSUM_ALGORITHM_NONE:
-		return(TRUE);
+		ut_error;
 	/* no default so the compiler will emit a warning if new enum
 	is added and not handled here */
 	}
 
-	return(stored == crc32 || stored == innodb);
+	return(FALSE);
 }

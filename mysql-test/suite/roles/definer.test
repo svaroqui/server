@@ -26,6 +26,7 @@ grant insert,select on mysqltest1.t1 to role2;
 grant event,execute,trigger on mysqltest1.* to role2;
 
 # create a non-priv user and a priv role granted to him
+create user foo@localhost;
 grant create view on mysqltest1.* to foo@localhost;
 create role role4;
 grant select on mysqltest1.t1 to role4;
@@ -46,7 +47,7 @@ show create view test.v1;
 set role none;
 
 # definer=role_name, privileges ok
-create definer=role2 view test.v2 as select a+b,c from t1;
+create definer=role2 view test.v2 as select a+b,c,current_role() from t1;
 show create view test.v2;
 
 # definer=non_existent_role
@@ -99,6 +100,7 @@ show create view test.v5;
 --error ER_NO_SUCH_USER
 select * from test.v5;
 
+create user role4;
 grant select on mysqltest1.t1 to role4;
 show create view test.v5;
 --error ER_NO_SUCH_USER
@@ -115,6 +117,7 @@ open(F, '>', $f) or die "open(>$f): $!";
 syswrite F, $_ or die "syswrite($f): $!" 
 EOF
 
+flush tables;
 show create view test.v5;
 select * from test.v5;
 drop user role4;
@@ -135,6 +138,7 @@ create definer=current_role trigger tr1 before insert on t2 for each row
 set role role1;
 create definer=current_role trigger tr1 before insert on t2 for each row
   insert t1 values (111, 222, 333);
+--replace_column 7 #
 show create trigger tr1;
 set role none;
 
@@ -146,6 +150,7 @@ select * from t2;
 # definer=role_name, privileges ok
 create definer=role2 trigger tr2 before delete on t2 for each row
   insert t1 values (111, 222, 333);
+--replace_column 7 #
 show create trigger tr2;
 delete from t2 where a=1;
 select * from t1;
@@ -155,6 +160,7 @@ delete from t1 where a=111;
 # definer=non_existent_role
 create definer=role3 trigger tr3 before update on t2 for each row
   insert t1 values (111, 222, 333);
+--replace_column 7 #
 show create trigger tr3;
 --error ER_NO_SUCH_USER
 update t2 set b=2 where a=2;
@@ -175,6 +181,7 @@ open(F, '>', $f) or die "open(>$f): $!";
 syswrite F, $_ or die "syswrite($f): $!" 
 EOF
 
+--replace_column 7 #
 show create trigger tr2;
 --error ER_NO_SUCH_USER
 delete from t2 where a=2;

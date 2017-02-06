@@ -64,9 +64,11 @@ typedef struct st_keyfile_info {	/* used with ha_info() */
 
 
 typedef struct st_key_part_info {	/* Info about a key part */
-  Field *field;
-  uint	offset;				/* offset in record (from 0) */
-  uint	null_offset;			/* Offset to null_bit in record */
+  Field *field;                         /* the Field object for the indexed
+                                           prefix of the original table Field.
+                                           NOT necessarily the original Field */
+  uint  offset;                         /* Offset in record (from 0) */
+  uint  null_offset;                    /* Offset to null_bit in record */
   /* Length of key part in bytes, excluding NULL flag and length bytes */
   uint16 length;
   /* 
@@ -77,8 +79,8 @@ typedef struct st_key_part_info {	/* Info about a key part */
   */
   uint16 store_length;
   uint16 key_type;
-  uint16 fieldnr;			/* Fieldnum in UNIREG */
-  uint16 key_part_flag;			/* 0 or HA_REVERSE_SORT */
+  uint16 fieldnr;                       /* Fieldnr begins counting from 1 */
+  uint16 key_part_flag;                 /* 0 or HA_REVERSE_SORT */
   uint8 type;
   uint8 null_bit;			/* Position to null_bit */
 } KEY_PART_INFO ;
@@ -201,7 +203,8 @@ extern const char *show_comp_option_name[];
 typedef int *(*update_var)(THD *, struct st_mysql_show_var *);
 
 typedef struct	st_lex_user {
-  LEX_STRING user, host, password, plugin, auth;
+  LEX_STRING user, host, plugin, auth;
+  LEX_STRING pwtext, pwhash;
   bool is_role() { return user.str[0] && !host.str[0]; }
   void set_lex_string(LEX_STRING *l, char *buf)
   {
@@ -209,6 +212,12 @@ typedef struct	st_lex_user {
       *l= user;
     else
       l->length= strxmov(l->str= buf, user.str, "@", host.str, NullS) - buf;
+  }
+  void reset_auth()
+  {
+    pwtext.length= pwhash.length= plugin.length= auth.length= 0;
+    pwtext.str= pwhash.str= 0;
+    plugin.str= auth.str= const_cast<char*>("");
   }
 } LEX_USER;
 
@@ -470,5 +479,153 @@ public:
   Discrete_interval* get_tail() const { return tail; };
   Discrete_interval* get_current() const { return current; };
 };
+
+
+/*
+  DDL options:
+  - CREATE IF NOT EXISTS
+  - DROP IF EXISTS
+  - CREATE LIKE
+  - REPLACE
+*/
+struct DDL_options_st
+{
+public:
+  enum Options
+  {
+    OPT_NONE= 0,
+    OPT_IF_NOT_EXISTS= 2,              // CREATE TABLE IF NOT EXISTS
+    OPT_LIKE= 4,                       // CREATE TABLE LIKE
+    OPT_OR_REPLACE= 16,                // CREATE OR REPLACE TABLE
+    OPT_OR_REPLACE_SLAVE_GENERATED= 32,// REPLACE was added on slave, it was
+                                       // not in the original query on master.
+    OPT_IF_EXISTS= 64
+  };
+
+private:
+  Options m_options;
+
+public:
+  Options create_like_options() const
+  {
+    return (DDL_options_st::Options)
+           (((uint) m_options) & (OPT_IF_NOT_EXISTS | OPT_OR_REPLACE));
+  }
+  void init() { m_options= OPT_NONE; }
+  void init(Options options) { m_options= options; }
+  void set(Options other)
+  {
+    m_options= other;
+  }
+  void set(const DDL_options_st other)
+  {
+    m_options= other.m_options;
+  }
+  bool if_not_exists() const { return m_options & OPT_IF_NOT_EXISTS; }
+  bool or_replace() const { return m_options & OPT_OR_REPLACE; }
+  bool or_replace_slave_generated() const
+  { return m_options & OPT_OR_REPLACE_SLAVE_GENERATED; }
+  bool like() const { return m_options & OPT_LIKE; }
+  bool if_exists() const { return m_options & OPT_IF_EXISTS; }
+  void add(const DDL_options_st::Options other)
+  {
+    m_options= (Options) ((uint) m_options | (uint) other);
+  }
+  void add(const DDL_options_st &other)
+  {
+    add(other.m_options);
+  }
+  DDL_options_st operator|(const DDL_options_st &other)
+  {
+    add(other.m_options);
+    return *this;
+  }
+  DDL_options_st operator|=(DDL_options_st::Options other)
+  {
+    add(other);
+    return *this;
+  }
+};
+
+
+class DDL_options: public DDL_options_st
+{
+public:
+  DDL_options() { init(); }
+  DDL_options(Options options) { init(options); }
+  DDL_options(const DDL_options_st &options)
+  { DDL_options_st::operator=(options); }
+};
+
+
+struct Lex_length_and_dec_st
+{
+private:
+  const char *m_length;
+  const char *m_dec;
+public:
+  void set(const char *length, const char *dec)
+  {
+    m_length= length;
+    m_dec= dec;
+  }
+  const char *length() const { return m_length; }
+  const char *dec() const { return m_dec; }
+};
+
+
+struct Lex_field_type_st: public Lex_length_and_dec_st
+{
+private:
+  enum_field_types m_type;
+  void set(enum_field_types type, const char *length, const char *dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::set(length, dec);
+  }
+public:
+  void set(enum_field_types type, Lex_length_and_dec_st length_and_dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::operator=(length_and_dec);
+  }
+  void set(enum_field_types type, const char *length)
+  {
+    set(type, length, 0);
+  }
+  void set(enum_field_types type)
+  {
+    set(type, 0, 0);
+  }
+  enum_field_types field_type() const { return m_type; }
+};
+
+
+struct Lex_dyncol_type_st: public Lex_length_and_dec_st
+{
+private:
+  int m_type; // enum_dynamic_column_type is not visible here, so use int
+public:
+  void set(int type, const char *length, const char *dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::set(length, dec);
+  }
+  void set(int type, Lex_length_and_dec_st length_and_dec)
+  {
+    m_type= type;
+    Lex_length_and_dec_st::operator=(length_and_dec);
+  }
+  void set(int type, const char *length)
+  {
+    set(type, length, 0);
+  }
+  void set(int type)
+  {
+    set(type, 0, 0);
+  }
+  int dyncol_type() const { return m_type; }
+};
+
 
 #endif /* STRUCTS_INCLUDED */

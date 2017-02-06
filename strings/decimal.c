@@ -1,5 +1,5 @@
-/* Copyright (c) 2004, 2013, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2013, Monty Program Ab
+/* Copyright (c) 2004, 2014, Oracle and/or its affiliates.
+   Copyright (c) 2009, 2014, Monty Program Ab.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -127,7 +127,6 @@ typedef longlong      dec2;
 #define DIG_BASE     1000000000
 #define DIG_MAX      (DIG_BASE-1)
 #define DIG_BASE2    ((dec2)DIG_BASE * (dec2)DIG_BASE)
-#define ROUND_UP(X)  (((X)+DIG_PER_DEC1-1)/DIG_PER_DEC1)
 static const dec1 powers10[DIG_PER_DEC1+1]={
   1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
 static const int dig2bytes[DIG_PER_DEC1+1]={0, 1, 1, 2, 2, 3, 3, 4, 4, 4};
@@ -135,6 +134,11 @@ static const dec1 frac_max[DIG_PER_DEC1-1]={
   900000000, 990000000, 999000000,
   999900000, 999990000, 999999000,
   999999900, 999999990 };
+
+static inline int ROUND_UP(int x)
+{
+  return (x + (x > 0 ? DIG_PER_DEC1 - 1 : 0)) / DIG_PER_DEC1;
+}
 
 #ifdef HAVE_valgrind
 #define sanity(d) DBUG_ASSERT((d)->len > 0)
@@ -279,7 +283,7 @@ static dec1 *remove_leading_zeroes(const decimal_t *from, int *intg_result)
     from    number for processing
 */
 
-int decimal_actual_fraction(decimal_t *from)
+int decimal_actual_fraction(const decimal_t *from)
 {
   int frac= from->frac, i;
   dec1 *buf0= from->buf + ROUND_UP(from->intg) + ROUND_UP(frac) - 1;
@@ -379,6 +383,7 @@ int decimal2string(const decimal_t *from, char *to, int *to_len,
     }
     else
       frac-=j;
+    frac_len= frac;
     len= from->sign + intg_len + MY_TEST(frac) + frac_len;
   }
   *to_len=len;
@@ -452,7 +457,7 @@ static void digits_bounds(decimal_t *from, int *start_result, int *end_result)
   dec1 *end= from->buf + ROUND_UP(from->intg) + ROUND_UP(from->frac);
   dec1 *buf_end= end - 1;
 
-  /* find non-zero digit from number begining */
+  /* find non-zero digit from number beginning */
   while (buf_beg < end && *buf_beg == 0)
     buf_beg++;
 
@@ -463,7 +468,7 @@ static void digits_bounds(decimal_t *from, int *start_result, int *end_result)
     return;
   }
 
-  /* find non-zero decimal digit from number begining */
+  /* find non-zero decimal digit from number beginning */
   if (buf_beg == from->buf && from->intg)
   {
     start= DIG_PER_DEC1 - (i= ((from->intg-1) % DIG_PER_DEC1 + 1));
@@ -923,6 +928,8 @@ internal_str2dec(const char *from, decimal_t *to, char **end, my_bool fixed)
         error= decimal_shift(to, (int) exponent);
     }
   }
+  if (to->sign && decimal_is_zero(to))
+    to->sign= 0;
   return error;
 
 fatal_error:
@@ -1000,7 +1007,7 @@ static int ull2dec(ulonglong from, decimal_t *to)
     error=E_DEC_OVERFLOW;
   }
   to->frac=0;
-  to->intg=intg1*DIG_PER_DEC1;
+  for(to->intg= (intg1-1)*DIG_PER_DEC1; from; to->intg++, from/=10) {}
 
   for (buf=to->buf+intg1; intg1; intg1--)
   {
@@ -1020,7 +1027,11 @@ int ulonglong2decimal(ulonglong from, decimal_t *to)
 int longlong2decimal(longlong from, decimal_t *to)
 {
   if ((to->sign= from < 0))
+  {
+    if (from == LONGLONG_MIN) // avoid undefined behavior
+      return ull2dec((ulonglong)LONGLONG_MIN, to);
     return ull2dec(-from, to);
+  }
   return ull2dec(from, to);
 }
 
@@ -2329,7 +2340,7 @@ static int do_div_mod(const decimal_t *from1, const decimal_t *from2,
         error=E_DEC_TRUNCATED;
         goto done;
       }
-      stop1=start1+frac0;
+      stop1= start1 + frac0 + intg0;
       frac0+=intg0;
       to->intg=0;
       while (intg0++ < 0)

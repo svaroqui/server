@@ -15,7 +15,7 @@ SELECT * FROM performance_schema.setup_instruments
 WHERE name IN (
   'wait/synch/mutex/sql/LOCK_user_conn',
   'wait/synch/mutex/sql/LOCK_uuid_generator',
-  'wait/synch/mutex/sql/LOCK_xid_cache',
+  'wait/synch/mutex/sql/LOCK_plugin',
   'stage/sql/creating table')
 AND enabled = 'yes' AND timed = 'no'
 ORDER BY name;
@@ -60,6 +60,8 @@ WHERE name like "%wait/io/table/sql/handler%";
 --echo #
 --echo # Stop server
 --send_shutdown
+--source include/wait_until_disconnected.inc
+
 --echo # Restart server with wait/io/table/sql/handler disabled
 
 --exec echo "restart:--loose-performance-schema-instrument=%wait/io/table/sql/%=off" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect

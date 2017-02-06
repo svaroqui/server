@@ -23,11 +23,14 @@
   @{
 */
 
+#include <my_global.h>
 #include "sql_base.h"
 #include "key.h"
 #include "sql_statistics.h"
 #include "opt_range.h"
+#include "uniques.h"
 #include "my_atomic.h"
+#include "sql_show.h"
 
 /*
   The system variable 'use_stat_tables' can take one of the
@@ -127,6 +130,128 @@ inline void init_table_list_for_single_stat_table(TABLE_LIST *tbl,
 }
 
 
+static Table_check_intact_log_error stat_table_intact;
+
+static const
+TABLE_FIELD_TYPE table_stat_fields[TABLE_STAT_N_FIELDS] =
+{
+  {
+    { C_STRING_WITH_LEN("db_name") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("table_name") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("cardinality") },
+    { C_STRING_WITH_LEN("bigint(21)") },
+    { NULL, 0 }
+  },
+};
+static const uint table_stat_pk_col[]= {0,1};
+static const TABLE_FIELD_DEF
+table_stat_def= {TABLE_STAT_N_FIELDS, table_stat_fields, 2, table_stat_pk_col };
+
+static const
+TABLE_FIELD_TYPE column_stat_fields[COLUMN_STAT_N_FIELDS] =
+{
+  {
+    { C_STRING_WITH_LEN("db_name") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("table_name") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("column_name") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("min_value") },
+    { C_STRING_WITH_LEN("varbinary(255)") },
+    { NULL, 0 }
+  },
+  {
+    { C_STRING_WITH_LEN("max_value") },
+    { C_STRING_WITH_LEN("varbinary(255)") },
+    { NULL, 0 }
+  },
+  {
+    { C_STRING_WITH_LEN("nulls_ratio") },
+    { C_STRING_WITH_LEN("decimal(12,4)") },
+    { NULL, 0 }
+  },
+  {
+    { C_STRING_WITH_LEN("avg_length") },
+    { C_STRING_WITH_LEN("decimal(12,4)") },
+    { NULL, 0 }
+  },
+  {
+    { C_STRING_WITH_LEN("avg_frequency") },
+    { C_STRING_WITH_LEN("decimal(12,4)") },
+    { NULL, 0 }
+  },
+  {
+    { C_STRING_WITH_LEN("hist_size") },
+    { C_STRING_WITH_LEN("tinyint(3)") },
+    { NULL, 0 }
+  },
+  {
+    { C_STRING_WITH_LEN("hist_type") },
+    { C_STRING_WITH_LEN("enum('SINGLE_PREC_HB','DOUBLE_PREC_HB')") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("histogram") },
+    { C_STRING_WITH_LEN("varbinary(255)") },
+    { NULL, 0 }
+  }
+};
+static const uint column_stat_pk_col[]= {0,1,2};
+static const TABLE_FIELD_DEF
+column_stat_def= {COLUMN_STAT_N_FIELDS, column_stat_fields, 3, column_stat_pk_col};
+
+static const
+TABLE_FIELD_TYPE index_stat_fields[INDEX_STAT_N_FIELDS] =
+{
+  {
+    { C_STRING_WITH_LEN("db_name") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("table_name") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("index") },
+    { C_STRING_WITH_LEN("varchar(64)") },
+    { C_STRING_WITH_LEN("utf8") }
+  },
+  {
+    { C_STRING_WITH_LEN("prefix_arity") },
+    { C_STRING_WITH_LEN("int(11)") },
+    { NULL, 0 }
+  },
+  {
+    { C_STRING_WITH_LEN("avg_frequency") },
+    { C_STRING_WITH_LEN("decimal(12,4)") },
+    { NULL, 0 }
+  }
+};
+static const uint index_stat_pk_col[]= {0,1,2,3};
+static const TABLE_FIELD_DEF
+index_stat_def= {INDEX_STAT_N_FIELDS, index_stat_fields, 4, index_stat_pk_col};
+
+
 /**
   @brief
   Open all statistical tables and lock them
@@ -137,10 +262,30 @@ inline int open_stat_tables(THD *thd, TABLE_LIST *tables,
                             Open_tables_backup *backup,
                             bool for_write)
 {
+  int rc;
+
+  Dummy_error_handler deh; // suppress errors
+  thd->push_internal_handler(&deh);
   init_table_list_for_stat_tables(tables, for_write);
   init_mdl_requests(tables);
-  return open_system_tables_for_read(thd, tables, backup);
-}
+  rc= open_system_tables_for_read(thd, tables, backup);
+  thd->pop_internal_handler();
+
+
+  /* If the number of tables changes, we should revise the check below. */
+  DBUG_ASSERT(STATISTICS_TABLES == 3);
+
+  if (!rc &&
+      (stat_table_intact.check(tables[TABLE_STAT].table, &table_stat_def) ||
+       stat_table_intact.check(tables[COLUMN_STAT].table, &column_stat_def) ||
+       stat_table_intact.check(tables[INDEX_STAT].table, &index_stat_def)))
+  {
+    close_system_tables(thd, backup);
+    rc= 1;
+  }
+
+  return rc;
+} 
 
 
 /**
@@ -591,6 +736,8 @@ public:
     stat_file->extra(HA_EXTRA_FLUSH);
     return FALSE;
   } 
+
+  friend class Stat_table_write_iter;
 };
 
 
@@ -887,7 +1034,7 @@ public:
 
     @note
     A value from the field min_value/max_value is always converted
-    into a utf8 string. If the length of the column 'min_value'/'max_value'
+    into a varbinary string. If the length of the column 'min_value'/'max_value'
     is less than the length of the string the string is trimmed to fit the
     length of the column. 
   */    
@@ -895,7 +1042,7 @@ public:
   void store_stat_fields()
   {
     char buff[MAX_FIELD_WIDTH];
-    String val(buff, sizeof(buff), &my_charset_utf8_bin);
+    String val(buff, sizeof(buff), &my_charset_bin);
 
     for (uint i= COLUMN_STAT_MIN_VALUE; i <= COLUMN_STAT_HISTOGRAM; i++)
     {  
@@ -912,7 +1059,7 @@ public:
           else
           {
             table_field->collected_stats->min_value->val_str(&val);
-            stat_field->store(val.ptr(), val.length(), &my_charset_utf8_bin);
+            stat_field->store(val.ptr(), val.length(), &my_charset_bin);
           }
           break;
         case COLUMN_STAT_MAX_VALUE:
@@ -921,7 +1068,7 @@ public:
           else
           {
             table_field->collected_stats->max_value->val_str(&val);
-            stat_field->store(val.ptr(), val.length(), &my_charset_utf8_bin);
+            stat_field->store(val.ptr(), val.length(), &my_charset_bin);
           }
           break;
         case COLUMN_STAT_NULLS_RATIO:
@@ -982,7 +1129,7 @@ public:
     if (find_stat())
     {
       char buff[MAX_FIELD_WIDTH];
-      String val(buff, sizeof(buff), &my_charset_utf8_bin);
+      String val(buff, sizeof(buff), &my_charset_bin);
 
       for (uint i= COLUMN_STAT_MIN_VALUE; i <= COLUMN_STAT_HIST_TYPE; i++)
       {  
@@ -999,14 +1146,16 @@ public:
 
           switch (i) {
           case COLUMN_STAT_MIN_VALUE:
+	    table_field->read_stats->min_value->set_notnull();
             stat_field->val_str(&val);
             table_field->read_stats->min_value->store(val.ptr(), val.length(),
-                                                      &my_charset_utf8_bin);
+                                                      &my_charset_bin);
             break;
           case COLUMN_STAT_MAX_VALUE:
+	    table_field->read_stats->max_value->set_notnull();
             stat_field->val_str(&val);
             table_field->read_stats->max_value->store(val.ptr(), val.length(),
-                                                      &my_charset_utf8_bin);
+                                                      &my_charset_bin);
             break;
           case COLUMN_STAT_NULLS_RATIO:
             table_field->read_stats->set_nulls_ratio(stat_field->val_real());
@@ -1052,7 +1201,7 @@ public:
     if (find_stat())
     {
       char buff[MAX_FIELD_WIDTH];
-      String val(buff, sizeof(buff), &my_charset_utf8_bin);
+      String val(buff, sizeof(buff), &my_charset_bin);
       uint fldno= COLUMN_STAT_HISTOGRAM;
       Field *stat_field= stat_table->field[fldno];
       table_field->read_stats->set_not_null(fldno);
@@ -1261,6 +1410,117 @@ public:
     table_key_info->read_stats->set_avg_frequency(prefix_arity-1, avg_frequency);
   }  
 
+};
+
+
+/*
+  An iterator to enumerate statistics table rows which allows to modify
+  the rows while reading them.
+
+  Used by RENAME TABLE handling to assign new dbname.tablename to statistic
+  rows.
+*/
+class Stat_table_write_iter
+{
+  Stat_table *owner;
+  IO_CACHE io_cache;
+  uchar *rowid_buf;
+  uint rowid_size;
+
+public:
+  Stat_table_write_iter(Stat_table *stat_table_arg)
+   : owner(stat_table_arg), rowid_buf(NULL),
+     rowid_size(owner->stat_file->ref_length)
+  {
+     my_b_clear(&io_cache);
+  }
+
+  /*
+    Initialize the iterator. It will return rows with n_keyparts matching the
+    curernt values.
+
+    @return  false - OK
+             true  - Error
+  */
+  bool init(uint n_keyparts)
+  {
+    if (!(rowid_buf= (uchar*)my_malloc(rowid_size, MYF(0))))
+      return true;
+
+    if (open_cached_file(&io_cache, mysql_tmpdir, TEMP_PREFIX,
+                         1024, MYF(MY_WME)))
+      return true;
+
+    handler *h= owner->stat_file;
+    uchar key[MAX_KEY_LENGTH];
+    uint prefix_len= 0;
+    for (uint i= 0; i < n_keyparts; i++)
+      prefix_len += owner->stat_key_info->key_part[i].store_length;
+
+    key_copy(key, owner->record[0], owner->stat_key_info,
+             prefix_len);
+    key_part_map prefix_map= (key_part_map) ((1 << n_keyparts) - 1);
+    h->ha_index_init(owner->stat_key_idx, false);
+    int res= h->ha_index_read_map(owner->record[0], key, prefix_map,
+                                  HA_READ_KEY_EXACT);
+    if (res)
+    {
+      reinit_io_cache(&io_cache, READ_CACHE, 0L, 0, 0);
+      /* "Key not found" is not considered an error */
+      return (res == HA_ERR_KEY_NOT_FOUND)? false: true;
+    }
+
+    do {
+      h->position(owner->record[0]);
+      my_b_write(&io_cache, h->ref, rowid_size);
+
+    } while (!h->ha_index_next_same(owner->record[0], key, prefix_len));
+
+    /* Prepare for reading */
+    reinit_io_cache(&io_cache, READ_CACHE, 0L, 0, 0);
+    h->ha_index_or_rnd_end();
+    if (h->ha_rnd_init(false))
+      return true;
+
+    return false;
+  }
+
+  /*
+     Read the next row.
+
+     @return
+        false   OK
+        true    No more rows or error.
+  */
+  bool get_next_row()
+  {
+    if (!my_b_inited(&io_cache) || my_b_read(&io_cache, rowid_buf, rowid_size))
+      return true; /* No more data */
+
+    handler *h= owner->stat_file;
+    /*
+      We should normally be able to find the row that we have rowid for. If we
+      don't, let's consider this an error.
+    */
+    int res= h->ha_rnd_pos(owner->record[0], rowid_buf);
+
+    return (res==0)? false : true;
+  }
+
+  void cleanup()
+  {
+    if (rowid_buf)
+      my_free(rowid_buf);
+    rowid_buf= NULL;
+    owner->stat_file->ha_index_or_rnd_end();
+    close_cached_file(&io_cache);
+    my_b_clear(&io_cache);
+  }
+
+  ~Stat_table_write_iter()
+  {
+    cleanup();
+  }
 };
 
 /*
@@ -1542,7 +1802,7 @@ public:
 
   bool is_single_comp_pk;
 
-  Index_prefix_calc(TABLE *table, KEY *key_info)
+  Index_prefix_calc(THD *thd, TABLE *table, KEY *key_info)
     : index_table(table), index_info(key_info)
   {
     uint i;
@@ -1550,7 +1810,7 @@ public:
     uint key_parts= table->actual_n_key_parts(key_info);
     empty= TRUE;
     prefixes= 0;
-    LINT_INIT(calc_state);
+    LINT_INIT_STRUCT(calc_state);
 
     is_single_comp_pk= FALSE;
     uint pk= table->s->primary_key;
@@ -1563,7 +1823,7 @@ public:
     }
         
     if ((calc_state=
-         (Prefix_calc_state *) sql_alloc(sizeof(Prefix_calc_state)*key_parts)))
+         (Prefix_calc_state *) thd->alloc(sizeof(Prefix_calc_state)*key_parts)))
     {
       uint keyno= key_info-table->key_info;
       for (i= 0, state= calc_state; i < key_parts; i++, state++)
@@ -1577,7 +1837,8 @@ public:
           break;
 
         if (!(state->last_prefix=
-              new Cached_item_field(key_info->key_part[i].field)))
+              new (thd->mem_root) Cached_item_field(thd,
+                                    key_info->key_part[i].field)))
           break;
         state->entry_count= state->prefix_count= 0;
         prefixes++;
@@ -2354,8 +2615,14 @@ int collect_statistics_for_index(THD *thd, TABLE *table, uint index)
   int rc= 0;
   KEY *key_info= &table->key_info[index];
   ha_rows rows= 0;
-  Index_prefix_calc index_prefix_calc(table, key_info);
+
   DBUG_ENTER("collect_statistics_for_index");
+
+  /* No statistics for FULLTEXT indexes. */
+  if (key_info->flags & HA_FULLTEXT)
+    DBUG_RETURN(rc);
+
+  Index_prefix_calc index_prefix_calc(thd, table, key_info);
 
   DEBUG_SYNC(table->in_use, "statistics_collection_start1");
   DEBUG_SYNC(table->in_use, "statistics_collection_start2");
@@ -2390,7 +2657,7 @@ int collect_statistics_for_index(THD *thd, TABLE *table, uint index)
   if (!rc)
     index_prefix_calc.get_avg_frequency();
 
-  DBUG_RETURN(rc);            
+  DBUG_RETURN(rc);
 }
 
 
@@ -2466,6 +2733,8 @@ int collect_statistics_for_table(THD *thd, TABLE *table)
       continue; 
     table_field->collected_stats->init(thd, table_field);
   }
+
+  restore_record(table, s->default_values);
 
   /* Perform a full table scan to collect statistics on 'table's columns */
   if (!(rc= file->ha_rnd_init(TRUE)))
@@ -2600,10 +2869,7 @@ int update_statistics_for_table(THD *thd, TABLE *table)
   DEBUG_SYNC(thd, "statistics_update_start");
 
   if (open_stat_tables(thd, tables, &open_tables_backup, TRUE))
-  {
-    thd->clear_error();
     DBUG_RETURN(rc);
-  }
    
   save_binlog_format= thd->set_current_stmt_binlog_format_stmt();
 
@@ -3031,10 +3297,7 @@ int delete_statistics_for_table(THD *thd, LEX_STRING *db, LEX_STRING *tab)
   DBUG_ENTER("delete_statistics_for_table");
    
   if (open_stat_tables(thd, tables, &open_tables_backup, TRUE))
-  {
-    thd->clear_error();
     DBUG_RETURN(rc);
-  }
 
   save_binlog_format= thd->set_current_stmt_binlog_format_stmt();
 
@@ -3070,6 +3333,10 @@ int delete_statistics_for_table(THD *thd, LEX_STRING *db, LEX_STRING *tab)
     if (err & !rc)
       rc= 1;
   }
+
+  err= del_global_table_stat(thd, db, tab);
+  if (err & !rc)
+      rc= 1;
 
   thd->restore_stmt_binlog_format(save_binlog_format);
 
@@ -3217,6 +3484,10 @@ int delete_statistics_for_index(THD *thd, TABLE *tab, KEY *key_info,
     }
   }
 
+  err= del_global_index_stat(thd, tab, key_info);
+  if (err && !rc)
+    rc= 1;
+
   thd->restore_stmt_binlog_format(save_binlog_format);
 
   close_system_tables(thd, &open_tables_backup);
@@ -3265,10 +3536,7 @@ int rename_table_in_stat_tables(THD *thd, LEX_STRING *db, LEX_STRING *tab,
   DBUG_ENTER("rename_table_in_stat_tables");
    
   if (open_stat_tables(thd, tables, &open_tables_backup, TRUE))
-  {
-    thd->clear_error();
-    DBUG_RETURN(rc);
-  }
+    DBUG_RETURN(0); // not an error
 
   save_binlog_format= thd->set_current_stmt_binlog_format_stmt();
 
@@ -3276,25 +3544,34 @@ int rename_table_in_stat_tables(THD *thd, LEX_STRING *db, LEX_STRING *tab,
   stat_table= tables[INDEX_STAT].table;
   Index_stat index_stat(stat_table, db, tab);
   index_stat.set_full_table_name();
-  while (index_stat.find_next_stat_for_prefix(2))
+
+  Stat_table_write_iter index_iter(&index_stat);
+  if (index_iter.init(2))
+    rc= 1;
+  while (!index_iter.get_next_row())
   {
     err= index_stat.update_table_name_key_parts(new_db, new_tab);
     if (err & !rc)
       rc= 1;
     index_stat.set_full_table_name();
   }
+  index_iter.cleanup();
 
   /* Rename table in the statistical table column_stats */
   stat_table= tables[COLUMN_STAT].table;
   Column_stat column_stat(stat_table, db, tab);
   column_stat.set_full_table_name();
-  while (column_stat.find_next_stat_for_prefix(2))
+  Stat_table_write_iter column_iter(&column_stat);
+  if (column_iter.init(2))
+    rc= 1;
+  while (!column_iter.get_next_row())
   {
     err= column_stat.update_table_name_key_parts(new_db, new_tab);
     if (err & !rc)
       rc= 1;
     column_stat.set_full_table_name();
   }
+  column_iter.cleanup();
    
   /* Rename table in the statistical table table_stats */
   stat_table= tables[TABLE_STAT].table;
@@ -3449,7 +3726,7 @@ double get_column_avg_frequency(Field * field)
     return res;
   }
  
-  Column_statistics *col_stats= table->s->field[field->field_index]->read_stats;
+  Column_statistics *col_stats= field->read_stats;
 
   if (!col_stats)
     res= table->stat_records();
@@ -3487,7 +3764,7 @@ double get_column_range_cardinality(Field *field,
 {
   double res;
   TABLE *table= field->table;
-  Column_statistics *col_stats= table->field[field->field_index]->read_stats;
+  Column_statistics *col_stats= field->read_stats;
   double tab_records= table->stat_records();
 
   if (!col_stats)
@@ -3501,7 +3778,12 @@ double get_column_range_cardinality(Field *field,
                    !(range_flag & NEAR_MIN);
 
   if (col_non_nulls < 1)
-    res= 0;
+  {
+    if (nulls_incl)
+      res= col_nulls;
+    else
+      res= 0;
+  }
   else if (min_endp && max_endp && min_endp->length == max_endp->length &&
            !memcmp(min_endp->key, max_endp->key, min_endp->length))
   { 
@@ -3515,13 +3797,13 @@ double get_column_range_cardinality(Field *field,
       double avg_frequency= col_stats->get_avg_frequency();
       res= avg_frequency;   
       if (avg_frequency > 1.0 + 0.000001 && 
-          col_stats->min_value && col_stats->max_value)
+          col_stats->min_max_values_are_provided())
       {
         Histogram *hist= &col_stats->histogram;
         if (hist->is_available())
         {
           store_key_image_to_rec(field, (uchar *) min_endp->key,
-                                 min_endp->length);
+                                 field->key_length());
           double pos= field->pos_in_interval(col_stats->min_value,
                                              col_stats->max_value);
           res= col_non_nulls * 
@@ -3529,18 +3811,23 @@ double get_column_range_cardinality(Field *field,
                                        avg_frequency / col_non_nulls);
         }
       }
+      else if (avg_frequency == 0.0)
+      {
+        /* This actually means there is no statistics data */
+        res= tab_records;
+      }
     }
   }  
   else 
   {
-    if (col_stats->min_value && col_stats->max_value)
+    if (col_stats->min_max_values_are_provided())
     {
       double sel, min_mp_pos, max_mp_pos;
 
       if (min_endp && !(field->null_ptr && min_endp->key[0]))
       {
         store_key_image_to_rec(field, (uchar *) min_endp->key,
-                               min_endp->length);
+                               field->key_length());
         min_mp_pos= field->pos_in_interval(col_stats->min_value,
                                            col_stats->max_value);
       }
@@ -3549,7 +3836,7 @@ double get_column_range_cardinality(Field *field,
       if (max_endp)
       {
         store_key_image_to_rec(field, (uchar *) max_endp->key,
-                               max_endp->length);
+                               field->key_length());
         max_mp_pos= field->pos_in_interval(col_stats->min_value,
                                            col_stats->max_value);
       }
@@ -3686,5 +3973,23 @@ double Histogram::point_selectivity(double pos, double avg_sel)
     */
   }
   return sel;
+}
+
+/*
+  Check whether the table is one of the persistent statistical tables.
+*/
+bool is_stat_table(const char *db, const char *table)
+{
+  DBUG_ASSERT(db && table);
+
+  if (!memcmp(db, stat_tables_db_name.str, stat_tables_db_name.length))
+  {
+    for (uint i= 0; i < STATISTICS_TABLES; i ++)
+    {
+      if (!memcmp(table, stat_table_name[i].str, stat_table_name[i].length))
+        return true;
+    }
+  }
+  return false;
 }
 

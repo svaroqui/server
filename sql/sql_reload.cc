@@ -1,4 +1,5 @@
-/* Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2010, 2016, Oracle and/or its affiliates.
+   Copyright (c) 2011, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -13,6 +14,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_reload.h"
 #include "sql_priv.h"
 #include "mysqld.h"      // select_errors
@@ -27,7 +29,7 @@
 #include "rpl_mi.h"      // Master_info::data_lock
 #include "sql_show.h"
 #include "debug_sync.h"
-#include "rpl_mi.h"
+#include "des_key_file.h"
 
 static void disable_checkpoints(THD *thd);
 
@@ -71,7 +73,7 @@ bool reload_acl_and_cache(THD *thd, unsigned long long options,
       If reload_acl_and_cache() is called from SIGHUP handler we have to
       allocate temporary THD for execution of acl_reload()/grant_reload().
     */
-    if (!thd && (thd= (tmp_thd= new THD)))
+    if (!thd && (thd= (tmp_thd= new THD(0))))
     {
       thd->thread_stack= (char*) &tmp_thd;
       thd->store_globals();
@@ -93,12 +95,11 @@ bool reload_acl_and_cache(THD *thd, unsigned long long options,
         my_error(ER_UNKNOWN_ERROR, MYF(0));
       }
     }
+    opt_noacl= 0;
 
     if (tmp_thd)
     {
       delete tmp_thd;
-      /* Remember that we don't have a THD */
-      set_current_thd(0);
       thd= 0;
     }
     reset_mqh((LEX_USER *)NULL, TRUE);
@@ -154,6 +155,12 @@ bool reload_acl_and_cache(THD *thd, unsigned long long options,
     {
       if (mysql_bin_log.rotate_and_purge(true))
         *write_to_binlog= -1;
+
+      if (WSREP_ON)
+      {
+        /* Wait for last binlog checkpoint event to be logged. */
+        mysql_bin_log.wait_for_last_checkpoint_event();
+      }
     }
   }
   if (options & REFRESH_RELAY_LOG)
@@ -310,6 +317,16 @@ bool reload_acl_and_cache(THD *thd, unsigned long long options,
         }
       }
 
+#ifdef WITH_WSREP
+      if (thd && thd->wsrep_applier)
+      {
+        /*
+          In case of applier thread, do not wait for table share(s) to be
+          removed from table definition cache.
+        */
+        options|= REFRESH_FAST;
+      }
+#endif
       if (close_cached_tables(thd, tables,
                               ((options & REFRESH_FAST) ?  FALSE : TRUE),
                               (thd ? thd->variables.lock_wait_timeout :
@@ -335,14 +352,14 @@ bool reload_acl_and_cache(THD *thd, unsigned long long options,
   {
     DBUG_ASSERT(thd);
     tmp_write_to_binlog= 0;
-    if (reset_master(thd, NULL, 0))
+    if (reset_master(thd, NULL, 0, thd->lex->next_binlog_file_number))
     {
       /* NOTE: my_error() has been already called by reset_master(). */
       result= 1;
     }
   }
 #endif
-#ifdef OPENSSL
+#ifdef HAVE_OPENSSL
    if (options & REFRESH_DES_KEY_FILE)
    {
      if (des_key_file && load_des_key_file(des_key_file))
@@ -520,6 +537,8 @@ bool flush_tables_with_read_lock(THD *thd, TABLE_LIST *all_tables)
     }
   }
 
+  thd->variables.option_bits|= OPTION_TABLE_LOCK;
+
   /*
     Before opening and locking tables the below call also waits
     for old shares to go away, so the fact that we don't pass
@@ -533,7 +552,7 @@ bool flush_tables_with_read_lock(THD *thd, TABLE_LIST *all_tables)
   if (open_and_lock_tables(thd, all_tables, FALSE,
                            MYSQL_OPEN_SKIP_SCOPED_MDL_LOCK,
                            &lock_tables_prelocking_strategy))
-    goto error;
+    goto error_reset_bits;
 
   if (thd->lex->type & REFRESH_FOR_EXPORT)
   {
@@ -545,15 +564,14 @@ bool flush_tables_with_read_lock(THD *thd, TABLE_LIST *all_tables)
       {
         my_error(ER_ILLEGAL_HA, MYF(0),table_list->table->file->table_type(),
                  table_list->db, table_list->table_name);
-        return true;
+        goto error_reset_bits;
       }
     }
   }
 
   if (thd->locked_tables_list.init_locked_tables(thd))
-    goto error;
+    goto error_reset_bits;
 
-  thd->variables.option_bits|= OPTION_TABLE_LOCK;
 
   /*
     We don't downgrade MDL_SHARED_NO_WRITE here as the intended
@@ -564,6 +582,9 @@ bool flush_tables_with_read_lock(THD *thd, TABLE_LIST *all_tables)
 
   return FALSE;
 
+error_reset_bits:
+  close_thread_tables(thd);
+  thd->variables.option_bits&= ~OPTION_TABLE_LOCK;
 error:
   return TRUE;
 }

@@ -125,7 +125,7 @@ extern "C" void handle_abort(int sig)
     message("Got signal %d, child_pid: %d, sending ABRT", sig, child_pid);
 
     if (child_pid > 0) {
-	kill (-child_pid, SIGABRT);	// Don't wait for it to terminate
+	kill(-child_pid, SIGABRT);	// Don't wait for it to terminate
     }
 }
 
@@ -141,9 +141,18 @@ extern "C" void handle_signal(int sig)
   // Ignore further signals
   signal(SIGTERM, SIG_IGN);
   signal(SIGINT,  SIG_IGN);
+  signal(SIGHUP, SIG_IGN);
 
   // Continune execution, allow the child to be started and
   // finally terminated by monitor loop
+}
+
+
+void setlimit(int what, uint soft, uint hard)
+{
+  struct rlimit lim = { soft, hard };
+  if (setrlimit (what, &lim) < 0)
+    message("setrlimit failed, errno=%d", errno);
 }
 
 
@@ -164,6 +173,7 @@ int main(int argc, char* const argv[] )
   /* Install signal handlers */
   sigaction(SIGTERM, &sa,NULL);
   sigaction(SIGINT, &sa,NULL);
+  sigaction(SIGHUP, &sa, NULL);
   sigaction(SIGCHLD, &sa,NULL);
   sigaction(SIGABRT, &sa_abort,NULL);
 
@@ -224,6 +234,18 @@ int main(int argc, char* const argv[] )
     sleep(1);
   }
 
+  /*
+    Child: Make this process it's own process group to be able to kill
+    it and any its children that hasn't changed a group themselves)
+
+    Parent: Detach from the parent's process group, so that killing a parent
+    group wouldn't kill us (if we're killed, there's no one to kill our child
+    processes that run in their own process group). There's a loop below
+    that monitors the parent, it's enough.
+  */
+  setpgid(0, 0);
+
+
   if (child_pid == 0)
   {
     close(pfd[0]); // Close unused read end
@@ -231,20 +253,17 @@ int main(int argc, char* const argv[] )
     // Use default signal handlers in child
     signal(SIGTERM, SIG_DFL);
     signal(SIGINT,  SIG_DFL);
+    signal(SIGHUP, SIG_DFL);
     signal(SIGCHLD, SIG_DFL);
 
-    // Make this process it's own process group to be able to kill
-    // it and any childs(that hasn't changed group themself)
-    setpgid(0, 0);
-
     if (nocore)
-    {
-      struct rlimit corelim = { 0, 0 };
-      if (setrlimit (RLIMIT_CORE, &corelim) < 0)
-      {
-        message("setrlimit failed, errno=%d", errno);
-      }
-    }
+      setlimit(RLIMIT_CORE, 0, 0);
+
+    /*
+      mysqld defaults depend on that. make test results stable and independent
+      from the environment
+    */
+    setlimit(RLIMIT_NOFILE, 1024, 1024);
 
     // Signal that child is ready
     buf= 37;

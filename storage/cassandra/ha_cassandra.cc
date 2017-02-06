@@ -18,6 +18,7 @@
 #pragma implementation        // gcc: Class implementation
 #endif
 
+#include <my_config.h>
 #include <mysql/plugin.h>
 #include "ha_cassandra.h"
 #include "sql_class.h"
@@ -886,7 +887,7 @@ bool cassandra_to_dyncol_intLong(const char *cass_data,
 {
   value->type= DYN_COL_INT;
 #ifdef WORDS_BIGENDIAN
-  value->x.long_value= (longlong *)*cass_data;
+  value->x.long_value= (longlong)*cass_data;
 #else
   flip64(cass_data, (char *)&value->x.long_value);
 #endif
@@ -2282,7 +2283,7 @@ bool ha_cassandra::mrr_start_read()
     rowkey_converter->mariadb_to_cassandra(&cass_key, &cass_key_len);
 
     // Primitive buffer control
-    if (se->add_lookup_key(cass_key, cass_key_len) >
+    if ((ulong) se->add_lookup_key(cass_key, cass_key_len) >
         THDVAR(table->in_use, multiget_batch_size))
       break;
   }

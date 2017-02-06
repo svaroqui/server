@@ -136,9 +136,11 @@ DROP TABLE t1;
 #
 # InnoDB is required to reproduce the fault, but it is okay if we default to
 # MyISAM when testing.
+set sql_mode="";
 --disable_warnings
 create table t1 (a varchar(90), ts datetime not null, index (a)) engine=innodb default charset=utf8;
 --enable_warnings
+set sql_mode=default;
 insert into t1 values ('http://www.foo.com/', now());
 select a from t1 where a='http://www.foo.com/' order by abs(timediff(ts, 0));
 drop table t1;
@@ -484,6 +486,14 @@ SELECT -a FROM t1;
 --error ER_DATA_OUT_OF_RANGE
 SELECT -b FROM t1;
 
+# try with two rows now
+INSERT INTO t1 VALUES(0,0);
+
+--error ER_DATA_OUT_OF_RANGE
+SELECT -a FROM t1;
+--error ER_DATA_OUT_OF_RANGE
+SELECT -b FROM t1;
+
 DROP TABLE t1;
 
 # Decimal overflows
@@ -570,11 +580,15 @@ select 5 div 2.0;
 select 5.9 div 2, 1.23456789e3 DIV 2, 1.23456789e9 DIV 2, 1.23456789e19 DIV 2;
 
 --echo #
---echo # End of 5.5 tests
+--echo # MDEV-10467 Assertion `nr >= 0.0' failed in Item_sum_std::val_real()
 --echo #
+CREATE TABLE t1 (i INT);
+INSERT INTO t1 VALUES (1),(2);
+SELECT STDDEV_SAMP(ROUND('0', 309)) FROM t1;
+DROP TABLE t1;
 
 --echo #
---echo # Start of 10.0 tests
+--echo # End of 5.5 tests
 --echo #
 
 --echo #
@@ -582,7 +596,15 @@ select 5.9 div 2, 1.23456789e3 DIV 2, 1.23456789e9 DIV 2, 1.23456789e19 DIV 2;
 --echo #
 SELECT STDDEV_POP(ROUND(0,@A:=2009)) FROM (SELECT 1 UNION SELECT 2) fake_table;
 
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo # Test zero
+select 0=0, 0=-0, 0.0= -0.0, 0.0 = -(0.0), 0.0E1=-0.0E1, 0.0E1=-(0.0E1);
 
 --echo #
---echo # End of 10.0 tests
+--echo # CRC32 tests
 --echo #
+
+select CRC32(NULL), CRC32(''), CRC32('MySQL'), CRC32('mysql'), CRC32('01234567'), CRC32('012345678');

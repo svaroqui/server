@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 2012, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2012, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2017, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -96,6 +97,21 @@ dict_stats_pool_deinit()
 
 	recalc_pool.clear();
 	defrag_pool.clear();
+
+ /*
+          recalc_pool may still have its buffer allocated. It will free it when
+          its destructor is called.
+          The problem is, memory leak detector is run before the recalc_pool's
+          destructor is invoked, and will report recalc_pool's buffer as leaked
+          memory.  To avoid that, we force recalc_pool to surrender its buffer
+          to empty_pool object, which will free it when leaving this function:
+        */
+	recalc_pool_t recalc_empty_pool;
+	defrag_pool_t defrag_empty_pool;
+	memset(&recalc_empty_pool, 0, sizeof(recalc_pool_t));
+	memset(&defrag_empty_pool, 0, sizeof(defrag_pool_t));
+        recalc_pool.swap(recalc_empty_pool);
+	defrag_pool.swap(defrag_empty_pool);
 }
 
 /*****************************************************************//**
@@ -413,7 +429,7 @@ dict_stats_process_entry_from_recalc_pool()
 		return;
 	}
 
-	table->stats_bg_flag = BG_STAT_IN_PROGRESS;
+	table->stats_bg_flag |= BG_STAT_IN_PROGRESS;
 
 	mutex_exit(&dict_sys->mutex);
 
@@ -440,7 +456,7 @@ dict_stats_process_entry_from_recalc_pool()
 
 	mutex_enter(&dict_sys->mutex);
 
-	table->stats_bg_flag = BG_STAT_NONE;
+	table->stats_bg_flag &= ~BG_STAT_IN_PROGRESS;
 
 	dict_table_close(table, TRUE, FALSE);
 
@@ -511,14 +527,9 @@ statistics.
 @return this function does not return, it calls os_thread_exit() */
 extern "C" UNIV_INTERN
 os_thread_ret_t
-DECLARE_THREAD(dict_stats_thread)(
-/*==============================*/
-	void*	arg __attribute__((unused)))	/*!< in: a dummy parameter
-						required by os_thread_create */
+DECLARE_THREAD(dict_stats_thread)(void*)
 {
 	ut_a(!srv_read_only_mode);
-
-	srv_dict_stats_thread_active = TRUE;
 
 	while (!SHUTTING_DOWN()) {
 
@@ -542,7 +553,7 @@ DECLARE_THREAD(dict_stats_thread)(
 		os_event_reset(dict_stats_event);
 	}
 
-	srv_dict_stats_thread_active = FALSE;
+	srv_dict_stats_thread_active = false;
 
 	/* We count the number of threads in os_thread_exit(). A created
 	thread should always use that to exit instead of return(). */

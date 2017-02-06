@@ -1121,31 +1121,46 @@ c1
 2
 UNLOCK TABLES;
 DROP TABLE t1, t2, t3, t4;
+connect  con1,localhost,root,,;
+connect  con2,localhost,root,,;
+connection default;
 CREATE TABLE t1 (c1 INT) ENGINE= MyISAM;
 CREATE TABLE t2 (c1 INT) ENGINE= MRG_MYISAM UNION= (t1) INSERT_METHOD= LAST;
 REPAIR TABLE t1;
+connection con1;
 INSERT INTO t2 VALUES (1);
+connection default;
 Table	Op	Msg_type	Msg_text
 test.t1	repair	status	OK
 DROP TABLE t1, t2;
 CREATE TABLE t1 (c1 INT) ENGINE= MyISAM;
 CREATE TABLE t2 (c1 INT) ENGINE= MRG_MYISAM UNION= (t1) INSERT_METHOD= LAST;
 LOCK TABLE t1 WRITE;
+connection con1;
 INSERT INTO t2 VALUES (1);
+connection default;
 REPAIR TABLE t1;
 Table	Op	Msg_type	Msg_text
 test.t1	repair	status	OK
 UNLOCK TABLES;
+connection con1;
+connection default;
 DROP TABLE t1, t2;
 CREATE TABLE t1 (c1 INT) ENGINE= MyISAM;
 LOCK TABLE t1 WRITE;
+connection con1;
 INSERT INTO t1 VALUES (1);
+connection default;
 FLUSH TABLES;
 FLUSH TABLES;
 SELECT * FROM t1;
 c1
 UNLOCK TABLES;
+connection con1;
+connection default;
 DROP TABLE t1;
+disconnect con1;
+disconnect con2;
 #
 # Extra tests for Bug#26379 - Combination of FLUSH TABLE and
 #                             REPAIR TABLE corrupts a MERGE table
@@ -1964,9 +1979,14 @@ COUNT(*)
 SELECT COUNT(*) FROM t3;
 COUNT(*)
 210
+connect  con1,localhost,root,,;
 SELECT COUNT(DISTINCT a1.id) FROM t3 AS a1, t3 AS a2
 WHERE a1.id = a2.id GROUP BY a2.grp;
+connection default;
 TRUNCATE TABLE t1;
+connection con1;
+disconnect con1;
+connection default;
 SELECT COUNT(*) FROM t1;
 COUNT(*)
 0
@@ -2269,8 +2289,8 @@ CREATE TABLE t2(a int);
 CREATE TABLE t3(a int) ENGINE = MERGE UNION(t1, t2);
 CREATE TRIGGER tr1 AFTER INSERT ON t3 FOR EACH ROW CALL foo();
 SHOW CREATE TRIGGER tr1;
-Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation
-tr1		CREATE DEFINER=`root`@`localhost` TRIGGER tr1 AFTER INSERT ON t3 FOR EACH ROW CALL foo()	latin1	latin1_swedish_ci	latin1_swedish_ci
+Trigger	sql_mode	SQL Original Statement	character_set_client	collation_connection	Database Collation	Created
+tr1	NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION	CREATE DEFINER=`root`@`localhost` TRIGGER tr1 AFTER INSERT ON t3 FOR EACH ROW CALL foo()	latin1	latin1_swedish_ci	latin1_swedish_ci	#
 DROP TRIGGER tr1;
 DROP TABLE t1, t2, t3;
 #
@@ -2545,11 +2565,14 @@ DROP TABLE t1;
 # Test merge table with too many merge children.
 #
 drop table if exists t_parent;
-set @save_table_definition_cache=@@global.table_definition_cache;
+set @save_table_open_cache=@@global.table_open_cache;
 #
-# Set @@global.table_definition_cache to minimum
+# Set @@global.table_open_cache to minimum
 #
-set @@global.table_definition_cache=400;
+set @@global.table_open_cache=400;
+select @@table_open_cache;
+@@table_open_cache
+400
 set @a=null;
 #
 # Create 400 merge children
@@ -2573,7 +2596,7 @@ deallocate prepare stmt;
 # Cleanup
 #
 drop table t_parent;
-set @@global.table_definition_cache=@save_table_definition_cache;
+set @@global.table_open_cache=@save_table_open_cache;
 DROP DATABASE IF EXISTS mysql_test1;
 CREATE DATABASE mysql_test1;
 CREATE TABLE t1 ... DATA DIRECTORY=... INDEX DIRECTORY=...
@@ -2762,14 +2785,14 @@ CREATE TRIGGER tm1_ai AFTER INSERT ON tm1
 FOR EACH ROW INSERT INTO t1 VALUES(11);
 LOCK TABLE tm1 WRITE, t1 WRITE;
 INSERT INTO tm1 VALUES (1);
-ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger.
+ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger
 SELECT * FROM tm1;
 c1
 1
 UNLOCK TABLES;
 LOCK TABLE t1 WRITE, tm1 WRITE;
 INSERT INTO tm1 VALUES (1);
-ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger.
+ERROR HY000: Can't update table 't1' in stored function/trigger because it is already used by statement which invoked this stored function/trigger
 SELECT * FROM tm1;
 c1
 1
@@ -2821,10 +2844,15 @@ INSERT INTO t2 VALUES(2);
 INSERT INTO t3 VALUES(3);
 INSERT INTO t4 VALUES(4);
 INSERT INTO t5 VALUES(5);
+connect  con1,localhost,root,,;
 UPDATE t2, tm1 SET t2.c1=f1();
+connection default;
 FLUSH TABLES;
 FLUSH TABLES;
 UNLOCK TABLES;
+connection con1;
+disconnect con1;
+connection default;
 SELECT * FROM tm1;
 c1
 1
@@ -3553,7 +3581,7 @@ DROP TABLE t1, t2, t3, t4, m1, m2;
 # HANDLER ... OPEN.
 # The general case.
 DROP TABLE IF EXISTS t1, t2, t3;
-# Connection con1.
+connect  con1,localhost,root,,;
 CREATE TABLE t1 (c1 int);
 CREATE TABLE t2 (c1 int);
 CREATE TABLE t3 (c1 int) ENGINE = MERGE UNION (t1,t2);
@@ -3561,10 +3589,11 @@ START TRANSACTION;
 HANDLER t3 OPEN;
 ERROR HY000: Storage engine MRG_MyISAM of the table `test`.`t3` doesn't have this option
 DROP TABLE t1, t2, t3;
-# Connection default.
-# Disconnecting con1, all mdl_tickets must have been released.
+connection default;
+# all mdl_tickets must have been released.
+disconnect con1;
 # The bug-specific case.
-# Connection con1.
+connect  con1,localhost,root,,;
 CREATE TABLE t1 (c1 int);
 CREATE TABLE t2 (c1 int);
 CREATE TABLE t3 (c1 int) ENGINE = MERGE UNION (t1,t2);
@@ -3573,8 +3602,9 @@ START TRANSACTION;
 HANDLER t3 OPEN;
 ERROR HY000: Unable to open underlying table which is differently defined or of non-MyISAM type or doesn't exist
 DROP TABLE t1, t3;
-# Connection default.
-# Disconnecting con1, all mdl_tickets must have been released.
+connection default;
+# all mdl_tickets must have been released.
+disconnect con1;
 #
 # A test case for Bug#47648   main.merge fails sporadically
 #
@@ -3681,9 +3711,9 @@ ERROR HY000: Table 'm1' is specified twice, both as a target for 'INSERT' and as
 insert into m1 (a) values ((select max(a) from tmp, t2));
 ERROR HY000: Table 'm1' is specified twice, both as a target for 'INSERT' and as a separate source for data
 insert into m1 (a) values ((select max(a) from v1));
-ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'm1'.
+ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'm1'
 insert into m1 (a) values ((select max(a) from tmp, v1));
-ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'm1'.
+ERROR HY000: The definition of table 'v1' prevents operation INSERT on table 'm1'
 update m1 set a = ((select max(a) from m1));
 ERROR HY000: Table 'm1' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 update m1 set a = ((select max(a) from m2));
@@ -3709,9 +3739,9 @@ ERROR HY000: Table 'm1' is specified twice, both as a target for 'UPDATE' and as
 update m1 set a = ((select max(a) from tmp, t2));
 ERROR HY000: Table 'm1' is specified twice, both as a target for 'UPDATE' and as a separate source for data
 update m1 set a = ((select max(a) from v1));
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'm1'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'm1'
 update m1 set a = ((select max(a) from tmp, v1));
-ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'm1'.
+ERROR HY000: The definition of table 'v1' prevents operation UPDATE on table 'm1'
 delete from m1 where a = (select max(a) from m1);
 ERROR HY000: Table 'm1' is specified twice, both as a target for 'DELETE' and as a separate source for data
 delete from m1 where a = (select max(a) from m2);
@@ -3737,9 +3767,9 @@ ERROR HY000: Table 'm1' is specified twice, both as a target for 'DELETE' and as
 delete from m1 where a = (select max(a) from tmp, t2);
 ERROR HY000: Table 'm1' is specified twice, both as a target for 'DELETE' and as a separate source for data
 delete from m1 where a = (select max(a) from v1);
-ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'm1'.
+ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'm1'
 delete from m1 where a = (select max(a) from tmp, v1);
-ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'm1'.
+ERROR HY000: The definition of table 'v1' prevents operation DELETE on table 'm1'
 drop view v1;
 drop temporary table tmp;
 drop table t1, t2, t3, m1, m2;
@@ -3832,6 +3862,23 @@ test.m1	repair	error	Corrupt
 # Clean-up.
 drop tables m1, t1, t4;
 drop view t3;
+#
+# MDEV-10424 - Assertion `ticket == __null' failed in
+#              MDL_request::set_type
+#
+CREATE TABLE t1 (f1 INT) ENGINE=MyISAM;
+CREATE TABLE tmerge (f1 INT) ENGINE=MERGE UNION=(t1);
+PREPARE stmt FROM "ANALYZE TABLE tmerge, t1";
+EXECUTE stmt;
+Table	Op	Msg_type	Msg_text
+test.tmerge	analyze	note	The storage engine for the table doesn't support analyze
+test.t1	analyze	status	Table is already up to date
+EXECUTE stmt;
+Table	Op	Msg_type	Msg_text
+test.tmerge	analyze	note	The storage engine for the table doesn't support analyze
+test.t1	analyze	status	Table is already up to date
+DEALLOCATE PREPARE stmt;
+DROP TABLE t1, tmerge;
 End of 5.5 tests
 #
 # Additional coverage for refactoring which is made as part

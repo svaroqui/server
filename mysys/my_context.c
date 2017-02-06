@@ -24,7 +24,7 @@
 #include "m_string.h"
 #include "my_context.h"
 
-#ifdef HAVE_VALGRIND
+#ifdef HAVE_VALGRIND_MEMCHECK_H
 #include <valgrind/valgrind.h>
 #endif
 
@@ -134,7 +134,7 @@ my_context_init(struct my_context *c, size_t stack_size)
   if (!(c->stack= malloc(stack_size)))
     return -1;                                  /* Out of memory */
   c->stack_size= stack_size;
-#ifdef HAVE_VALGRIND
+#ifdef HAVE_VALGRIND_MEMCHECK_H
   c->valgrind_stack_id=
     VALGRIND_STACK_REGISTER(c->stack, ((unsigned char *)(c->stack))+stack_size);
 #endif
@@ -146,7 +146,7 @@ my_context_destroy(struct my_context *c)
 {
   if (c->stack)
   {
-#ifdef HAVE_VALGRIND
+#ifdef HAVE_VALGRIND_MEMCHECK_H
     VALGRIND_STACK_DEREGISTER(c->valgrind_stack_id);
 #endif
     free(c->stack);
@@ -206,7 +206,7 @@ my_context_spawn(struct my_context *c, void (*f)(void *), void *d)
     (
      "movq %%rsp, (%[save])\n\t"
      "movq %[stack], %%rsp\n\t"
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 4 && !defined(__INTEL_COMPILER)
+#if (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)) && !defined(__INTEL_COMPILER)
      /*
        This emits a DWARF DW_CFA_undefined directive to make the return address
        undefined. This indicates that this is the top of the stack frame, and
@@ -384,7 +384,7 @@ my_context_init(struct my_context *c, size_t stack_size)
     (( ((intptr)c->stack_bot + stack_size) & ~(intptr)0xf) - 16);
   bzero(c->stack_top, 16);
 
-#ifdef HAVE_VALGRIND
+#ifdef HAVE_VALGRIND_MEMCHECK_H
   c->valgrind_stack_id=
     VALGRIND_STACK_REGISTER(c->stack_bot, c->stack_top);
 #endif
@@ -397,7 +397,7 @@ my_context_destroy(struct my_context *c)
   if (c->stack_bot)
   {
     free(c->stack_bot);
-#ifdef HAVE_VALGRIND
+#ifdef HAVE_VALGRIND_MEMCHECK_H
     VALGRIND_STACK_DEREGISTER(c->valgrind_stack_id);
 #endif
   }
@@ -454,7 +454,7 @@ my_context_spawn(struct my_context *c, void (*f)(void *), void *d)
     (
      "movl %%esp, (%[save])\n\t"
      "movl %[stack], %%esp\n\t"
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 4 && !defined(__INTEL_COMPILER)
+#if (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)) && !defined(__INTEL_COMPILER)
      /*
        This emits a DWARF DW_CFA_undefined directive to make the return address
        undefined. This indicates that this is the top of the stack frame, and
@@ -620,7 +620,7 @@ my_context_init(struct my_context *c, size_t stack_size)
     (( ((intptr)c->stack_bot + stack_size) & ~(intptr)0xf) - 16);
   bzero(c->stack_top, 16);
 
-#ifdef HAVE_VALGRIND
+#ifdef HAVE_VALGRIND_MEMCHECK_H
   c->valgrind_stack_id=
     VALGRIND_STACK_REGISTER(c->stack_bot, c->stack_top);
 #endif
@@ -633,7 +633,7 @@ my_context_destroy(struct my_context *c)
   if (c->stack_bot)
   {
     free(c->stack_bot);
-#ifdef HAVE_VALGRIND
+#ifdef HAVE_VALGRIND_MEMCHECK_H
     VALGRIND_STACK_DEREGISTER(c->valgrind_stack_id);
 #endif
   }
@@ -696,30 +696,27 @@ my_context_destroy(struct my_context *c)
 int
 my_context_spawn(struct my_context *c, void (*f)(void *), void *d)
 {
-  void *current_fiber;
   c->user_func= f;
   c->user_arg= d;
+  return my_context_continue(c);
+}
+
+int
+my_context_continue(struct my_context *c)
+{
   /*
     This seems to be a common trick to run ConvertThreadToFiber() only on the
     first occurence in a thread, in a way that works on multiple Windows
     versions.
   */
-  current_fiber= GetCurrentFiber();
+  void *current_fiber= GetCurrentFiber();
   if (current_fiber == NULL || current_fiber == (void *)0x1e00)
     current_fiber= ConvertThreadToFiber(c);
   c->app_fiber= current_fiber;
   DBUG_SWAP_CODE_STATE(&c->dbug_state);
   SwitchToFiber(c->lib_fiber);
   DBUG_SWAP_CODE_STATE(&c->dbug_state);
-  return c->return_value;
-}
 
-int
-my_context_continue(struct my_context *c)
-{
-  DBUG_SWAP_CODE_STATE(&c->dbug_state);
-  SwitchToFiber(c->lib_fiber);
-  DBUG_SWAP_CODE_STATE(&c->dbug_state);
   return c->return_value;
 }
 
@@ -727,33 +724,36 @@ my_context_continue(struct my_context *c)
 
 #ifdef MY_CONTEXT_DISABLE
 int
-my_context_continue(struct my_context *c)
+my_context_continue(struct my_context *c __attribute__((unused)))
 {
   return -1;
 }
 
 
 int
-my_context_spawn(struct my_context *c, void (*f)(void *), void *d)
+my_context_spawn(struct my_context *c __attribute__((unused)),
+                 void (*f)(void *) __attribute__((unused)),
+                 void *d __attribute__((unused)))
 {
   return -1;
 }
 
 
 int
-my_context_yield(struct my_context *c)
+my_context_yield(struct my_context *c __attribute__((unused)))
 {
   return -1;
 }
 
 int
-my_context_init(struct my_context *c, size_t stack_size)
+my_context_init(struct my_context *c __attribute__((unused)),
+                size_t stack_size __attribute__((unused)))
 {
   return -1;                                  /* Out of memory */
 }
 
 void
-my_context_destroy(struct my_context *c)
+my_context_destroy(struct my_context *c __attribute__((unused)))
 {
 }
 

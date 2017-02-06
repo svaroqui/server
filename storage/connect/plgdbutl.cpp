@@ -5,7 +5,7 @@
 /*                                                                     */
 /* COPYRIGHT:                                                          */
 /* ----------                                                          */
-/*  (C) Copyright to the author Olivier BERTRAND          1998-2014    */
+/*  (C) Copyright to the author Olivier BERTRAND          1998-2016    */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -38,20 +38,20 @@
 /*  Include relevant MariaDB header file.                              */
 /***********************************************************************/
 #include "my_global.h"
-#if defined(WIN32)
+#if defined(__WIN__)
 #include <io.h>
 #include <fcntl.h>
 #include <errno.h>
 #define BIGMEM         1048576            // 1 Megabyte
-#else     // !WIN32
+#else     // !__WIN__
 #include <unistd.h>
 #include <fcntl.h>
-#if defined(THREAD)
+//#if defined(THREAD)
 #include <pthread.h>
-#endif   // THREAD
+//#endif   // THREAD
 #include <stdarg.h>
 #define BIGMEM      2147483647            // Max int value
-#endif    // !WIN32
+#endif    // !__WIN__
 #include <locale.h>
 
 /***********************************************************************/
@@ -70,29 +70,20 @@
 #include "rcmsg.h"
 
 /***********************************************************************/
-/*  Macro or external routine definition                               */
-/***********************************************************************/
-#if defined(THREAD)
-#if defined(WIN32)
-extern CRITICAL_SECTION parsec;      // Used calling the Flex parser
-#else   // !WIN32
-extern pthread_mutex_t parmut;
-#endif  // !WIN32
-#endif  //  THREAD
-
-/***********************************************************************/
 /*  DB static variables.                                               */
 /***********************************************************************/
 bool  Initdone = false;
 bool  plugin = false;  // True when called by the XDB plugin handler 
 
 extern "C" {
-#if defined(XMSG)
-       char  msglang[16] = "ENGLISH";      // Default language
-#endif
-extern int  trace;
 extern char version[];
 } // extern "C"
+
+#if defined(__WIN__)
+extern CRITICAL_SECTION parsec;      // Used calling the Flex parser
+#else   // !__WIN__
+extern pthread_mutex_t parmut;
+#endif  // !__WIN__
 
 // The debug trace used by the main thread
        FILE *pfile = NULL;
@@ -117,11 +108,17 @@ void CloseXMLFile(PGLOBAL, PFBLOCK, bool);
 
 /***********************************************************************/
 /* Routines for file IO with error reporting to g->Message             */
+/* Note: errno and strerror must be called before the message file     */
+/* is read in the case of XMSG compile.                                */
 /***********************************************************************/
-static void
-global_open_error_msg(GLOBAL *g, int msgid, const char *path, const char *mode)
+static void global_open_error_msg(GLOBAL *g, int msgid, const char *path, 
+                                                        const char *mode)
 {
-  int len;
+  int  len, rno= (int)errno;
+  char errmsg[256]= "";
+
+  strncat(errmsg, strerror(errno), 255);
+
   switch (msgid)
   {
     case MSGID_CANNOT_OPEN:
@@ -133,19 +130,21 @@ global_open_error_msg(GLOBAL *g, int msgid, const char *path, const char *mode)
     case MSGID_OPEN_MODE_ERROR:
       len= snprintf(g->Message, sizeof(g->Message) - 1,
                     MSG(OPEN_MODE_ERROR), // "Open(%s) error %d on %s"
-                    mode, (int) errno, path);
+                    mode, rno, path);
       break;
 
     case MSGID_OPEN_MODE_STRERROR:
+      {char fmt[256];
+      strcat(strcpy(fmt, MSG(OPEN_MODE_ERROR)), ": %s");
       len= snprintf(g->Message, sizeof(g->Message) - 1,
-                    MSG(OPEN_MODE_ERROR) ": %s", // Open(%s) error %d on %s: %s
-                    mode, (int) errno, path, strerror(errno));
-      break;
+                    fmt, // Open(%s) error %d on %s: %s
+                    mode, rno, path, errmsg);
+      }break;
 
     case MSGID_OPEN_STRERROR:
       len= snprintf(g->Message, sizeof(g->Message) - 1,
                     MSG(OPEN_STRERROR), // "open error: %s"
-                    strerror(errno));
+                    errmsg);
       break;
 
     case MSGID_OPEN_ERROR_AND_STRERROR:
@@ -153,13 +152,13 @@ global_open_error_msg(GLOBAL *g, int msgid, const char *path, const char *mode)
                     //OPEN_ERROR does not work, as it wants mode %d (not %s)
                     //MSG(OPEN_ERROR) "%s",// "Open error %d in mode %d on %s: %s"
                     "Open error %d in mode %s on %s: %s",
-                    errno, mode, path, strerror(errno));
+                    rno, mode, path, errmsg);
       break;
 
     case MSGID_OPEN_EMPTY_FILE:
       len= snprintf(g->Message, sizeof(g->Message) - 1,
                     MSG(OPEN_EMPTY_FILE), // "Opening empty file %s: %s"
-                    path, strerror(errno));
+                    path, errmsg);
       break;
 
     default:
@@ -287,14 +286,10 @@ PQRYRES PlgAllocResult(PGLOBAL g, int ncol, int maxres, int ids,
       // Get header from message file
 			strncpy(cname, PlugReadMessage(g, ids + crp->Ncol, NULL), NAM_LEN);
 			cname[NAM_LEN] = 0;					// for truncated long names
-//#elif defined(WIN32)
-      // Get header from ressource file
-//    LoadString(s_hModule, ids + crp->Ncol, cname, sizeof(cname));
-#else   // !WIN32
+#else   // !XMSG
       GetRcString(ids + crp->Ncol, cname, sizeof(cname));
-#endif  // !WIN32
-      crp->Name = (PSZ)PlugSubAlloc(g, NULL, strlen(cname) + 1);
-      strcpy(crp->Name, cname);
+#endif  // !XMSG
+      crp->Name = (PSZ)PlugDup(g, cname);
     } else
       crp->Name = NULL;           // Will be set by caller
 
@@ -310,7 +305,7 @@ PQRYRES PlgAllocResult(PGLOBAL g, int ncol, int maxres, int ids,
     else
       crp->Kdata = NULL;
 
-    if (g->Trace)
+    if (trace)
       htrc("Column(%d) %s type=%d len=%d value=%p\n",
               crp->Ncol, crp->Name, crp->Type, crp->Length, crp->Kdata);
 
@@ -403,11 +398,11 @@ char *SetPath(PGLOBAL g, const char *path)
 		  } // endif path
 
 		if (*path != '.') {
-#if defined(WIN32)
+#if defined(__WIN__)
 			char *s= "\\";
-#else   // !WIN32
+#else   // !__WIN__
 			char *s= "/";
-#endif  // !WIN32
+#endif  // !__WIN__
 			strcat(strcat(strcat(strcpy(buf, "."), s), path), s);
 		} else
 			strcpy(buf, path);
@@ -426,7 +421,7 @@ char *ExtractFromPath(PGLOBAL g, char *pBuff, char *FileName, OPVAL op)
   char *drive = NULL, *direc = NULL, *fname = NULL, *ftype = NULL;
 
   switch (op) {           // Determine which part to extract
-#if !defined(UNIX)
+#if defined(__WIN__)
     case OP_FDISK: drive = pBuff; break;
 #endif   // !UNIX
     case OP_FPATH: direc = pBuff; break;
@@ -679,7 +674,8 @@ void PlugConvertConstant(PGLOBAL g, void* & value, short& type)
 /*  non quoted blanks are not included in the output format.           */
 /***********************************************************************/
 PDTP MakeDateFormat(PGLOBAL g, PSZ dfmt, bool in, bool out, int flag)
-  {
+{
+	int  rc;
   PDTP pdp = (PDTP)PlugSubAlloc(g, NULL, sizeof(DATPAR));
 
   if (trace)
@@ -701,26 +697,27 @@ PDTP MakeDateFormat(PGLOBAL g, PSZ dfmt, bool in, bool out, int flag)
   /* Call the FLEX generated parser. In multi-threading mode the next  */
   /* instruction is included in an Enter/LeaveCriticalSection bracket. */
   /*********************************************************************/
-#if defined(THREAD)
-#if defined(WIN32)
+	//#if defined(THREAD)
+#if defined(__WIN__)
   EnterCriticalSection((LPCRITICAL_SECTION)&parsec);
-#else   // !WIN32
+#else   // !__WIN__
   pthread_mutex_lock(&parmut);
-#endif  // !WIN32
-#endif  //  THREAD
-  /*int rc =*/ fmdflex(pdp);
-#if defined(THREAD)
-#if defined(WIN32)
+#endif  // !__WIN__
+//#endif  //  THREAD
+  rc = fmdflex(pdp);
+//#if defined(THREAD)
+#if defined(__WIN__)
   LeaveCriticalSection((LPCRITICAL_SECTION)&parsec);
-#else   // !WIN32
+#else   // !__WIN__
   pthread_mutex_unlock(&parmut);
-#endif  // !WIN32
-#endif  //  THREAD
+#endif  // !__WIN__
+//#endif  //  THREAD
 
   if (trace)
-    htrc("Done:  in=%s out=%s\n", SVP(pdp->InFmt), SVP(pdp->OutFmt));           
+    htrc("Done: in=%s out=%s rc=%d\n", SVP(pdp->InFmt), SVP(pdp->OutFmt), rc);
+
   return pdp;
-  } // end of MakeDateFormat
+} // end of MakeDateFormat
 
 /***********************************************************************/
 /* Extract the date from a formatted string according to format.       */
@@ -730,6 +727,7 @@ int ExtractDate(char *dts, PDTP pdp, int defy, int val[6])
   char *fmt, c, d, e, W[8][12];
   int   i, k, m, numval;
   int   n, y = 30;
+  bool  b = true;           // true for null dates
 
   if (pdp)
     fmt = pdp->InFmt;
@@ -763,7 +761,8 @@ int ExtractDate(char *dts, PDTP pdp, int defy, int val[6])
     m = pdp->Num;
 
   for (i = 0; i < m; i++) {
-    n = *(int*)W[i];
+    if ((n = *(int*)W[i]))
+      b = false;
 
     switch (k = pdp->Index[i]) {
       case 0:
@@ -822,7 +821,7 @@ int ExtractDate(char *dts, PDTP pdp, int defy, int val[6])
     htrc("numval=%d val=(%d,%d,%d,%d,%d,%d)\n",
           numval, val[0], val[1], val[2], val[3], val[4], val[5]); 
 
-  return numval;
+  return (b) ? 0 : numval;
   } // end of ExtractDate
 
 /***********************************************************************/
@@ -850,8 +849,7 @@ FILE *PlugOpenFile(PGLOBAL g, LPCSTR fname, LPCSTR ftype)
       htrc(" fp=%p\n", fp);
 
     // fname may be in volatile memory such as stack
-    fp->Fname = (char*)PlugSubAlloc(g, NULL, strlen(fname) + 1);
-    strcpy((char*)fp->Fname, fname);
+    fp->Fname = PlugDup(g, fname);
     fp->Count = 1;
     fp->Type = TYPE_FB_FILE;
     fp->File = fop;
@@ -887,7 +885,7 @@ FILE *PlugReopenFile(PGLOBAL g, PFBLOCK fp, LPCSTR md)
 /*  Close file routine: the purpose of this routine is to avoid        */
 /*  double closing that freeze the system on some Unix platforms.      */
 /***********************************************************************/
-int PlugCloseFile(PGLOBAL g, PFBLOCK fp, bool all)
+int PlugCloseFile(PGLOBAL g __attribute__((unused)), PFBLOCK fp, bool all)
   {
   int rc = 0;
 
@@ -982,7 +980,7 @@ void PlugCleanup(PGLOBAL g, bool dofree)
     /*  This is the place to reset the pointer on domains.             */
     /*******************************************************************/
     dbuserp->Subcor = false;
-    dbuserp->Step = STEP(PARSING_QUERY);
+    dbuserp->Step = "New query";     // was STEP(PARSING_QUERY);
     dbuserp->ProgMax = dbuserp->ProgCur = dbuserp->ProgSav = 0;
     } // endif dofree
 
@@ -1099,7 +1097,8 @@ char *GetAmName(PGLOBAL g, AMT am, void *memp)
     case TYPE_AM_DOM:   strcpy(amn, "DOM");   break;
     case TYPE_AM_DIR:   strcpy(amn, "DIR");   break;
     case TYPE_AM_ODBC:  strcpy(amn, "ODBC");  break;
-    case TYPE_AM_MAC:   strcpy(amn, "MAC");   break;
+		case TYPE_AM_JDBC:  strcpy(amn, "JDBC");  break;
+		case TYPE_AM_MAC:   strcpy(amn, "MAC");   break;
     case TYPE_AM_OEM:   strcpy(amn, "OEM");   break;
     case TYPE_AM_OUT:   strcpy(amn, "OUT");   break;
     default:           sprintf(amn, "OEM(%d)", am);
@@ -1108,7 +1107,7 @@ char *GetAmName(PGLOBAL g, AMT am, void *memp)
   return amn;
   } // end of GetAmName
 
-#if defined(WIN32) && !defined(NOCATCH)
+#if defined(__WIN__) && !defined(NOCATCH)
 /***********************************************************************/
 /*  GetExceptionDesc: return the description of an exception code.     */
 /***********************************************************************/
@@ -1196,7 +1195,7 @@ char *GetExceptionDesc(PGLOBAL g, unsigned int e)
 
   return p;
   } // end of GetExceptionDesc
-#endif   // WIN32 && !NOCATCH
+#endif   // __WIN__ && !NOCATCH
 
 /***********************************************************************/
 /*  PlgDBalloc: allocates or suballocates memory conditionally.        */
@@ -1238,7 +1237,7 @@ void *PlgDBalloc(PGLOBAL g, void *area, MBLOCK& mp)
   if (!mp.Sub) {
     // For allocations greater than one fourth of remaining storage
     // in the area, do allocate from virtual storage.
-#if defined(WIN32)
+#if defined(__WIN__)
     if (mp.Size >= BIGMEM)
       mp.Memp = VirtualAlloc(NULL, mp.Size, MEM_COMMIT, PAGE_READWRITE);
     else
@@ -1335,7 +1334,7 @@ void PlgDBfree(MBLOCK& mp)
     htrc("PlgDBfree: %p sub=%d size=%d\n", mp.Memp, mp.Sub, mp.Size);
 
   if (!mp.Sub && mp.Memp)
-#if defined(WIN32)
+#if defined(__WIN__)
     if (mp.Size >= BIGMEM)
       VirtualFree(mp.Memp, 0, MEM_RELEASE);
     else
@@ -1396,6 +1395,23 @@ void *PlgDBSubAlloc(PGLOBAL g, void *memp, size_t size)
 
   return (memp);
   } // end of PlgDBSubAlloc
+
+/***********************************************************************/
+/*  Program for sub-allocating and copying a string in a storage area. */
+/***********************************************************************/
+char *PlgDBDup(PGLOBAL g, const char *str)
+  {
+  if (str) {
+    char *sm = (char*)PlgDBSubAlloc(g, NULL, strlen(str) + 1);
+
+    if (sm)
+      strcpy(sm, str);
+
+    return sm;
+  } else
+    return NULL;
+
+  } // end of PlgDBDup
 
 /***********************************************************************/
 /*  PUTOUT: Plug DB object typing routine.                             */
@@ -1514,11 +1530,11 @@ int FileComp(PGLOBAL g, char *file1, char *file2)
   bp[0] = buff1; bp[1] = buff2;
 
   for (i = 0; i < 2; i++) {
-#if defined(WIN32)
+#if defined(__WIN__)
     h[i]= global_open(g, MSGID_NONE, fn[i], _O_RDONLY | _O_BINARY);
-#else   // !WIN32
+#else   // !__WIN__
     h[i]= global_open(g, MSGOD_NONE, fn[i], O_RDONLY);
-#endif  // !WIN32
+#endif  // !__WIN__
 
     if (h[i] == -1) {
 //      if (errno != ENOENT) {

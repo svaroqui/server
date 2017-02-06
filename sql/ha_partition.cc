@@ -46,6 +46,7 @@
   if this file.
 */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "sql_parse.h"                          // append_file_to_dir
 #include "create_options.h"
@@ -1280,8 +1281,8 @@ static bool print_admin_msg(THD* thd, uint len,
   length=(uint) (strxmov(name, db_name, ".", table_name.c_ptr_safe(), NullS) - name);
   /*
      TODO: switch from protocol to push_warning here. The main reason we didn't
-     it yet is parallel repair. Due to following trace:
-     mi_check_print_msg/push_warning/sql_alloc/my_pthread_getspecific_ptr.
+     it yet is parallel repair, which threads have no THD object accessible via
+     current_thd.
 
      Also we likely need to lock mutex here (in both cases with protocol and
      push_warning).
@@ -1692,8 +1693,8 @@ int ha_partition::change_partitions(HA_CREATE_INFO *create_info,
     } while (++i < num_parts);
   }
   if (m_reorged_parts &&
-      !(m_reorged_file= (handler**)sql_calloc(sizeof(handler*)*
-                                              (m_reorged_parts + 1))))
+      !(m_reorged_file= (handler**) thd->calloc(sizeof(handler*)*
+                                                (m_reorged_parts + 1))))
   {
     mem_alloc_error(sizeof(handler*)*(m_reorged_parts+1));
     DBUG_RETURN(HA_ERR_OUT_OF_MEM);
@@ -1724,8 +1725,9 @@ int ha_partition::change_partitions(HA_CREATE_INFO *create_info,
       }
     } while (++i < num_parts);
   }
-  if (!(new_file_array= (handler**)sql_calloc(sizeof(handler*)*
-                                            (2*(num_remain_partitions + 1)))))
+  if (!(new_file_array= ((handler**)
+                         thd->calloc(sizeof(handler*)*
+                                     (2*(num_remain_partitions + 1))))))
   {
     mem_alloc_error(sizeof(handler*)*2*(num_remain_partitions+1));
     DBUG_RETURN(HA_ERR_OUT_OF_MEM);
@@ -1809,7 +1811,7 @@ int ha_partition::change_partitions(HA_CREATE_INFO *create_info,
         DBUG_RETURN(HA_ERR_OUT_OF_MEM);
       if (p_share_refs->init(num_subparts))
         DBUG_RETURN(HA_ERR_OUT_OF_MEM);
-      if (m_new_partitions_share_refs.push_back(p_share_refs))
+      if (m_new_partitions_share_refs.push_back(p_share_refs, thd->mem_root))
         DBUG_RETURN(HA_ERR_OUT_OF_MEM);
       do
       {
@@ -2398,7 +2400,7 @@ reg_query_cache_dependant_table(THD *thd,
     DBUG_RETURN(TRUE);
   }
   (++(*block_table))->n= ++(*n);
-  if (!cache->insert_table(cache_key_len,
+  if (!cache->insert_table(thd, cache_key_len,
                            cache_key, (*block_table),
                            table_share->db.length,
                            (uint8) (cache_key_len -
@@ -3432,7 +3434,7 @@ int ha_partition::open(const char *name, int mode, uint test_if_locked)
   }
   m_start_key.length= 0;
   m_rec0= table->record[0];
-  m_rec_length= table_share->stored_rec_length;
+  m_rec_length= table_share->reclength;
   if (!m_part_ids_sorted_by_num_of_records)
   {
     if (!(m_part_ids_sorted_by_num_of_records=
@@ -3791,6 +3793,8 @@ int ha_partition::external_lock(THD *thd, int lock_type)
       (void) (*file)->ha_external_lock(thd, lock_type);
     } while (*(++file));
   }
+  if (lock_type == F_WRLCK && m_part_info->part_expr)
+    m_part_info->part_expr->walk(&Item::register_field_in_read_map, 1, 0);
   DBUG_RETURN(0);
 
 err_handler:
@@ -3925,6 +3929,8 @@ int ha_partition::start_stmt(THD *thd, thr_lock_type lock_type)
     /* Add partition to be called in reset(). */
     bitmap_set_bit(&m_partitions_to_reset, i);
   }
+  if (lock_type == F_WRLCK && m_part_info->part_expr)
+    m_part_info->part_expr->walk(&Item::register_field_in_read_map, 1, 0);
   DBUG_RETURN(error);
 }
 
@@ -4412,7 +4418,7 @@ int ha_partition::delete_row(const uchar *buf)
     removed as a result of a SQL statement.
 
     Called from item_sum.cc by Item_func_group_concat::clear(),
-    Item_sum_count_distinct::clear(), and Item_func_group_concat::clear().
+    Item_sum_count::clear(), and Item_func_group_concat::clear().
     Called from sql_delete.cc by mysql_delete().
     Called from sql_select.cc by JOIN::reset().
     Called from sql_union.cc by st_select_lex_unit::exec().
@@ -5269,6 +5275,7 @@ err:
     {
       (void) m_file[j]->ha_index_end();
     }
+    destroy_record_priority_queue();
   }
   DBUG_RETURN(error);
 }
@@ -7952,7 +7959,7 @@ void ha_partition::append_row_to_str(String &str)
   {
     Field **field_ptr;
     if (!is_rec0)
-      set_field_ptr(m_part_info->full_part_field_array, rec,
+      table->move_fields(m_part_info->full_part_field_array, rec,
                     table->record[0]);
     /* No primary key, use full partition field array. */
     for (field_ptr= m_part_info->full_part_field_array;
@@ -7966,7 +7973,7 @@ void ha_partition::append_row_to_str(String &str)
       field_unpack(&str, field, rec, 0, false);
     }
     if (!is_rec0)
-      set_field_ptr(m_part_info->full_part_field_array, table->record[0],
+      table->move_fields(m_part_info->full_part_field_array, table->record[0],
                     rec);
   }
 }
@@ -8017,7 +8024,8 @@ void ha_partition::print_error(int error, myf errflag)
                       table->s->table_name.str,
                       str.c_ptr_safe());
 
-      max_length= (MYSQL_ERRMSG_SIZE - (uint) strlen(ER(ER_ROW_IN_WRONG_PARTITION)));
+      max_length= (MYSQL_ERRMSG_SIZE -
+                   (uint) strlen(ER_THD(thd, ER_ROW_IN_WRONG_PARTITION)));
       if (str.length() >= max_length)
       {
         str.length(max_length-4);
@@ -8302,7 +8310,7 @@ bool ha_partition::inplace_alter_table(TABLE *altered_table,
 /*
   Note that this function will try rollback failed ADD INDEX by
   executing DROP INDEX for the indexes that were committed (if any)
-  before the error occured. This means that the underlying storage
+  before the error occurred. This means that the underlying storage
   engine must be able to drop index in-place with X-lock held.
   (As X-lock will be held here if new indexes are to be committed)
 */
@@ -8432,18 +8440,6 @@ uint ha_partition::max_supported_keys() const
 }
 
 
-uint ha_partition::extra_rec_buf_length() const
-{
-  handler **file;
-  uint max= (*m_file)->extra_rec_buf_length();
-
-  for (file= m_file, file++; *file; file++)
-    if (max < (*file)->extra_rec_buf_length())
-      max= (*file)->extra_rec_buf_length();
-  return max;
-}
-
-
 uint ha_partition::min_record_length(uint options) const
 {
   handler **file;
@@ -8454,7 +8450,6 @@ uint ha_partition::min_record_length(uint options) const
       max= (*file)->min_record_length(options);
   return max;
 }
-
 
 /****************************************************************************
                 MODULE compare records
@@ -8821,7 +8816,7 @@ int ha_partition::indexes_are_disabled(void)
     @retval != 0  Error
 */
 
-int ha_partition::check_misplaced_rows(uint read_part_id, bool repair)
+int ha_partition::check_misplaced_rows(uint read_part_id, bool do_repair)
 {
   int result= 0;
   uint32 correct_part_id;
@@ -8832,7 +8827,7 @@ int ha_partition::check_misplaced_rows(uint read_part_id, bool repair)
 
   DBUG_ASSERT(m_file);
 
-  if (repair)
+  if (do_repair)
   {
     /* We must read the full row, if we need to move it! */
     bitmap_set_all(table->read_set);
@@ -8877,7 +8872,7 @@ int ha_partition::check_misplaced_rows(uint read_part_id, bool repair)
     if (correct_part_id != read_part_id)
     {
       num_misplaced_rows++;
-      if (!repair)
+      if (!do_repair)
       {
         /* Check. */
 	print_admin_msg(ha_thd(), MYSQL_ERRMSG_SIZE, "error",
@@ -9054,7 +9049,7 @@ int ha_partition::check_for_upgrade(HA_CHECK_OPT *check_opt)
           }
           m_part_info->key_algorithm= partition_info::KEY_ALGORITHM_51;
           if (skip_generation ||
-              !(part_buf= generate_partition_syntax(m_part_info,
+              !(part_buf= generate_partition_syntax(thd, m_part_info,
                                                     &part_buf_len,
                                                     true,
                                                     true,

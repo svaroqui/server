@@ -15,7 +15,7 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
 #define MYSQL_LEX 1
-#include "my_global.h"                          /* NO_EMBEDDED_ACCESS_CHECKS */
+#include <my_global.h>                          /* NO_EMBEDDED_ACCESS_CHECKS */
 #include "sql_priv.h"
 #include "unireg.h"
 #include "sql_parse.h"                          // parse_sql
@@ -610,7 +610,7 @@ Event_timed::load_from_row(THD *thd, TABLE *table)
     push_warning_printf(thd,
                         Sql_condition::WARN_LEVEL_WARN,
                         ER_EVENT_INVALID_CREATION_CTX,
-                        ER(ER_EVENT_INVALID_CREATION_CTX),
+                        ER_THD(thd, ER_EVENT_INVALID_CREATION_CTX),
                         (const char *) dbname.str,
                         (const char *) name.str);
   }
@@ -1337,7 +1337,7 @@ Event_job_data::execute(THD *thd, bool drop)
 
   DBUG_ENTER("Event_job_data::execute");
 
-  mysql_reset_thd_for_next_command(thd);
+  thd->reset_for_next_command();
 
   /*
     MySQL parser currently assumes that current database is either
@@ -1482,7 +1482,9 @@ end:
 
       WSREP_TO_ISOLATION_END;
 
+#ifdef WITH_WSREP
   error:
+#endif
       thd->tx_read_only= save_tx_read_only;
       thd->security_ctx->master_access= saved_master_access;
     }

@@ -13,6 +13,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "sp_head.h"
 #include "sp_pcontext.h"
@@ -62,20 +63,6 @@ const LEX_STRING Diag_condition_item_names[]=
   { C_STRING_WITH_LEN("TRIGGER_SCHEMA") }
 };
 
-const LEX_STRING Diag_statement_item_names[]=
-{
-  { C_STRING_WITH_LEN("NUMBER") },
-  { C_STRING_WITH_LEN("MORE") },
-  { C_STRING_WITH_LEN("COMMAND_FUNCTION") },
-  { C_STRING_WITH_LEN("COMMAND_FUNCTION_CODE") },
-  { C_STRING_WITH_LEN("DYNAMIC_FUNCTION") },
-  { C_STRING_WITH_LEN("DYNAMIC_FUNCTION_CODE") },
-  { C_STRING_WITH_LEN("ROW_COUNT") },
-  { C_STRING_WITH_LEN("TRANSACTIONS_COMMITTED") },
-  { C_STRING_WITH_LEN("TRANSACTIONS_ROLLED_BACK") },
-  { C_STRING_WITH_LEN("TRANSACTION_ACTIVE") }
-};
-
 
 Set_signal_information::Set_signal_information(
   const Set_signal_information& set)
@@ -88,11 +75,11 @@ void Set_signal_information::clear()
   memset(m_item, 0, sizeof(m_item));
 }
 
-void Sql_cmd_common_signal::assign_defaults(
-                                    Sql_condition *cond,
-                                    bool set_level_code,
-                                    Sql_condition::enum_warning_level level,
-                                    int sqlcode)
+void
+Sql_cmd_common_signal::assign_defaults(Sql_condition *cond,
+                                       bool set_level_code,
+                                       Sql_condition::enum_warning_level level,
+                                       int sqlcode)
 {
   if (set_level_code)
   {
@@ -194,16 +181,9 @@ static bool assign_fixed_string(MEM_ROOT *mem_root,
     dst_str= (char*) alloc_root(mem_root, dst_len + 1);
     if (dst_str)
     {
-      const char* well_formed_error_pos;
-      const char* cannot_convert_error_pos;
-      const char* from_end_pos;
-
-      dst_copied= well_formed_copy_nchars(dst_cs, dst_str, dst_len,
-                                          src_cs, src_str, src_len,
-                                          numchars,
-                                          & well_formed_error_pos,
-                                          & cannot_convert_error_pos,
-                                          & from_end_pos);
+      dst_copied= String_copier().well_formed_copy(dst_cs, dst_str, dst_len,
+                                                   src_cs, src_str, src_len,
+                                                   numchars);
       DBUG_ASSERT(dst_copied <= dst_len);
       dst_len= dst_copied; /* In case the copy truncated the data */
       dst_str[dst_copied]= '\0';
@@ -512,7 +492,7 @@ bool Sql_cmd_resignal::execute(THD *thd)
 
   if (m_cond)
   {
-    query_cache_abort(&thd->query_cache_tls);
+    query_cache_abort(thd, &thd->query_cache_tls);
 
     /* Keep handled conditions. */
     da->unmark_sql_conditions_from_removal();

@@ -287,3 +287,95 @@ select * from t1;
 
 set sql_warnings = 0;
 drop table t1;
+
+--echo #
+--echo # MDEV-9093: Persistent computed column is not updated when
+--echo # update query contains join
+--echo #
+
+CREATE TABLE `t1` (
+  `id` bigint(20) NOT NULL,
+  `name` varchar(254) DEFAULT NULL,
+  `name_hash` varchar(64) AS (sha1(name)) PERSISTENT,
+  PRIMARY KEY (`id`)
+);
+
+insert into t1(id,name) values (2050, 'name1'),(2051, 'name2'),(2041, 'name3');
+
+create table t2 (id bigint);
+insert into t2 values (2050),(2051),(2041);
+
+select * from t1;
+
+update t1 join t2 using(id) set name = concat(name,
+'+1') where t1.id in (2051,2041);
+
+select * from t1;
+
+drop table t1,t2;
+
+--echo #
+--echo # Test error handling with virtual columns
+--echo #
+
+CREATE TABLE IF NOT EXISTS t1 (
+    f1 DOUBLE,
+    f2 DOUBLE NOT NULL DEFAULT '0',
+    f3 DOUBLE,
+    f4 DOUBLE NOT NULL DEFAULT '0',
+    v1 DOUBLE AS ( ( f1 DIV ( f1 ) ) <= f2 ) VIRTUAL,
+    v2 DOUBLE AS ( ( f2 DIV ( f2 ) ) <= f2 ) VIRTUAL,
+    KEY (v2)
+);
+
+set sql_mode='strict_all_tables,error_for_division_by_zero';
+--error ER_DIVISION_BY_ZERO
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (0, 0, 0, 0);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (1, 1, 1, 1);
+--error ER_DIVISION_BY_ZERO
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (1, 0, 1, 1);
+INSERT IGNORE INTO t1 (f1, f2, f3, f4) VALUES (1, 0, 1, 1);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (0, 1, 1, 1);
+select v1 from t1;
+
+--error ER_DIVISION_BY_ZERO
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (0,0,0,0), (2,2,2,2);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (3,3,3,3), (4,4,4,4);
+--error ER_DIVISION_BY_ZERO
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (5,5,5,5), (1,0,0,0);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (6,6,0,0);
+
+--error ER_DIVISION_BY_ZERO
+INSERT INTO t1 ( f1, f2, f3, f4 ) SELECT f3, f4, f3, f4 FROM t1;
+select count(*) from t1;
+DELETE FROM t1 WHERE v2 != f1 and f1 < 5;
+select count(*) from t1;
+select * from t1;
+--error ER_BAD_NULL_ERROR
+INSERT INTO t1 ( f1, f2, f3, f4 ) SELECT v1, v2, 10,10 FROM t1;
+INSERT INTO t1 ( f1, f2, f3, f4 ) SELECT v1, v2, 10,10 FROM t1 where f2 !=0;
+UPDATE t1 SET f3 = v1 WHERE f2 = 2 AND v2 is null;
+SELECT * FROM t1;
+TRUNCATE TABLE t1;
+
+set sql_mode='error_for_division_by_zero';
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (0, 0, 0, 0);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (1, 1, 1, 1);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (1, 0, 1, 1);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (0, 1, 1, 1);
+select v1 from t1;
+
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (0,0,0,0), (2,2,2,2);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (3,3,3,3), (4,4,4,4);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (5,5,5,5), (1,0,0,0);
+INSERT INTO t1 (f1, f2, f3, f4) VALUES (6,6,0,0);
+
+INSERT INTO t1 ( f1, f2, f3, f4 ) SELECT f3, f4, f3, f4 FROM t1;
+select count(*) from t1;
+DELETE FROM t1 WHERE v2 != f1 and f1 < 5;
+select count(*) from t1;
+select * from t1;
+INSERT INTO t1 ( f1, f2, f3, f4 ) SELECT v1, v2, 10,10 FROM t1;
+UPDATE t1 SET f3 = v1 WHERE f2 = 2 AND v2 is null;
+drop table t1;
+set sql_mode=@@global.sql_mode;

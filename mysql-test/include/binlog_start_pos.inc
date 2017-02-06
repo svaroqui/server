@@ -15,14 +15,14 @@
 #                      1 /* Checksum algorithm */ +
 #                      4 /* CRC32 length */
 # 
-# With current number of events = 163,
+# With current number of events = 171,
 #
-#   binlog_start_pos = 4 + 19 + 57 + 163 + 1 + 4 = 248.
+#   binlog_start_pos = 4 + 19 + 57 + 171 + 1 + 4 = 256.
 #
 ##############################################################################
 
-let $binlog_start_pos=248;
 --disable_query_log
-SET @binlog_start_pos=248;
+set @binlog_start_pos=256 + @@encrypt_binlog * (36 + (@@binlog_checksum != 'NONE') * 4);
 --enable_query_log
+let $binlog_start_pos=`select @binlog_start_pos`;
 

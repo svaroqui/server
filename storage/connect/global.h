@@ -13,22 +13,24 @@
 #include <time.h>                   /* time_t type declaration         */
 #include <setjmp.h>                 /* Long jump   declarations        */
 
-#if defined(WIN32) && !defined(NOEX)
+#if defined(__WIN__) && !defined(NOEX)
 #define DllExport  __declspec( dllexport )
-#else   // !WIN32
+#else   // !__WIN__
 #define DllExport
-#endif  // !WIN32
+#endif  // !__WIN__
 
 #if defined(DOMDOC_SUPPORT) || defined(LIBXML2_SUPPORT)
 #define XML_SUPPORT 1
 #endif
 
 #if defined(XMSG)
+//#error Option XMSG is not yet fully implemented
 // Definition used to read messages from message file.
 #include "msgid.h"
 #define MSG(I)   PlugReadMessage(NULL, MSG_##I, #I)
 #define STEP(I)  PlugReadMessage(g, MSG_##I, #I)
 #elif defined(NEWMSG)
+//#error Option NEWMSG is not yet fully implemented
 // Definition used to get messages from resource.
 #include "msgid.h"
 #define MSG(I)   PlugGetMessage(NULL, MSG_##I)
@@ -40,11 +42,16 @@
 #define STEP(I)                    MSG_##I
 #endif  // !XMSG and !NEWMSG
 
-#if defined(WIN32)
+#if defined(__WIN__)
 #define CRLF  2
-#else    // !WIN32
+#else    // !__WIN__
 #define CRLF  1
-#endif  // !WIN32
+#endif  // !__WIN__
+
+/***********************************************************************/
+/*  Define access to the thread based trace value.                     */
+/***********************************************************************/
+#define trace  GetTraceValue()
 
 /***********************************************************************/
 /*  Miscellaneous Constants                                            */
@@ -97,7 +104,7 @@
   #define  SYS_STAMP   "DOSR"
 #elif defined(WIN)
   #define  SYS_STAMP   "WIN1"
-#elif defined(WIN32)
+#elif defined(__WIN__)
   #define  SYS_STAMP   "WIN2"
 #else
   #define  SYS_STAMP   "XXXX"
@@ -111,7 +118,7 @@ extern "C" {
 /*  Static variables                                                   */
 /***********************************************************************/
 #if defined(STORAGE)
-         char      sys_stamp[4] = SYS_STAMP;
+         char      sys_stamp[5] = SYS_STAMP;
 #else
   extern char      sys_stamp[];
 #endif
@@ -205,7 +212,10 @@ typedef struct _activity {          /* Describes activity and language */
 
 /*----------------  UNIT ??????????    VERSION ? ----------------------*/
 typedef struct _parm {
-  void *Value;
+  union {
+    void *Value;
+    int   Intval;
+    }; // end union
   short Type, Domain;
   PPARM Next;
   } PARM;
@@ -225,7 +235,7 @@ typedef struct _global {            /* Global structure                */
   void     *Xchk;                   /* indexes in create/alter         */
   short     Alchecked;              /* Checked for ALTER               */
   short     Mrr;                    /* True when doing mrr             */
-  short     Trace;
+  int       N;                      /* Utility                         */
   int       jump_level;
   jmp_buf   jumper[MAX_JUMP + 2];
   } GLOBAL;
@@ -238,9 +248,9 @@ DllExport char   *PlugReadMessage(PGLOBAL, int, char *);
 #elif defined(NEWMSG)
 DllExport char   *PlugGetMessage(PGLOBAL, int);
 #endif   // XMSG  || NEWMSG
-#if defined(WIN32)
+#if defined(__WIN__)
 DllExport short   GetLineLength(PGLOBAL);  // Console line length
-#endif   // WIN32
+#endif   // __WIN__
 DllExport PGLOBAL PlugInit(LPCSTR, uint);  // Plug global initialization
 DllExport int     PlugExit(PGLOBAL);       // Plug global termination
 DllExport LPSTR   PlugRemoveType(LPSTR, LPCSTR);
@@ -252,6 +262,7 @@ DllExport void   *PlugSubAlloc(PGLOBAL, void *, size_t);
 DllExport char   *PlugDup(PGLOBAL g, const char *str);
 DllExport void   *MakePtr(void *, OFFSET);
 DllExport void    htrc(char const *fmt, ...);
+DllExport int     GetTraceValue(void);
 
 #if defined(__cplusplus)
 } // extern "C"

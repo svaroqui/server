@@ -5,6 +5,10 @@
 # Note that this test gives error in the gzip library when running under
 # valgrind, but these warnings can be ignored
 
+set global max_allowed_packet=1048576;
+connect (conn1,localhost,root,,);
+connection conn1;
+
 select @test_compress_string:='string for test compress function aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ';
 select length(@test_compress_string);
 
@@ -135,4 +139,52 @@ DROP TABLE t1;
 
 --echo #
 --echo # End of 5.3 tests
+--echo #
+
+#
+# MDEV-4513 Valgrind warnings (Conditional jump or move depends on uninitialised value) in inflate on UNCOMPRESS
+#
+SELECT UNCOMPRESS(CAST(0 AS BINARY(5)));
+
+disconnect conn1;
+connection default;
+set global max_allowed_packet=default;
+--echo #
+--echo # End of 5.5 tests
+--echo #
+
+--echo #
+--echo # Start of 10.1 tests
+--echo #
+
+--echo #
+--echo # MDEV-10864 Wrong result for WHERE .. (f2=COMPRESS('test') OR f2=COMPRESS('TEST'))
+--echo #
+
+CREATE TABLE t1 (f1 VARCHAR(4), f2 VARCHAR(64), UNIQUE KEY k1 (f1,f2));
+INSERT INTO t1 VALUES ('test',compress('test')), ('TEST', compress('TEST'));
+SELECT f1,HEX(f2) FROM t1 ignore index(k1) WHERE f1='test' AND (f2= compress("test") OR f2= compress("TEST"));
+SELECT f1,HEX(f2) FROM t1                  WHERE f1='test' AND (f2= compress("test") OR f2= compress("TEST"));
+SELECT f1,HEX(f2) FROM t1                  WHERE f1='test' AND (f2= compress("TEST") OR f2= compress("test"));
+DROP TABLE t1;
+
+--echo #
+--echo # End of 10.1 tests
+--echo #
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo #
+--echo # MDEV-10134 Add full support for DEFAULT
+--echo #
+CREATE TABLE t1 (a TEXT, b BLOB DEFAULT COMPRESS(a), bl INT DEFAULT UNCOMPRESSED_LENGTH(b), a1 TEXT DEFAULT UNCOMPRESS(b));
+SHOW CREATE TABLE t1;
+INSERT INTO t1 (a) VALUES (REPEAT('a',100));
+SELECT bl, a1 FROM t1;
+DROP TABLE t1;
+
+--echo #
+--echo # End of 10.2 tests
 --echo #

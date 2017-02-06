@@ -1,4 +1,4 @@
-/* Copyright 2008 Codership Oy <http://www.codership.com>
+/* Copyright 2008-2015 Codership Oy <http://www.codership.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -19,27 +19,29 @@
 #include <sql_class.h>
 #include "wsrep_mysqld.h"
 #include "wsrep_binlog.h"
+#include "wsrep_xid.h"
 #include <cstdio>
 #include <cstdlib>
+#include "debug_sync.h"
 
 extern ulonglong thd_to_trx_id(THD *thd);
 
 extern "C" int thd_binlog_format(const MYSQL_THD thd);
 // todo: share interface with ha_innodb.c
 
-enum wsrep_trx_status wsrep_run_wsrep_commit(THD *thd, handlerton *hton,
-                                             bool all);
-
 /*
   Cleanup after local transaction commit/rollback, replay or TOI.
 */
 void wsrep_cleanup_transaction(THD *thd)
 {
+  if (!WSREP(thd)) return;
+
   if (wsrep_emulate_bin_log) thd_binlog_trx_reset(thd);
   thd->wsrep_ws_handle.trx_id= WSREP_UNDEFINED_TRX_ID;
   thd->wsrep_trx_meta.gtid= WSREP_GTID_UNDEFINED;
   thd->wsrep_trx_meta.depends_on= WSREP_SEQNO_UNDEFINED;
   thd->wsrep_exec_mode= LOCAL_STATE;
+  thd->wsrep_affected_rows= 0;
   return;
 }
 
@@ -69,6 +71,17 @@ void wsrep_register_hton(THD* thd, bool all)
   if (WSREP(thd) && thd->wsrep_exec_mode != TOTAL_ORDER &&
       !thd->wsrep_apply_toi)
   {
+    if (thd->wsrep_exec_mode == LOCAL_STATE      &&
+        (thd_sql_command(thd) == SQLCOM_OPTIMIZE ||
+        thd_sql_command(thd) == SQLCOM_ANALYZE   ||
+        thd_sql_command(thd) == SQLCOM_REPAIR)   &&
+            thd->lex->no_write_to_binlog == 1)
+    {
+        WSREP_DEBUG("Skipping wsrep_register_hton for LOCAL sql admin command : %s",
+                thd->query());
+        return;
+    }
+
     THD_TRANS *trans=all ? &thd->transaction.all : &thd->transaction.stmt;
     for (Ha_trx_info *i= trans->ha_list; i; i = i->next())
     {
@@ -99,17 +112,34 @@ void wsrep_register_hton(THD* thd, bool all)
  */
 void wsrep_post_commit(THD* thd, bool all)
 {
-  if (thd->wsrep_exec_mode == LOCAL_COMMIT)
+  if (!WSREP(thd)) return;
+
+  switch (thd->wsrep_exec_mode)
   {
-    DBUG_ASSERT(thd->wsrep_trx_meta.gtid.seqno != WSREP_SEQNO_UNDEFINED);
-    if (wsrep->post_commit(wsrep, &thd->wsrep_ws_handle))
+  case LOCAL_COMMIT:
     {
+      DBUG_ASSERT(thd->wsrep_trx_meta.gtid.seqno != WSREP_SEQNO_UNDEFINED);
+      if (wsrep->post_commit(wsrep, &thd->wsrep_ws_handle))
+      {
         DBUG_PRINT("wsrep", ("set committed fail"));
         WSREP_WARN("set committed fail: %llu %d",
                    (long long)thd->real_id, thd->get_stmt_da()->status());
+      }
+      wsrep_cleanup_transaction(thd);
+      break;
     }
-    wsrep_cleanup_transaction(thd);
+ case LOCAL_STATE:
+   {
+     /*
+       Non-InnoDB statements may have populated events in stmt cache => cleanup
+     */
+     WSREP_DEBUG("cleanup transaction for LOCAL_STATE: %s", thd->query());
+     wsrep_cleanup_transaction(thd);
+     break;
+   }
+  default: break;
   }
+
 }
 
 /*
@@ -157,12 +187,15 @@ static int wsrep_prepare(handlerton *hton, THD *thd, bool all)
       !thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN)) &&
       (thd->variables.wsrep_on && !wsrep_trans_cache_is_empty(thd)))
   {
-    int res= wsrep_run_wsrep_commit(thd, hton, all);
-    if (res == WSREP_TRX_SIZE_EXCEEDED)
-      res= EMSGSIZE;
-    else
-      res= EDEADLK; // for a better error message
-    DBUG_RETURN (wsrep_run_wsrep_commit(thd, hton, all));
+    int res= wsrep_run_wsrep_commit(thd, all);
+    if (res != 0)
+    {
+      if (res == WSREP_TRX_SIZE_EXCEEDED)
+        res= EMSGSIZE;
+      else
+        res= EDEADLK;                           // for a better error message
+    }
+    DBUG_RETURN (res);
   }
   DBUG_RETURN(0);
 }
@@ -221,8 +254,9 @@ static int wsrep_rollback(handlerton *hton, THD *thd, bool all)
     if (wsrep->post_rollback(wsrep, &thd->wsrep_ws_handle))
     {
       DBUG_PRINT("wsrep", ("setting rollback fail"));
-      WSREP_ERROR("settting rollback fail: thd: %llu SQL: %s",
-                  (long long)thd->real_id, thd->query());
+      WSREP_ERROR("settting rollback fail: thd: %llu, schema: %s, SQL: %s",
+                  (long long)thd->real_id, (thd->db ? thd->db : "(null)"),
+                  thd->query());
     }
     wsrep_cleanup_transaction(thd);
   }
@@ -262,8 +296,9 @@ int wsrep_commit(handlerton *hton, THD *thd, bool all)
         if (wsrep->post_rollback(wsrep, &thd->wsrep_ws_handle))
         {
           DBUG_PRINT("wsrep", ("setting rollback fail"));
-          WSREP_ERROR("settting rollback fail: thd: %llu SQL: %s",
-                      (long long)thd->real_id, thd->query());
+          WSREP_ERROR("settting rollback fail: thd: %llu, schema: %s, SQL: %s",
+                      (long long)thd->real_id, (thd->db ? thd->db : "(null)"),
+                      thd->query());
         }
       }
       wsrep_cleanup_transaction(thd);
@@ -278,19 +313,20 @@ extern Rpl_filter* binlog_filter;
 extern my_bool opt_log_slave_updates;
 
 enum wsrep_trx_status
-wsrep_run_wsrep_commit(THD *thd, handlerton *hton, bool all)
+wsrep_run_wsrep_commit(THD *thd, bool all)
 {
   int rcode= -1;
   size_t data_len= 0;
   IO_CACHE *cache;
   int replay_round= 0;
+  DBUG_ENTER("wsrep_run_wsrep_commit");
 
   if (thd->get_stmt_da()->is_error()) {
     WSREP_ERROR("commit issue, error: %d %s",
                 thd->get_stmt_da()->sql_errno(), thd->get_stmt_da()->message());
   }
 
-  DBUG_ENTER("wsrep_run_wsrep_commit");
+  DEBUG_SYNC(thd, "wsrep_before_replication");
 
   if (thd->slave_thread && !opt_log_slave_updates) DBUG_RETURN(WSREP_TRX_OK);
 
@@ -358,9 +394,9 @@ wsrep_run_wsrep_commit(THD *thd, handlerton *hton, bool all)
 			 &wtime);
 
     if (replay_round++ % 100000 == 0)
-      WSREP_DEBUG("commit waiting for replaying: replayers %d, thd: (%lu) "
+      WSREP_DEBUG("commit waiting for replaying: replayers %d, thd: %lld "
                   "conflict: %d (round: %d)",
-		  wsrep_replaying, thd->thread_id,
+		  wsrep_replaying, (longlong) thd->thread_id,
                   thd->wsrep_conflict_state, replay_round);
 
     mysql_mutex_unlock(&LOCK_wsrep_replaying);
@@ -424,10 +460,12 @@ wsrep_run_wsrep_commit(THD *thd, handlerton *hton, bool all)
 
   if (WSREP_UNDEFINED_TRX_ID == thd->wsrep_ws_handle.trx_id)
   {
-    WSREP_WARN("SQL statement was ineffective, THD: %lu, buf: %zu\n"
+    WSREP_WARN("SQL statement was ineffective  thd: %lld  buf: %zu\n"
+               "schema: %s \n"
 	       "QUERY: %s\n"
 	       " => Skipping replication",
-	       thd->thread_id, data_len, thd->query());
+	       (longlong) thd->thread_id, data_len,
+               (thd->db ? thd->db : "(null)"), thd->query());
     rcode = WSREP_TRX_FAIL;
   }
   else if (!rcode)
@@ -442,20 +480,22 @@ wsrep_run_wsrep_commit(THD *thd, handlerton *hton, bool all)
                                 &thd->wsrep_trx_meta);
 
     if (rcode == WSREP_TRX_MISSING) {
-      WSREP_WARN("Transaction missing in provider, thd: %ld, SQL: %s",
-                 thd->thread_id, thd->query());
+      WSREP_WARN("Transaction missing in provider, thd: %lld  schema: %s  SQL: %s",
+                 (longlong) thd->thread_id,
+                 (thd->db ? thd->db : "(null)"), thd->query());
       rcode = WSREP_TRX_FAIL;
     } else if (rcode == WSREP_BF_ABORT) {
-      WSREP_DEBUG("thd %lu seqno %lld BF aborted by provider, will replay",
-                  thd->thread_id, (long long)thd->wsrep_trx_meta.gtid.seqno);
+      WSREP_DEBUG("thd: %lld  seqno: %lld  BF aborted by provider, will replay",
+                  (longlong) thd->thread_id,
+                  (longlong) thd->wsrep_trx_meta.gtid.seqno);
       mysql_mutex_lock(&thd->LOCK_wsrep_thd);
       thd->wsrep_conflict_state = MUST_REPLAY;
       DBUG_ASSERT(wsrep_thd_trx_seqno(thd) > 0);
       mysql_mutex_unlock(&thd->LOCK_wsrep_thd);
       mysql_mutex_lock(&LOCK_wsrep_replaying);
       wsrep_replaying++;
-      WSREP_DEBUG("replaying increased: %d, thd: %lu",
-                  wsrep_replaying, thd->thread_id);
+      WSREP_DEBUG("replaying increased: %d, thd: %lld",
+                  wsrep_replaying, (longlong) thd->thread_id);
       mysql_mutex_unlock(&LOCK_wsrep_replaying);
     }
   } else {
@@ -479,9 +519,9 @@ wsrep_run_wsrep_commit(THD *thd, handlerton *hton, bool all)
 
     if (thd->wsrep_conflict_state != NO_CONFLICT)
     {
-      WSREP_WARN("thd %lu seqno %lld: conflict state %d after post commit",
-                 thd->thread_id,
-                 (long long)thd->wsrep_trx_meta.gtid.seqno,
+      WSREP_WARN("thd: %llu  seqno: %lld  conflict state %d after post commit",
+                 (longlong) thd->thread_id,
+                 (longlong) thd->wsrep_trx_meta.gtid.seqno,
                  thd->wsrep_conflict_state);
     }
     thd->wsrep_exec_mode= LOCAL_COMMIT;
@@ -490,7 +530,7 @@ wsrep_run_wsrep_commit(THD *thd, handlerton *hton, bool all)
     if (thd->transaction.xid_state.xid.get_my_xid())
     {
       wsrep_xid_init(&thd->transaction.xid_state.xid,
-                     &thd->wsrep_trx_meta.gtid.uuid,
+                     thd->wsrep_trx_meta.gtid.uuid,
                      thd->wsrep_trx_meta.gtid.seqno);
     }
     DBUG_PRINT("wsrep", ("replicating commit success"));
@@ -554,7 +594,6 @@ static int wsrep_hton_init(void *p)
   wsrep_hton->rollback= wsrep_rollback;
   wsrep_hton->prepare= wsrep_prepare;
   wsrep_hton->flags= HTON_NOT_USER_SELECTABLE | HTON_HIDDEN; // todo: fix flags
-  wsrep_hton->slot= 0;
   return 0;
 }
 
@@ -563,7 +602,7 @@ struct st_mysql_storage_engine wsrep_storage_engine=
 { MYSQL_HANDLERTON_INTERFACE_VERSION };
 
 
-mysql_declare_plugin(wsrep)
+maria_declare_plugin(wsrep)
 {
   MYSQL_STORAGE_ENGINE_PLUGIN,
   &wsrep_storage_engine,
@@ -577,7 +616,7 @@ mysql_declare_plugin(wsrep)
   0x0100 /* 1.0 */,
   NULL,                       /* status variables                */
   NULL,                       /* system variables                */
-  NULL,                       /* config options                  */
-  0,                          /* flags                           */
+  "1.0",         /* string version */
+  MariaDB_PLUGIN_MATURITY_STABLE /* maturity */
 }
-mysql_declare_plugin_end;
+maria_declare_plugin_end;

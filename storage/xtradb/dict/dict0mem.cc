@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
 
 This program is free software; you can redistribute it and/or modify it under
@@ -35,6 +35,7 @@ Created 1/8/1996 Heikki Tuuri
 #include "mach0data.h"
 #include "dict0dict.h"
 #include "fts0priv.h"
+#include "ut0crc32.h"
 #ifndef UNIV_HOTBACKUP
 # include "ha_prototypes.h"	/* innobase_casedn_str(),
 				innobase_get_lower_case_table_names */
@@ -44,6 +45,7 @@ Created 1/8/1996 Heikki Tuuri
 #ifdef UNIV_BLOB_DEBUG
 # include "ut0rbt.h"
 #endif /* UNIV_BLOB_DEBUG */
+#include <iostream>
 
 #define	DICT_HEAP_SIZE		100	/*!< initial memory heap size when
 					creating a table or index object */
@@ -52,6 +54,18 @@ Created 1/8/1996 Heikki Tuuri
 /* Key to register autoinc_mutex with performance schema */
 UNIV_INTERN mysql_pfs_key_t	autoinc_mutex_key;
 #endif /* UNIV_PFS_MUTEX */
+
+/** System databases */
+static const char* innobase_system_databases[] = {
+	"mysql/",
+	"information_schema/",
+	"performance_schema/",
+	NullS
+};
+
+/** An interger randomly initialized at startup used to make a temporary
+table name as unique as possible. */
+static ib_uint32_t	dict_temp_file_num;
 
 /**********************************************************************//**
 Creates a table memory object.
@@ -65,10 +79,7 @@ dict_mem_table_create(
 				the table is placed */
 	ulint		n_cols,	/*!< in: number of columns */
 	ulint		flags,	/*!< in: table flags */
-	ulint		flags2,	/*!< in: table flags2 */
-	bool		nonshared)/*!< in: whether the table object is a dummy
-				one that does not need the initialization of
-				locking-related fields. */
+	ulint		flags2)	/*!< in: table flags2 */
 {
 	dict_table_t*	table;
 	mem_heap_t*	heap;
@@ -88,6 +99,7 @@ dict_mem_table_create(
 	table->flags2 = (unsigned int) flags2;
 	table->name = static_cast<char*>(ut_malloc(strlen(name) + 1));
 	memcpy(table->name, name, strlen(name) + 1);
+	table->is_system_db = dict_mem_table_is_system(table->name);
 	table->space = (unsigned int) space;
 	table->n_cols = (unsigned int) (n_cols + DATA_N_SYS_COLS);
 
@@ -103,18 +115,10 @@ dict_mem_table_create(
 	dict_table_stats_latch_create(table, true);
 
 #ifndef UNIV_HOTBACKUP
+	table->autoinc_lock = static_cast<ib_lock_t*>(
+		mem_heap_alloc(heap, lock_get_size()));
 
-	if (!nonshared) {
-
-		table->autoinc_lock = static_cast<ib_lock_t*>(
-			mem_heap_alloc(heap, lock_get_size()));
-
-		mutex_create(autoinc_mutex_key,
-			     &table->autoinc_mutex, SYNC_DICT_AUTOINC_MUTEX);
-	} else {
-
-		table->autoinc_lock = NULL;
-	}
+	dict_table_autoinc_create_lazy(table);
 
 	table->autoinc = 0;
 
@@ -144,6 +148,36 @@ dict_mem_table_create(
 }
 
 /****************************************************************//**
+Determines if a table belongs to a system database
+@return */
+UNIV_INTERN
+bool
+dict_mem_table_is_system(
+/*================*/
+	char	*name)		/*!< in: table name */
+{
+	ut_ad(name);
+
+	/* table has the following format: database/table
+	and some system table are of the form SYS_* */
+	if (strchr(name, '/')) {
+		int table_len = strlen(name);
+		const char *system_db;
+		int i = 0;
+		while ((system_db = innobase_system_databases[i++])
+			&& (system_db != NullS)) {
+			int len = strlen(system_db);
+			if (table_len > len && !strncmp(name, system_db, len)) {
+				return true;
+			}
+		}
+		return false;
+	} else {
+		return true;
+	}
+}
+
+/****************************************************************//**
 Free a table memory object. */
 UNIV_INTERN
 void
@@ -167,10 +201,7 @@ dict_mem_table_free(
 		}
 	}
 #ifndef UNIV_HOTBACKUP
-	if (table->autoinc_lock) {
-
-		mutex_free(&(table->autoinc_mutex));
-	}
+	dict_table_autoinc_destroy(table);
 #endif /* UNIV_HOTBACKUP */
 
 	dict_table_stats_latch_destroy(table);
@@ -256,7 +287,7 @@ dict_mem_table_add_col(
 		if (UNIV_UNLIKELY(table->n_def == table->n_cols)) {
 			heap = table->heap;
 		}
-		if (UNIV_LIKELY(i) && UNIV_UNLIKELY(!table->col_names)) {
+		if (UNIV_LIKELY(i != 0) && UNIV_UNLIKELY(table->col_names == NULL)) {
 			/* All preceding column names are empty. */
 			char* s = static_cast<char*>(
 				mem_heap_zalloc(heap, table->n_def));
@@ -275,7 +306,7 @@ dict_mem_table_add_col(
 
 /**********************************************************************//**
 Renames a column of a table in the data dictionary cache. */
-static __attribute__((nonnull))
+static MY_ATTRIBUTE((nonnull))
 void
 dict_mem_table_col_rename_low(
 /*==========================*/
@@ -289,6 +320,9 @@ dict_mem_table_col_rename_low(
 	ut_ad(i < table->n_def);
 	ut_ad(from_len <= NAME_LEN);
 	ut_ad(to_len <= NAME_LEN);
+
+	char from[NAME_LEN];
+	strncpy(from, s, NAME_LEN);
 
 	if (from_len == to_len) {
 		/* The easy case: simply replace the column name in
@@ -357,14 +391,54 @@ dict_mem_table_col_rename_low(
 
 		foreign = *it;
 
-		for (unsigned f = 0; f < foreign->n_fields; f++) {
-			/* These can point straight to
-			table->col_names, because the foreign key
-			constraints will be freed at the same time
-			when the table object is freed. */
-			foreign->foreign_col_names[f]
-				= dict_index_get_nth_field(
-					foreign->foreign_index, f)->name;
+		if (foreign->foreign_index == NULL) {
+			/* We may go here when we set foreign_key_checks to 0,
+			and then try to rename a column and modify the
+			corresponding foreign key constraint. The index
+			would have been dropped, we have to find an equivalent
+			one */
+			for (unsigned f = 0; f < foreign->n_fields; f++) {
+				if (strcmp(foreign->foreign_col_names[f], from)
+				    == 0) {
+
+					char** rc = const_cast<char**>(
+						foreign->foreign_col_names
+						+ f);
+
+					if (to_len <= strlen(*rc)) {
+						memcpy(*rc, to, to_len + 1);
+					} else {
+						*rc = static_cast<char*>(
+							mem_heap_dup(
+								foreign->heap,
+								to,
+								to_len + 1));
+					}
+				}
+			}
+
+			dict_index_t* new_index = dict_foreign_find_index(
+				foreign->foreign_table, NULL,
+				foreign->foreign_col_names,
+				foreign->n_fields, NULL, true, false,
+				NULL, NULL, NULL);
+			/* There must be an equivalent index in this case. */
+			ut_ad(new_index != NULL);
+
+			foreign->foreign_index = new_index;
+
+		} else {
+
+			for (unsigned f = 0; f < foreign->n_fields; f++) {
+				/* These can point straight to
+				table->col_names, because the foreign key
+				constraints will be freed at the same time
+				when the table object is freed. */
+				foreign->foreign_col_names[f]
+					= dict_index_get_nth_field(
+						foreign->foreign_index,
+						f)->name;
+			}
 		}
 	}
 
@@ -373,6 +447,8 @@ dict_mem_table_col_rename_low(
 	     ++it) {
 
 		foreign = *it;
+
+		ut_ad(foreign->referenced_index != NULL);
 
 		for (unsigned f = 0; f < foreign->n_fields; f++) {
 			/* foreign->referenced_col_names[] need to be
@@ -491,8 +567,7 @@ dict_mem_index_create(
 	dict_mem_fill_index_struct(index, heap, table_name, index_name,
 				   space, type, n_fields);
 
-	os_fast_mutex_init(zip_pad_mutex_key, &index->zip_pad.mutex);
-
+	dict_index_zip_pad_mutex_create_lazy(index);
 	return(index);
 }
 
@@ -625,31 +700,125 @@ dict_mem_index_free(
 	}
 #endif /* UNIV_BLOB_DEBUG */
 
-	os_fast_mutex_free(&index->zip_pad.mutex);
+	dict_index_zip_pad_mutex_destroy(index);
 
 	mem_heap_free(index->heap);
 }
 
-/*******************************************************************//**
-Create a temporary tablename.
-@return temporary tablename suitable for InnoDB use */
+/** Create a temporary tablename like "#sql-ibtid-inc where
+  tid = the Table ID
+  inc = a randomly initialized number that is incremented for each file
+The table ID is a 64 bit integer, can use up to 20 digits, and is
+initialized at bootstrap. The second number is 32 bits, can use up to 10
+digits, and is initialized at startup to a randomly distributed number.
+It is hoped that the combination of these two numbers will provide a
+reasonably unique temporary file name.
+@param[in]	heap	A memory heap
+@param[in]	dbtab	Table name in the form database/table name
+@param[in]	id	Table id
+@return A unique temporary tablename suitable for InnoDB use */
 UNIV_INTERN
 char*
 dict_mem_create_temporary_tablename(
-/*================================*/
-	mem_heap_t*	heap,	/*!< in: memory heap */
-	const char*	dbtab,	/*!< in: database/table name */
-	table_id_t	id)	/*!< in: InnoDB table id */
+	mem_heap_t*	heap,
+	const char*	dbtab,
+	table_id_t	id)
 {
-	const char*	dbend   = strchr(dbtab, '/');
+	size_t		size;
+	char*		name;
+	const char*	dbend = strchr(dbtab, '/');
 	ut_ad(dbend);
-	size_t		dblen   = dbend - dbtab + 1;
-	size_t		size = tmp_file_prefix_length + 4 + 9 + 9 + dblen;
+	size_t		dblen = dbend - dbtab + 1;
 
-	char*	name = static_cast<char*>(mem_heap_alloc(heap, size));
+#ifdef HAVE_ATOMIC_BUILTINS
+	/* Increment a randomly initialized number for each temp file. */
+	os_atomic_increment_uint32(&dict_temp_file_num, 1);
+#else /* HAVE_ATOMIC_BUILTINS */
+	dict_temp_file_num++;
+#endif /* HAVE_ATOMIC_BUILTINS */
+
+	size = tmp_file_prefix_length + 3 + 20 + 1 + 10 + dblen;
+	name = static_cast<char*>(mem_heap_alloc(heap, size));
 	memcpy(name, dbtab, dblen);
 	ut_snprintf(name + dblen, size - dblen,
-		    tmp_file_prefix "-ib" UINT64PF, id);
+		    TEMP_FILE_PREFIX_INNODB UINT64PF "-" UINT32PF,
+		    id, dict_temp_file_num);
+
 	return(name);
+}
+
+/** Initialize dict memory variables */
+
+void
+dict_mem_init(void)
+{
+	/* Initialize a randomly distributed temporary file number */
+	ib_uint32_t now = static_cast<ib_uint32_t>(ut_time());
+
+	const byte* buf = reinterpret_cast<const byte*>(&now);
+	ut_ad(ut_crc32 != NULL);
+
+	dict_temp_file_num = ut_crc32(buf, sizeof(now));
+
+	DBUG_PRINT("dict_mem_init",
+		   ("Starting Temporary file number is " UINT32PF,
+		   dict_temp_file_num));
+}
+
+/** Validate the search order in the foreign key set.
+@param[in]	fk_set	the foreign key set to be validated
+@return true if search order is fine in the set, false otherwise. */
+bool
+dict_foreign_set_validate(
+	const dict_foreign_set&	fk_set)
+{
+	dict_foreign_not_exists	not_exists(fk_set);
+
+	dict_foreign_set::const_iterator it = std::find_if(
+		fk_set.begin(), fk_set.end(), not_exists);
+
+	if (it == fk_set.end()) {
+		return(true);
+	}
+
+	dict_foreign_t*	foreign = *it;
+	std::cerr << "Foreign key lookup failed: " << *foreign;
+	std::cerr << fk_set;
+	ut_ad(0);
+	return(false);
+}
+
+/** Validate the search order in the foreign key sets of the table
+(foreign_set and referenced_set).
+@param[in]	table	table whose foreign key sets are to be validated
+@return true if foreign key sets are fine, false otherwise. */
+bool
+dict_foreign_set_validate(
+	const dict_table_t&	table)
+{
+	return(dict_foreign_set_validate(table.foreign_set)
+	       && dict_foreign_set_validate(table.referenced_set));
+}
+
+std::ostream&
+operator<< (std::ostream& out, const dict_foreign_t& foreign)
+{
+	out << "[dict_foreign_t: id='" << foreign.id << "'";
+
+	if (foreign.foreign_table_name != NULL) {
+		out << ",for: '" << foreign.foreign_table_name << "'";
+	}
+
+	out << "]";
+	return(out);
+}
+
+std::ostream&
+operator<< (std::ostream& out, const dict_foreign_set& fk_set)
+{
+	out << "[dict_foreign_set:";
+	std::for_each(fk_set.begin(), fk_set.end(), dict_foreign_print(out));
+	out << "]" << std::endl;
+	return(out);
 }
 

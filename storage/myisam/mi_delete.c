@@ -305,7 +305,6 @@ static int d_search(register MI_INFO *info, register MI_KEYDEF *keyinfo,
     }
   }
   leaf_buff=0;
-  LINT_INIT(leaf_page);
   if (nod_flag)
   {
     leaf_page=_mi_kpos(nod_flag,keypos);
@@ -327,7 +326,7 @@ static int d_search(register MI_INFO *info, register MI_KEYDEF *keyinfo,
     {
       DBUG_PRINT("error",("Didn't find key"));
       mi_print_error(info->s, HA_ERR_CRASHED);
-      my_errno=HA_ERR_CRASHED;		/* This should newer happend */
+      my_errno=HA_ERR_CRASHED;		/* This should never happend */
       goto err;
     }
     save_flag=0;

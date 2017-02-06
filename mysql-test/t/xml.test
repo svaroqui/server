@@ -674,7 +674,9 @@ SELECT ExtractValue('<a><b>xxx</c></a>','/a/b');
 --echo # Bug#58175 xml functions read initialized bytes when conversions happen
 --echo #
 SET NAMES latin1;
+--enable_prepare_warnings
 SELECT UPDATEXML(CONVERT('' USING swe7), TRUNCATE('',1), 0);
+--disable_prepare_warnings
 
 --echo #
 --echo # Bug#12375190: UPDATEXML CRASHES ON SIMPLE INPUTS
@@ -751,4 +753,25 @@ DROP TABLE t1;
 
 --echo #
 --echo # End of 10.0 tests
+--echo #
+
+--echo #
+--echo # Start of 10.2 tests
+--echo #
+
+--echo #
+--echo # MDEV-10134 Add full support for DEFAULT
+--echo #
+CREATE TABLE t1 (a TEXT, b TEXT DEFAULT ExtractValue(a, '/a/b'));
+INSERT INTO t1 (a) VALUES ('<a><b>bbb</b></a>');
+SELECT b FROM t1;
+DROP TABLE t1;
+
+CREATE TABLE t1 (a TEXT, b TEXT DEFAULT UpdateXML(a, '/a/b','<b>xxx</b>'));
+INSERT INTO t1 (a) VALUES ('<a><b>bbb</b></a>');
+SELECT b FROM t1;
+DROP TABLE t1;
+
+--echo #
+--echo # End of 10.2 tests
 --echo #

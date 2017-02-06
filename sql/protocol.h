@@ -33,7 +33,6 @@ typedef struct st_mysql_rows MYSQL_ROWS;
 class Protocol
 {
 protected:
-  THD	 *thd;
   String *packet;
   /* Used by net_store_data() for charset conversions */
   String *convert;
@@ -63,7 +62,7 @@ protected:
 
   virtual bool send_ok(uint server_status, uint statement_warn_count,
                        ulonglong affected_rows, ulonglong last_insert_id,
-                       const char *message);
+                       const char *message, bool skip_flush);
 
   virtual bool send_eof(uint server_status, uint statement_warn_count);
 
@@ -71,7 +70,7 @@ protected:
                           const char *sql_state);
 
 public:
-  Protocol() {}
+  THD	 *thd;
   Protocol(THD *thd_arg) { init(thd_arg); }
   virtual ~Protocol() {}
   void init(THD* thd_arg);
@@ -139,6 +138,10 @@ public:
   virtual enum enum_protocol_type type()= 0;
 
   void end_statement();
+
+  friend int send_answer_1(Protocol *protocol, String *s1, String *s2,
+                           String *s3);
+  friend int send_header_2(Protocol *protocol, bool for_category);
 };
 
 
@@ -147,7 +150,6 @@ public:
 class Protocol_text :public Protocol
 {
 public:
-  Protocol_text() {}
   Protocol_text(THD *thd_arg) :Protocol(thd_arg) {}
   virtual void prepare_for_resend();
   virtual bool store_null();
@@ -179,7 +181,6 @@ class Protocol_binary :public Protocol
 private:
   uint bit_fields;
 public:
-  Protocol_binary() {}
   Protocol_binary(THD *thd_arg) :Protocol(thd_arg) {}
   virtual bool prepare_for_send(uint num_columns);
   virtual void prepare_for_resend();

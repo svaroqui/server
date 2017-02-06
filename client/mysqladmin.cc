@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2014, Oracle and/or its affiliates.
-   Copyright (c) 2010, 2014, Monty Program Ab.
+   Copyright (c) 2010, 2016, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,9 +22,10 @@
 #include <my_pthread.h>				/* because of signal()	*/
 #include <sys/stat.h>
 #include <mysql.h>
-#include <sql_common.h>
+#include <mysql_version.h>
 #include <welcome_copyright_notice.h>
 #include <my_rnd.h>
+#include <password.h>
 
 #define ADMIN_VERSION "9.1"
 #define MAX_MYSQL_VAR 512
@@ -235,8 +236,6 @@ my_bool
 get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
 	       char *argument)
 {
-  int error = 0;
-
   switch(optid) {
   case 'c':
     opt_count_iterations= 1;
@@ -284,8 +283,8 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
     break;
   case '?':
   case 'I':					/* Info */
-    error++;
-    break;
+    usage();
+    exit(0);
   case OPT_CHARSETS_DIR:
 #if MYSQL_VERSION_ID > 32300
     charsets_dir = argument;
@@ -295,11 +294,6 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
     opt_protocol= find_type_or_exit(argument, &sql_protocol_typelib,
                                     opt->name);
     break;
-  }
-  if (error)
-  {
-    usage();
-    exit(1);
   }
   return 0;
 }
@@ -447,7 +441,7 @@ int main(int argc,char *argv[])
           didn't signal for us to die. Otherwise, signal failure.
         */
 
-	if (mysql.net.vio == 0)
+	if (mysql.net.pvio == 0)
 	{
 	  if (option_wait && !interrupted)
 	  {
@@ -528,7 +522,8 @@ static my_bool sql_connect(MYSQL *mysql, uint wait)
     if (mysql_real_connect(mysql,host,user,opt_password,NullS,tcp_port,
 			   unix_port, CLIENT_REMEMBER_OPTIONS))
     {
-      mysql->reconnect= 1;
+      my_bool reconnect= 1;
+      mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
       if (info)
       {
 	fputs("\n",stderr);
@@ -1084,9 +1079,9 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
           }
         }
         if (old)
-          make_scrambled_password_323(crypted_pw, typed_password);
+          my_make_scrambled_password_323(crypted_pw, typed_password, strlen(typed_password));
         else
-          make_scrambled_password(crypted_pw, typed_password);
+          my_make_scrambled_password(crypted_pw, typed_password, strlen(typed_password));
       }
       else
 	crypted_pw[0]=0;			/* No password */
@@ -1194,7 +1189,9 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
       break;
     }
     case ADMIN_PING:
-      mysql->reconnect=0;	/* We want to know of reconnects */
+    {
+      my_bool reconnect= 0;
+      mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
       if (!mysql_ping(mysql))
       {
 	if (option_silent < 2)
@@ -1204,7 +1201,8 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
       {
 	if (mysql_errno(mysql) == CR_SERVER_GONE_ERROR)
 	{
-	  mysql->reconnect=1;
+          reconnect= 1;
+          mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
 	  if (!mysql_ping(mysql))
 	    puts("connection was down, but mysqld is now alive");
 	}
@@ -1215,8 +1213,10 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
 	  return -1;
 	}
       }
-      mysql->reconnect=1;	/* Automatic reconnect is default */
+      reconnect=1;	/* Automatic reconnect is default */
+      mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
       break;
+    }
     default:
       my_printf_error(0, "Unknown command: '%-.60s'", error_flags, argv[0]);
       return 1;
@@ -1246,6 +1246,9 @@ static int execute_commands(MYSQL *mysql,int argc, char **argv)
 static char **mask_password(int argc, char ***argv)
 {
   char **temp_argv;
+  if (!argc)
+    return NULL;
+
   temp_argv= (char **)(my_malloc(sizeof(char *) * argc, MYF(MY_WME)));
   argc--;
   while (argc > 0)

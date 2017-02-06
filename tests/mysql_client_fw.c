@@ -21,6 +21,7 @@
 #include <my_getopt.h>
 #include <m_string.h>
 #include <mysqld_error.h>
+#include <mysql_version.h>
 #include <sql_common.h>
 #include <mysql/client_plugin.h>
 
@@ -67,6 +68,7 @@ static unsigned int opt_drop_db= 1;
 
 static const char *opt_basedir= "./";
 static const char *opt_vardir= "mysql-test/var";
+static char mysql_charsets_dir[FN_REFLEN+1];
 
 static longlong opt_getopt_ll_test= 0;
 
@@ -362,7 +364,7 @@ static MYSQL* client_connect(ulong flag, uint protocol, my_bool auto_reconnect)
     fprintf(stdout, "\n Check the connection options using --help or -?\n");
     exit(1);
   }
-  mysql->reconnect= auto_reconnect;
+  mysql_options(mysql, MYSQL_OPT_RECONNECT, &auto_reconnect);
 
   if (!opt_silent)
     fprintf(stdout, "OK");
@@ -1144,7 +1146,7 @@ static my_bool thread_query(const char *query)
 {
  MYSQL *l_mysql;
  my_bool error;
-
+ my_bool reconnect= 1;
  error= 0;
  if (!opt_silent)
  fprintf(stdout, "\n in thread_query(%s)", query);
@@ -1161,7 +1163,7 @@ static my_bool thread_query(const char *query)
    error= 1;
    goto end;
  }
- l_mysql->reconnect= 1;
+ mysql_options(l_mysql, MYSQL_OPT_RECONNECT, &reconnect);
  if (mysql_query(l_mysql, query))
  {
    fprintf(stderr, "Query failed (%s)\n", mysql_error(l_mysql));
@@ -1187,6 +1189,9 @@ static struct my_option client_test_long_options[] =
 {
   {"basedir", 'b', "Basedir for tests.", &opt_basedir,
    &opt_basedir, 0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
+  {"character-sets-dir", 'C',
+   "Directory for character set files.", &charsets_dir,
+   &charsets_dir, 0, GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
   {"count", 't', "Number of times test to be executed", &opt_count_read,
    &opt_count_read, 0, GET_UINT, REQUIRED_ARG, 1, 0, 0, 0, 0, 0},
   {"database", 'D', "Database to use", &opt_db, &opt_db,
@@ -1332,6 +1337,10 @@ get_one_option(int optid, const struct my_option *opt __attribute__((unused)),
       exit(0);
       break;
     }
+  case 'C':
+    strmake_buf(mysql_charsets_dir, argument);
+    charsets_dir = mysql_charsets_dir;
+    break;
   case '?':
   case 'I':                                     /* Info */
     usage();

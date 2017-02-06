@@ -1,4 +1,4 @@
-/* Copyright (c) 2008, 2013, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2008, 2015, Oracle and/or its affiliates. All rights reserved.
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -61,8 +61,7 @@ bool parse_length_encoded_string(const char **ptr,
                  uint nchars_max)
 {
   ulong copy_length, data_length;
-  const char *well_formed_error_pos= NULL, *cannot_convert_error_pos= NULL,
-        *from_end_pos= NULL;
+  String_copier copier;
 
   copy_length= data_length= net_field_length((uchar **) ptr);
 
@@ -73,11 +72,8 @@ bool parse_length_encoded_string(const char **ptr,
   if (*ptr - start_ptr + data_length > input_length)
     return true;
 
-  copy_length= well_formed_copy_nchars(&my_charset_utf8_bin, dest, dest_size,
-                                       from_cs, *ptr, data_length, nchars_max,
-                                       &well_formed_error_pos,
-                                       &cannot_convert_error_pos,
-                                       &from_end_pos);
+  copy_length= copier.well_formed_copy(&my_charset_utf8_bin, dest, dest_size,
+                                       from_cs, *ptr, data_length, nchars_max);
   *copied_len= copy_length;
   (*ptr)+= data_length;
 
@@ -224,7 +220,8 @@ void table_session_connect::make_row(PFS_thread *pfs, uint ordinal)
                     &m_row.m_attr_value_length))
   {
     /* we don't expect internal threads to have connection attributes */
-    DBUG_ASSERT(pfs->m_processlist_id != 0);
+    if (pfs->m_processlist_id == 0)
+	return;
 
     m_row.m_ordinal_position= ordinal;
     m_row.m_process_id= pfs->m_processlist_id;

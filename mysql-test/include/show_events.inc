@@ -15,7 +15,19 @@
 --let $statement=show BINLOG events
 if ($is_relay_log)
 {
-  --let $statement=show relaylog events
+  if ($master_name)
+  {
+    let _master_name='$master_name';
+  }
+  if (!$master_name)
+  {
+    let _master_name=`select @@default_master_connection`;
+    if ($_master_name)
+    {
+      let _master_name='$_master_name';
+    }
+  }
+  --let $statement=show relaylog $_master_name events
 }
 
 if ($binlog_file)
@@ -25,7 +37,7 @@ if ($binlog_file)
   {
     if ($is_relay_log)
     {
-      --let $_binlog_file= query_get_value(SHOW SLAVE STATUS, Relay_Log_File, 1)
+      --let $_binlog_file= query_get_value(SHOW SLAVE $_master_name STATUS, Relay_Log_File, 1)
     }
     if (!$is_relay_log)
     {
@@ -88,6 +100,7 @@ let $script=
   s{SQL_LOAD-[a-z,0-9,-]*.[a-z]*}{SQL_LOAD-<SERVER UUID>-<MASTER server-id>-<file-id>.<extension>};
   s{rand_seed1=[0-9]*,rand_seed2=[0-9]*}{rand_seed1=<seed 1>,rand_seed2=<seed 2>};
   s{((?:master|slave|slave-relay)-bin\.[0-9]{6};pos=)[0-9]+DOLLAR}{DOLLAR1POS};
+  s{SONAME ".*"}{SONAME "LIB"};
   s{DOLLARmysqltest_vardir}{MYSQLTEST_VARDIR}g;
 ||
 --let $pre_script= my DOLLARmysqltest_vardir = DOLLARENV{'MYSQLTEST_VARDIR'};

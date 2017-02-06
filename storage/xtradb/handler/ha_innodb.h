@@ -1,7 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 2000, 2012, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2013, 2014, SkySQL Ab. All Rights Reserved.
+Copyright (c) 2000, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2013, 2017, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -58,19 +58,21 @@ typedef struct st_innobase_share {
 /** Prebuilt structures in an InnoDB table handle used within MySQL */
 struct row_prebuilt_t;
 
-/** Engine specific table options are definined using this struct */
+/** Engine specific table options are defined using this struct */
 struct ha_table_option_struct
 {
-	bool  page_compressed;		/*!< Table is using page compression
-					if this option is true. */
-	int   page_compression_level;	/*!< Table page compression level
-					or UNIV_UNSPECIFIED. */
-	uint  atomic_writes;		/*!< Use atomic writes for this
-					table if this options is ON or
-					in DEFAULT if
-					srv_use_atomic_writes=1.
-					Atomic writes are not used if
-					value OFF.*/
+	bool		page_compressed;	/*!< Table is using page compression
+						if this option is true. */
+	ulonglong	page_compression_level;	/*!< Table page compression level
+						0-9. */
+	uint		atomic_writes;		/*!< Use atomic writes for this
+						table if this options is ON or
+						in DEFAULT if
+						srv_use_atomic_writes=1.
+						Atomic writes are not used if
+						value OFF.*/
+	uint		encryption;		/*!<  DEFAULT, ON, OFF */
+	ulonglong	encryption_key_id;	/*!< encryption key id  */
 };
 
 /** The class defining a handle to an Innodb table */
@@ -88,13 +90,6 @@ class ha_innobase: public handler
 
 	uchar*		upd_buf;	/*!< buffer used in updates */
 	ulint		upd_buf_size;	/*!< the size of upd_buf in bytes */
-	uchar		srch_key_val1[MAX_KEY_LENGTH + MAX_REF_PARTS*2];
-	uchar		srch_key_val2[MAX_KEY_LENGTH + MAX_REF_PARTS*2];
-					/*!< buffers used in converting
-					search key values from MySQL format
-					to InnoDB format. For each column
-					2 bytes are used to store length,
-					hence MAX_REF_PARTS*2. */
 	Table_flags	int_table_flags;
 	uint		primary_key;
 	ulong		start_of_scan;	/*!< this is set to 1 when we are
@@ -320,6 +315,7 @@ class ha_innobase: public handler
 	void set_partition_owner_stats(ha_statistics *stats);
 	bool check_if_incompatible_data(HA_CREATE_INFO *info,
 					uint table_changes);
+
 	bool check_if_supported_virtual_columns(void) { return TRUE; }
 
 private:
@@ -471,7 +467,7 @@ enum durability_properties thd_get_durability_property(const MYSQL_THD thd);
 @return True if sql_mode has strict mode (all or trans), false otherwise.
 */
 bool thd_is_strict_mode(const MYSQL_THD thd)
-__attribute__((nonnull));
+MY_ATTRIBUTE((nonnull));
 } /* extern "C" */
 
 /** Get the file name and position of the MySQL binlog corresponding to the
@@ -533,7 +529,7 @@ innobase_index_name_is_reserved(
 	const KEY*	key_info,	/*!< in: Indexes to be created */
 	ulint		num_of_keys)	/*!< in: Number of indexes to
 					be created. */
-	__attribute__((nonnull, warn_unused_result));
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 
 /*****************************************************************//**
 #ifdef WITH_WSREP
@@ -553,7 +549,7 @@ innobase_table_flags(
 						outside system tablespace */
 	ulint*			flags,		/*!< out: DICT_TF flags */
 	ulint*			flags2)		/*!< out: DICT_TF2 flags */
-	__attribute__((nonnull, warn_unused_result));
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 
 /*****************************************************************//**
 Validates the create options. We may build on this function
@@ -570,7 +566,7 @@ create_options_are_invalid(
 					columns and indexes */
 	HA_CREATE_INFO*	create_info,	/*!< in: create info. */
 	bool		use_tablespace)	/*!< in: srv_file_per_table */
-	__attribute__((nonnull, warn_unused_result));
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 
 /*********************************************************************//**
 Retrieve the FTS Relevance Ranking result for doc with doc_id
@@ -600,7 +596,7 @@ void
 innobase_fts_close_ranking(
 /*=======================*/
 	FT_INFO*	fts_hdl)	/*!< in: FTS handler */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 /*****************************************************************//**
 Initialize the table FTS stopword list
 @return TRUE if success */
@@ -611,7 +607,7 @@ innobase_fts_load_stopword(
 	dict_table_t*	table,		/*!< in: Table has the FTS */
 	trx_t*		trx,		/*!< in: transaction */
 	THD*		thd)		/*!< in: current thread */
-	__attribute__((nonnull(1,3), warn_unused_result));
+	MY_ATTRIBUTE((nonnull(1,3), warn_unused_result));
 
 /** Some defines for innobase_fts_check_doc_id_index() return value */
 enum fts_doc_id_index_enum {
@@ -633,7 +629,7 @@ innobase_fts_check_doc_id_index(
 						that is being altered */
 	ulint*			fts_doc_col_no)	/*!< out: The column number for
 						Doc ID */
-	__attribute__((warn_unused_result));
+	MY_ATTRIBUTE((warn_unused_result));
 
 /*******************************************************************//**
 Check whether the table has a unique index with FTS_DOC_ID_INDEX_NAME
@@ -646,7 +642,7 @@ innobase_fts_check_doc_id_index_in_def(
 /*===================================*/
 	ulint		n_key,		/*!< in: Number of keys */
 	const KEY*	key_info)	/*!< in: Key definitions */
-	__attribute__((nonnull, warn_unused_result));
+	MY_ATTRIBUTE((nonnull, warn_unused_result));
 
 /***********************************************************************
 @return version of the extended FTS API */
@@ -701,3 +697,39 @@ innobase_copy_frm_flags_from_table_share(
 /*=====================================*/
 	dict_table_t*		innodb_table,	/*!< in/out: InnoDB table */
 	const TABLE_SHARE*	table_share);	/*!< in: table share */
+
+/*******************************************************************//**
+This function builds a translation table in INNOBASE_SHARE
+structure for fast index location with mysql array number from its
+table->key_info structure. This also provides the necessary translation
+between the key order in mysql key_info and Innodb ib_table->indexes if
+they are not fully matched with each other.
+Note we do not have any mutex protecting the translation table
+building based on the assumption that there is no concurrent
+index creation/drop and DMLs that requires index lookup. All table
+handle will be closed before the index creation/drop.
+@return TRUE if index translation table built successfully */
+UNIV_INTERN
+ibool
+innobase_build_index_translation(
+/*=============================*/
+	const TABLE*		table,	  /*!< in: table in MySQL data
+					  dictionary */
+	dict_table_t*		ib_table, /*!< in: table in Innodb data
+					  dictionary */
+	INNOBASE_SHARE*		share);	  /*!< in/out: share structure
+					  where index translation table
+					  will be constructed in. */
+
+/********************************************************************//**
+Helper function to push frm mismatch error to error log and
+if needed to sql-layer. */
+UNIV_INTERN
+void
+ib_push_frm_error(
+/*==============*/
+	THD*		thd,		/*!< in: MySQL thd */
+	dict_table_t*	ib_table,	/*!< in: InnoDB table */
+	TABLE*		table,		/*!< in: MySQL table */
+	ulint		n_keys,		/*!< in: InnoDB #keys */
+	bool		push_warning);	/*!< in: print warning ? */

@@ -65,6 +65,7 @@
 #            so it has been removed.
 # 2013-10-08 PH got rid of the "source" command, which is a bash-ism (use ".")
 # 2013-11-05 PH added support for PARENS_NEST_LIMIT
+# 2016-03-01 PH applied Chris Wilson's patch for MSVC static build
 
 PROJECT(PCRE C CXX)
 
@@ -311,11 +312,6 @@ IF(MSVC)
 ENDIF(MSVC)
 
 SET(CMAKE_INCLUDE_CURRENT_DIR 1)
-# needed to make sure to not link debug libs
-# against release libs and vice versa
-IF(WIN32)
-  SET(CMAKE_DEBUG_POSTFIX "d")
-ENDIF(WIN32)
 
 SET(targets)
 

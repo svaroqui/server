@@ -29,11 +29,6 @@ class Master_info;
 class Rpl_filter;
 
 
-enum {
-  LINES_IN_RELAY_LOG_INFO_WITH_DELAY= 5
-};
-
-
 /****************************************************************************
 
   Replication SQL Thread
@@ -47,7 +42,7 @@ enum {
 
   Relay_log_info is initialized from the slave.info file if such
   exists.  Otherwise, data members are intialized with defaults. The
-  initialization is done with init_relay_log_info() call.
+  initialization is done with Relay_log_info::init() call.
 
   The format of slave.info file:
 
@@ -78,11 +73,17 @@ public:
   };
 
   /*
-    If flag set, then rli does not store its state in any info file.
-    This is the case only when we execute BINLOG SQL commands inside
-    a client, non-replication thread.
+    The SQL thread owns one Relay_log_info, and each client that has
+    executed a BINLOG statement owns one Relay_log_info. This function
+    returns zero for the Relay_log_info object that belongs to the SQL
+    thread and nonzero for Relay_log_info objects that belong to
+    clients.
   */
-  bool no_storage;
+  inline bool belongs_to_client()
+  {
+    DBUG_ASSERT(sql_driver_thd);
+    return !sql_driver_thd->slave_thread;
+  }
 
   /*
     If true, events with the same server id should be replicated. This
@@ -148,7 +149,7 @@ public:
 
     Protected by data_lock.
   */
-  TABLE *save_temporary_tables;
+  All_tmp_tables_list *save_temporary_tables;
 
   /*
     standard lock acquisition order to avoid deadlocks:
@@ -194,6 +195,11 @@ public:
     relay log and finishing (commiting) on another relay log. Case which can
     happen when, for example, the relay log gets rotated because of
     max_binlog_size.
+
+    Note: group_relay_log_name, group_relay_log_pos must only be
+    written from the thread owning the Relay_log_info (SQL thread if
+    !belongs_to_client(); client thread executing BINLOG statement if
+    belongs_to_client()).
   */
   char group_relay_log_name[FN_REFLEN];
   ulonglong group_relay_log_pos;
@@ -205,16 +211,17 @@ public:
   */
   char future_event_master_log_name[FN_REFLEN];
 
-#ifdef HAVE_valgrind
-  bool is_fake; /* Mark that this is a fake relay log info structure */
-#endif
-
   /* 
      Original log name and position of the group we're currently executing
      (whose coordinates are group_relay_log_name/pos in the relay log)
      in the master's binlog. These concern the *group*, because in the master's
      binlog the log_pos that comes with each event is the position of the
      beginning of the group.
+
+    Note: group_master_log_name, group_master_log_pos must only be
+    written from the thread owning the Relay_log_info (SQL thread if
+    !belongs_to_client(); client thread executing BINLOG statement if
+    belongs_to_client()).
   */
   char group_master_log_name[FN_REFLEN];
   volatile my_off_t group_master_log_pos;
@@ -244,6 +251,15 @@ public:
   bool sql_thread_caught_up;
 
   void clear_until_condition();
+  /**
+    Reset the delay.
+    This is used by RESET SLAVE to clear the delay.
+  */
+  void clear_sql_delay()
+  {
+    sql_delay= 0;
+  }
+
 
   /*
     Needed for problems when slave stops and we want to restart it
@@ -268,6 +284,8 @@ public:
 #ifndef DBUG_OFF
   int events_till_abort;
 #endif  
+
+  enum_gtid_skip_type gtid_skip_flag;
 
   /*
     inited changes its value within LOCK_active_mi-guarded critical
@@ -344,6 +362,22 @@ public:
   size_t slave_patternload_file_size;  
 
   rpl_parallel parallel;
+  /*
+    The relay_log_state keeps track of the current binlog state of the
+    execution of the relay log. This is used to know where to resume
+    current GTID position if the slave thread is stopped and
+    restarted.  It is only accessed from the SQL thread, so it does
+    not need any locking.
+  */
+  rpl_binlog_state relay_log_state;
+  /*
+    The restart_gtid_state is used when the SQL thread restarts on a relay log
+    in GTID mode. In multi-domain parallel replication, each domain may have a
+    separat position, so some events in more progressed domains may need to be
+    skipped. This keeps track of the domains that have not yet reached their
+    starting event.
+  */
+  slave_connection_state restart_gtid_pos;
 
   Relay_log_info(bool is_slave_recovery);
   ~Relay_log_info();
@@ -377,7 +411,7 @@ public:
   void close_temporary_tables();
 
   /* Check if UNTIL condition is satisfied. See slave.cc for more. */
-  bool is_until_satisfied(THD *thd, Log_event *ev);
+  bool is_until_satisfied(my_off_t);
   inline ulonglong until_pos()
   {
     DBUG_ASSERT(until_condition == UNTIL_MASTER_POS ||
@@ -398,16 +432,12 @@ public:
     Master log position of the event. The position is recorded in the
     relay log info and used to produce information for <code>SHOW
     SLAVE STATUS</code>.
-
-    @param event_creation_time
-    Timestamp for the creation of the event on the master side. The
-    time stamp is recorded in the relay log info and used to compute
-    the <code>Seconds_behind_master</code> field.
   */
-  void stmt_done(my_off_t event_log_pos,
-                 time_t event_creation_time, THD *thd,
-                 rpl_group_info *rgi);
+  void stmt_done(my_off_t event_log_pos, THD *thd, rpl_group_info *rgi);
   int alloc_inuse_relaylog(const char *name);
+  void free_inuse_relaylog(inuse_relaylog *ir);
+  void reset_inuse_relaylog();
+  int update_relay_log_state(rpl_gtid *gtid_list, uint32 count);
 
   /**
      Is the replication inside a group?
@@ -461,7 +491,71 @@ public:
     m_flags&= ~flag;
   }
 
+  /**
+    Text used in THD::proc_info when the slave SQL thread is delaying.
+  */
+  static const char *const state_delaying_string;
+
+  bool flush();
+
+  /**
+    Reads the relay_log.info file.
+  */
+  int init(const char* info_filename);
+
+  /**
+    Indicate that a delay starts.
+
+    This does not actually sleep; it only sets the state of this
+    Relay_log_info object to delaying so that the correct state can be
+    reported by SHOW SLAVE STATUS and SHOW PROCESSLIST.
+
+    Requires rli->data_lock.
+
+    @param delay_end The time when the delay shall end.
+  */
+  void start_sql_delay(time_t delay_end)
+  {
+    mysql_mutex_assert_owner(&data_lock);
+    sql_delay_end= delay_end;
+    thd_proc_info(sql_driver_thd, state_delaying_string);
+  }
+
+  int32 get_sql_delay() { return sql_delay; }
+  void set_sql_delay(time_t _sql_delay) { sql_delay= _sql_delay; }
+  time_t get_sql_delay_end() { return sql_delay_end; }
+
 private:
+
+
+  /**
+    Delay slave SQL thread by this amount, compared to master (in
+    seconds). This is set with CHANGE MASTER TO MASTER_DELAY=X.
+
+    Guarded by data_lock.  Initialized by the client thread executing
+    START SLAVE.  Written by client threads executing CHANGE MASTER TO
+    MASTER_DELAY=X.  Read by SQL thread and by client threads
+    executing SHOW SLAVE STATUS.  Note: must not be written while the
+    slave SQL thread is running, since the SQL thread reads it without
+    a lock when executing Relay_log_info::flush().
+  */
+  int sql_delay;
+
+  /**
+    During a delay, specifies the point in time when the delay ends.
+
+    This is used for the SQL_Remaining_Delay column in SHOW SLAVE STATUS.
+
+    Guarded by data_lock. Written by the sql thread.  Read by client
+    threads executing SHOW SLAVE STATUS.
+  */
+  time_t sql_delay_end;
+
+  /*
+    Before the MASTER_DELAY parameter was added (WL#344),
+    relay_log.info had 4 lines. Now it has 5 lines.
+  */
+  static const int LINES_IN_RELAY_LOG_INFO_WITH_DELAY= 5;
 
   /*
     Holds the state of the data in the relay log.
@@ -496,6 +590,13 @@ private:
 */
 struct inuse_relaylog {
   inuse_relaylog *next;
+  Relay_log_info *rli;
+  /*
+    relay_log_state holds the binlog state corresponding to the start of this
+    relay log file. It is an array with relay_log_state_count elements.
+  */
+  rpl_gtid *relay_log_state;
+  uint32 relay_log_state_count;
   /* Number of events in this relay log queued for worker threads. */
   int64 queued_count;
   /* Number of events completed by worker threads. */
@@ -503,8 +604,6 @@ struct inuse_relaylog {
   /* Set when all events have been read from a relaylog. */
   bool completed;
   char name[FN_REFLEN];
-  /* Lock used to protect inuse_relaylog::dequeued_count */
-  my_atomic_rwlock_t inuse_relaylog_atomic_lock;
 };
 
 
@@ -562,6 +661,10 @@ struct rpl_group_info
     (When we execute in parallel the transactions that group committed
     together on the master, we still need to wait for any prior transactions
     to have reached the commit stage).
+
+    The pointed-to gco is only valid for as long as
+    gtid_sub_id < parallel_entry->last_committed_sub_id. After that, it can
+    be freed by another thread.
   */
   group_commit_orderer *gco;
 
@@ -620,6 +723,8 @@ struct rpl_group_info
     counting one event group twice.
   */
   bool did_mark_start_commit;
+  /* Copy of flags2 from GTID event. */
+  uchar gtid_ev_flags2;
   enum {
     GTID_DUPLICATE_NULL=0,
     GTID_DUPLICATE_IGNORE=1,
@@ -645,13 +750,55 @@ struct rpl_group_info
   char gtid_info_buf[5+10+1+10+1+20+1];
 
   /*
+    The timestamp, from the master, of the commit event.
+    Used to do delayed update of rli->last_master_timestamp, for getting
+    reasonable values out of Seconds_Behind_Master in SHOW SLAVE STATUS.
+  */
+  time_t last_master_timestamp;
+
+  /*
     Information to be able to re-try an event group in case of a deadlock or
     other temporary error.
   */
   inuse_relaylog *relay_log;
   uint64 retry_start_offset;
   uint64 retry_event_count;
-  bool killed_for_retry;
+  /*
+    If `speculation' is != SPECULATE_NO, then we are optimistically running
+    this transaction in parallel, even though it might not be safe (there may
+    be a conflict with a prior event group).
+
+    In this case, a conflict can cause other errors than deadlocks (like
+    duplicate key for example). So in case of _any_ error, we need to roll
+    back and retry the event group.
+  */
+  enum enum_speculation {
+    /*
+      This transaction was group-committed together on the master with the
+      other transactions with which it is replicated in parallel.
+    */
+    SPECULATE_NO,
+    /*
+      We will optimistically try to run this transaction in parallel with
+      other transactions, even though it is not known to be conflict free.
+      If we get a conflict, we will detect it as a deadlock, roll back and
+      retry.
+    */
+    SPECULATE_OPTIMISTIC,
+    /*
+      This transaction got a conflict during speculative parallel apply, or
+      it was marked on the master as likely to cause a conflict or unsafe to
+      speculate. So it will wait for the prior transaction to commit before
+      starting to replicate.
+    */
+    SPECULATE_WAIT
+  } speculation;
+  enum enum_retry_killed {
+    RETRY_KILL_NONE = 0,
+    RETRY_KILL_PENDING,
+    RETRY_KILL_KILLED
+  };
+  uchar killed_for_retry;
 
   rpl_group_info(Relay_log_info *rli_);
   ~rpl_group_info();
@@ -684,7 +831,7 @@ struct rpl_group_info
   /**
     Save pointer to Annotate_rows event and switch on the
     binlog_annotate_row_events for this sql thread.
-    To be called when sql thread recieves an Annotate_rows event.
+    To be called when sql thread receives an Annotate_rows event.
   */
   inline void set_annotate_event(Annotate_rows_log_event *event)
   {
@@ -808,11 +955,7 @@ public:
 };
 
 
-// Defined in rpl_rli.cc
-int init_relay_log_info(Relay_log_info* rli, const char* info_fname);
-
-
-extern struct rpl_slave_state rpl_global_gtid_slave_state;
+extern struct rpl_slave_state *rpl_global_gtid_slave_state;
 extern gtid_waiting rpl_global_gtid_waiting;
 
 int rpl_load_gtid_slave_state(THD *thd);

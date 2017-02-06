@@ -5,6 +5,13 @@
 
 -- source include/have_innodb.inc
 
+# lock data that is part of result set for this testcase
+# is retreived using buf_page_try_get. i.e only show if page
+# happen to be in buffer pool, with key rotation threads
+# chances are substantial that pages have been evicted and lock_data
+# get NULL
+-- source include/not_encrypted.inc
+
 -- disable_query_log
 -- disable_result_log
 
@@ -122,7 +129,7 @@ SELECT * FROM ```t'\"_str` WHERE c1 = '4' FOR UPDATE;
 # then its contents will never change because the cache from which it is
 # filled is updated only if it has not been read for 0.1 seconds. See
 # CACHE_MIN_IDLE_TIME_US in trx/trx0i_s.c.
-let $cnt=10;
+let $cnt=200;
 while ($cnt)
 {
     let $success=`SELECT COUNT(*) = 14 FROM INFORMATION_SCHEMA.INNODB_LOCKS`;

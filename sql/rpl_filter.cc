@@ -13,6 +13,7 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "mysqld.h"                             // system_charset_info
 #include "rpl_filter.h"
@@ -23,7 +24,9 @@
 #define TABLE_RULE_ARR_SIZE   16
 
 Rpl_filter::Rpl_filter() : 
-  table_rules_on(0), do_table_inited(0), ignore_table_inited(0),
+  parallel_mode(SLAVE_PARALLEL_CONSERVATIVE),
+  table_rules_on(0),
+  do_table_inited(0), ignore_table_inited(0),
   wild_do_table_inited(0), wild_ignore_table_inited(0)
 {
   do_db.empty();
@@ -279,6 +282,9 @@ Rpl_filter::parse_filter_rule(const char* spec, Add_filter add)
   int status= 0;
   char *arg, *ptr, *pstr;
 
+  if (!spec)
+    return false;
+  
   if (! (ptr= my_strdup(spec, MYF(MY_WME))))
     return true;
 

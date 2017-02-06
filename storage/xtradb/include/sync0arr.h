@@ -1,6 +1,6 @@
 /*****************************************************************************
 
-Copyright (c) 1995, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1995, 2016, Oracle and/or its affiliates. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -31,7 +31,7 @@ Created 9/5/1995 Heikki Tuuri
 #include "ut0mem.h"
 #include "os0thread.h"
 
-/** Synchronization wait array cell */
+/** Synchonization cell */
 struct sync_cell_t;
 /** Synchronization wait array */
 struct sync_array_t;
@@ -110,7 +110,7 @@ sync_array_print_long_waits(
 /*========================*/
 	os_thread_id_t*	waiter,	/*!< out: longest waiting thread */
 	const void**	sema)	/*!< out: longest-waited-for semaphore */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 /********************************************************************//**
 Validates the integrity of the wait array. Checks
 that the number of reserved cells equals the count variable. */
@@ -147,6 +147,22 @@ UNIV_INTERN
 sync_array_t*
 sync_array_get(void);
 /*================*/
+
+/**********************************************************************//**
+Prints info of the wait array without using any mutexes/semaphores. */
+UNIV_INTERN
+void
+sync_array_print_xtradb(void);
+
+/*****************************************************************//**
+Gets the nth cell in array.
+@return	cell */
+UNIV_INTERN
+sync_cell_t*
+sync_array_get_nth_cell(
+/*====================*/
+	sync_array_t*	arr,	/*!< in: sync array */
+	ulint		n);	/*!< in: index */
 
 #ifndef UNIV_NONINL
 #include "sync0arr.ic"

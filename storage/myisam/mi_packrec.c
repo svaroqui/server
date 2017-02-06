@@ -1158,7 +1158,7 @@ static void decode_bytes(MI_COLUMNDEF *rec,MI_BIT_BUFF *bit_buff,uchar *to,
       /* This means that the Huffman code must be longer than table_bits. */
       pos=decode_tree->table+low_byte;
       bits-=table_bits;
-      /* NOTE: decode_bytes_test_bit() is a macro wich contains a break !!! */
+      /* NOTE: decode_bytes_test_bit() is a macro which contains a break !!! */
       for (;;)
       {
 	low_byte=(uint) (bit_buff->current_byte >> (bits-8));
@@ -1364,7 +1364,6 @@ uint _mi_pack_get_block_info(MI_INFO *myisam, MI_BIT_BUFF *bit_buff,
 {
   uchar *header=info->header;
   uint head_length, UNINIT_VAR(ref_length);
-  LINT_INIT(ref_length);
 
   if (file >= 0)
   {

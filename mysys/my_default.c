@@ -90,7 +90,7 @@ static my_bool defaults_already_read= FALSE;
 
 /* Which directories are searched for options (and in which order) */
 
-#define MAX_DEFAULT_DIRS 6
+#define MAX_DEFAULT_DIRS 7
 #define DEFAULT_DIRS_SIZE (MAX_DEFAULT_DIRS + 1)  /* Terminate with NULL */
 static const char **default_directories = NULL;
 
@@ -102,8 +102,7 @@ static const char *f_extensions[]= { ".cnf", 0 };
 #define NEWLINE "\n"
 #endif
 
-static int handle_default_option(void *in_ctx, const char *group_name,
-                                 const char *option);
+static int handle_default_option(void *, const char *, const char *);
 
 /*
    This structure defines the context that we pass to callback
@@ -364,7 +363,7 @@ err:
 
   RETURN
     0 - ok
-    1 - error occured
+    1 - error occurred
 */
 
 static int handle_default_option(void *in_ctx, const char *group_name,
@@ -410,14 +409,13 @@ int get_defaults_options(int argc, char **argv,
                          char **extra_defaults,
                          char **group_suffix)
 {
-  int org_argc= argc, prev_argc= 0;
+  int org_argc= argc;
   *defaults= *extra_defaults= *group_suffix= 0;
 
-  while (argc >= 2 && argc != prev_argc)
+  while (argc >= 2)
   {
     /* Skip program name or previously handled argument */
     argv++;
-    prev_argc= argc;                            /* To check if we found */
     if (!*defaults && is_prefix(*argv,"--defaults-file="))
     {
       *defaults= *argv + sizeof("--defaults-file=")-1;
@@ -436,6 +434,7 @@ int get_defaults_options(int argc, char **argv,
       argc--;
       continue;
     }
+    break;
   }
   return org_argc - argc;
 }
@@ -566,7 +565,7 @@ int my_load_defaults(const char *conf_file, const char **groups,
   for (; *groups ; groups++)
     group.count++;
 
-  if (my_init_dynamic_array(&args, sizeof(char*),*argc, 32, MYF(0)))
+  if (my_init_dynamic_array(&args, sizeof(char*), 128, 64, MYF(0)))
     goto err;
 
   ctx.alloc= &alloc;
@@ -577,6 +576,7 @@ int my_load_defaults(const char *conf_file, const char **groups,
                                      handle_default_option, (void *) &ctx,
                                      dirs)))
   {
+    delete_dynamic(&args);
     free_root(&alloc,MYF(0));
     DBUG_RETURN(error);
   }
@@ -843,13 +843,13 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
                                 ptr, name, line)))
 	  goto err;
 
-        if (!(search_dir= my_dir(ptr, MYF(MY_WME))))
+        if (!(search_dir= my_dir(ptr, MYF(MY_WME | MY_WANT_SORT))))
           goto err;
 
         for (i= 0; i < (uint) search_dir->number_of_files; i++)
         {
           search_file= search_dir->dir_entry + i;
-          ext= fn_ext(search_file->name);
+          ext= fn_ext2(search_file->name);
 
           /* check extension */
           for (tmp_ext= (char**) f_extensions; *tmp_ext; tmp_ext++)
@@ -917,7 +917,7 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
    
     end= remove_end_comment(ptr);
     if ((value= strchr(ptr, '=')))
-      end= value;				/* Option without argument */
+      end= value;
     for ( ; my_isspace(&my_charset_latin1,end[-1]) ; end--) ;
     if (!value)
     {
@@ -1124,43 +1124,7 @@ static int add_directory(MEM_ROOT *alloc, const char *dir, const char **dirs)
   return 0;
 }
 
-
 #ifdef __WIN__
-/*
-  This wrapper for GetSystemWindowsDirectory() will dynamically bind to the
-  function if it is available, emulate it on NT4 Terminal Server by stripping
-  the \SYSTEM32 from the end of the results of GetSystemDirectory(), or just
-  return GetSystemDirectory().
- */
-
-typedef UINT (WINAPI *GET_SYSTEM_WINDOWS_DIRECTORY)(LPSTR, UINT);
-
-static size_t my_get_system_windows_directory(char *buffer, size_t size)
-{
-  size_t count;
-  GET_SYSTEM_WINDOWS_DIRECTORY
-    func_ptr= (GET_SYSTEM_WINDOWS_DIRECTORY)
-              GetProcAddress(GetModuleHandle("kernel32.dll"),
-                                             "GetSystemWindowsDirectoryA");
-
-  if (func_ptr)
-    return func_ptr(buffer, (uint) size);
-
-  /*
-    Windows NT 4.0 Terminal Server Edition:  
-    To retrieve the shared Windows directory, call GetSystemDirectory and
-    trim the "System32" element from the end of the returned path.
-  */
-  count= GetSystemDirectory(buffer, (uint) size);
-  if (count > 8 && stricmp(buffer+(count-8), "\\System32") == 0)
-  {
-    count-= 8;
-    buffer[count] = '\0';
-  }
-  return count;
-}
-
-
 static const char *my_get_module_parent(char *buf, size_t size)
 {
   char *last= NULL;
@@ -1209,7 +1173,7 @@ static const char **init_default_directories(MEM_ROOT *alloc)
 
   {
     char fname_buffer[FN_REFLEN];
-    if (my_get_system_windows_directory(fname_buffer, sizeof(fname_buffer)))
+    if (GetSystemWindowsDirectory(fname_buffer, sizeof(fname_buffer)))
       errors += add_directory(alloc, fname_buffer, dirs);
 
     if (GetWindowsDirectory(fname_buffer, sizeof(fname_buffer)))
@@ -1218,7 +1182,12 @@ static const char **init_default_directories(MEM_ROOT *alloc)
     errors += add_directory(alloc, "C:/", dirs);
 
     if (my_get_module_parent(fname_buffer, sizeof(fname_buffer)) != NULL)
+    {
       errors += add_directory(alloc, fname_buffer, dirs);
+
+      strncat(fname_buffer, "/data", sizeof(fname_buffer));
+      errors += add_directory(alloc, fname_buffer, dirs);
+    }
   }
 
 #else

@@ -1,8 +1,8 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2014, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
 Copyright (c) 2012, Facebook Inc.
-Copyright (c) 2013, SkySQL Ab. All Rights Reserved.
+Copyright (c) 2013, 2016, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -51,8 +51,13 @@ Created 1/8/1996 Heikki Tuuri
 #include "trx0types.h"
 #include "fts0fts.h"
 #include "os0once.h"
+#include "fil0fil.h"
+#include <my_crypt.h>
+#include "fil0crypt.h"
 #include <set>
 #include <algorithm>
+#include <iterator>
+#include <ostream>
 
 /* Forward declaration. */
 struct ib_rbt_t;
@@ -136,6 +141,12 @@ Width of the page compression flag
 #define DICT_TF_WIDTH_PAGE_COMPRESSION_LEVEL 4
 
 /**
+Width of the page encryption flag
+*/
+#define DICT_TF_WIDTH_PAGE_ENCRYPTION  1
+#define DICT_TF_WIDTH_PAGE_ENCRYPTION_KEY 8
+
+/**
 Width of atomic writes flag
 DEFAULT=0, ON = 1, OFF = 2
 */
@@ -148,10 +159,12 @@ DEFAULT=0, ON = 1, OFF = 2
 			+ DICT_TF_WIDTH_DATA_DIR        \
 			+ DICT_TF_WIDTH_PAGE_COMPRESSION \
 			+ DICT_TF_WIDTH_PAGE_COMPRESSION_LEVEL \
-			+ DICT_TF_WIDTH_ATOMIC_WRITES)
+		        + DICT_TF_WIDTH_ATOMIC_WRITES \
+		        + DICT_TF_WIDTH_PAGE_ENCRYPTION \
+		        + DICT_TF_WIDTH_PAGE_ENCRYPTION_KEY)
 
 /** A mask of all the known/used bits in table flags */
-#define DICT_TF_BIT_MASK	(~(~0 << DICT_TF_BITS))
+#define DICT_TF_BIT_MASK	(~(~0U << DICT_TF_BITS))
 
 /** Zero relative shift position of the COMPACT field */
 #define DICT_TF_POS_COMPACT		0
@@ -173,38 +186,53 @@ DEFAULT=0, ON = 1, OFF = 2
 /** Zero relative shift position of the ATOMIC_WRITES field */
 #define DICT_TF_POS_ATOMIC_WRITES	(DICT_TF_POS_PAGE_COMPRESSION_LEVEL	\
 					+ DICT_TF_WIDTH_PAGE_COMPRESSION_LEVEL)
+
+/** Zero relative shift position of the PAGE_ENCRYPTION field */
+#define DICT_TF_POS_PAGE_ENCRYPTION	(DICT_TF_POS_ATOMIC_WRITES	\
+		                        + DICT_TF_WIDTH_ATOMIC_WRITES)
+/** Zero relative shift position of the PAGE_ENCRYPTION_KEY field */
+#define DICT_TF_POS_PAGE_ENCRYPTION_KEY	(DICT_TF_POS_PAGE_ENCRYPTION	\
+                                        + DICT_TF_WIDTH_PAGE_ENCRYPTION)
 /** Zero relative shift position of the start of the UNUSED bits */
-#define DICT_TF_POS_UNUSED		(DICT_TF_POS_ATOMIC_WRITES     \
-					+ DICT_TF_WIDTH_ATOMIC_WRITES)
+#define DICT_TF_POS_UNUSED		(DICT_TF_POS_PAGE_ENCRYPTION_KEY     \
+                                        + DICT_TF_WIDTH_PAGE_ENCRYPTION_KEY)
 
 /** Bit mask of the COMPACT field */
 #define DICT_TF_MASK_COMPACT				\
-		((~(~0 << DICT_TF_WIDTH_COMPACT))	\
+		((~(~0U << DICT_TF_WIDTH_COMPACT))	\
 		<< DICT_TF_POS_COMPACT)
 /** Bit mask of the ZIP_SSIZE field */
 #define DICT_TF_MASK_ZIP_SSIZE				\
-		((~(~0 << DICT_TF_WIDTH_ZIP_SSIZE))	\
+		((~(~0U << DICT_TF_WIDTH_ZIP_SSIZE))	\
 		<< DICT_TF_POS_ZIP_SSIZE)
 /** Bit mask of the ATOMIC_BLOBS field */
 #define DICT_TF_MASK_ATOMIC_BLOBS			\
-		((~(~0 << DICT_TF_WIDTH_ATOMIC_BLOBS))	\
+		((~(~0U << DICT_TF_WIDTH_ATOMIC_BLOBS))	\
 		<< DICT_TF_POS_ATOMIC_BLOBS)
 /** Bit mask of the DATA_DIR field */
 #define DICT_TF_MASK_DATA_DIR				\
-		((~(~0 << DICT_TF_WIDTH_DATA_DIR))	\
+		((~(~0U << DICT_TF_WIDTH_DATA_DIR))	\
 		<< DICT_TF_POS_DATA_DIR)
 /** Bit mask of the PAGE_COMPRESSION field */
 #define DICT_TF_MASK_PAGE_COMPRESSION			\
-		((~(~0 << DICT_TF_WIDTH_PAGE_COMPRESSION)) \
+		((~(~0U << DICT_TF_WIDTH_PAGE_COMPRESSION)) \
 		<< DICT_TF_POS_PAGE_COMPRESSION)
 /** Bit mask of the PAGE_COMPRESSION_LEVEL field */
 #define DICT_TF_MASK_PAGE_COMPRESSION_LEVEL		\
-		((~(~0 << DICT_TF_WIDTH_PAGE_COMPRESSION_LEVEL)) \
+		((~(~0U << DICT_TF_WIDTH_PAGE_COMPRESSION_LEVEL)) \
 		<< DICT_TF_POS_PAGE_COMPRESSION_LEVEL)
 /** Bit mask of the ATOMIC_WRITES field */
 #define DICT_TF_MASK_ATOMIC_WRITES		\
-		((~(~0 << DICT_TF_WIDTH_ATOMIC_WRITES)) \
+		((~(~0U << DICT_TF_WIDTH_ATOMIC_WRITES)) \
 		<< DICT_TF_POS_ATOMIC_WRITES)
+/** Bit mask of the PAGE_ENCRYPTION field */
+#define DICT_TF_MASK_PAGE_ENCRYPTION			\
+		((~(~0U << DICT_TF_WIDTH_PAGE_ENCRYPTION))	\
+		<< DICT_TF_POS_PAGE_ENCRYPTION)
+/** Bit mask of the PAGE_ENCRYPTION_KEY field */
+#define DICT_TF_MASK_PAGE_ENCRYPTION_KEY		\
+		((~(~0U << DICT_TF_WIDTH_PAGE_ENCRYPTION_KEY)) \
+		<< DICT_TF_POS_PAGE_ENCRYPTION_KEY)
 
 /** Return the value of the COMPACT field */
 #define DICT_TF_GET_COMPACT(flags)			\
@@ -218,10 +246,21 @@ DEFAULT=0, ON = 1, OFF = 2
 #define DICT_TF_HAS_ATOMIC_BLOBS(flags)			\
 		((flags & DICT_TF_MASK_ATOMIC_BLOBS)	\
 		>> DICT_TF_POS_ATOMIC_BLOBS)
-/** Return the value of the ATOMIC_BLOBS field */
+/** Return the value of the DATA_DIR field */
 #define DICT_TF_HAS_DATA_DIR(flags)			\
 		((flags & DICT_TF_MASK_DATA_DIR)	\
 		>> DICT_TF_POS_DATA_DIR)
+
+/** Return the contents of the PAGE_ENCRYPTION field */
+#define DICT_TF_GET_PAGE_ENCRYPTION(flags)			\
+		((flags & DICT_TF_MASK_PAGE_ENCRYPTION) \
+		>> DICT_TF_POS_PAGE_ENCRYPTION)
+/** Return the contents of the PAGE_ENCRYPTION KEY field */
+#define DICT_TF_GET_PAGE_ENCRYPTION_KEY(flags)			\
+		((flags & DICT_TF_MASK_PAGE_ENCRYPTION_KEY) \
+		>> DICT_TF_POS_PAGE_ENCRYPTION_KEY)
+
+
 /** Return the contents of the UNUSED bits */
 #define DICT_TF_GET_UNUSED(flags)			\
 		(flags >> DICT_TF_POS_UNUSED)
@@ -252,7 +291,7 @@ for unknown bits in order to protect backward incompatibility. */
 /* @{ */
 /** Total number of bits in table->flags2. */
 #define DICT_TF2_BITS			7
-#define DICT_TF2_BIT_MASK		~(~0 << DICT_TF2_BITS)
+#define DICT_TF2_BIT_MASK		~(~0U << DICT_TF2_BITS)
 
 /** TEMPORARY; TRUE for tables from CREATE TEMPORARY TABLE. */
 #define DICT_TF2_TEMPORARY		1
@@ -312,10 +351,15 @@ dict_mem_table_create(
 					of the table is placed */
 	ulint		n_cols,		/*!< in: number of columns */
 	ulint		flags,		/*!< in: table flags */
-	ulint		flags2,		/*!< in: table flags2 */
-	bool		nonshared);/*!< in: whether the table object is a dummy
-				   one that does not need the initialization of
-				   locking-related fields. */
+	ulint		flags2);	/*!< in: table flags2 */
+/**********************************************************************//**
+Determines if a table belongs to a system database
+@return true if table belong to a system database */
+UNIV_INTERN
+bool
+dict_mem_table_is_system(
+/*==================*/
+	char	*name);		/*!< in: table name */
 /****************************************************************//**
 Free a table memory object. */
 UNIV_INTERN
@@ -335,7 +379,7 @@ dict_mem_table_add_col(
 	ulint		mtype,	/*!< in: main datatype */
 	ulint		prtype,	/*!< in: precise type */
 	ulint		len)	/*!< in: precision */
-	__attribute__((nonnull(1)));
+	MY_ATTRIBUTE((nonnull(1)));
 /**********************************************************************//**
 Renames a column of a table in the data dictionary cache. */
 UNIV_INTERN
@@ -346,7 +390,7 @@ dict_mem_table_col_rename(
 	unsigned	nth_col,/*!< in: column index */
 	const char*	from,	/*!< in: old column name */
 	const char*	to)	/*!< in: new column name */
-	__attribute__((nonnull));
+	MY_ATTRIBUTE((nonnull));
 /**********************************************************************//**
 This function populates a dict_col_t memory structure with
 supplied information. */
@@ -444,16 +488,29 @@ dict_mem_referenced_table_name_lookup_set(
 	dict_foreign_t*	foreign,	/*!< in/out: foreign struct */
 	ibool		do_alloc);	/*!< in: is an alloc needed */
 
-/*******************************************************************//**
-Create a temporary tablename.
-@return temporary tablename suitable for InnoDB use */
-UNIV_INTERN __attribute__((nonnull, warn_unused_result))
+/** Create a temporary tablename like "#sql-ibtid-inc where
+  tid = the Table ID
+  inc = a randomly initialized number that is incremented for each file
+The table ID is a 64 bit integer, can use up to 20 digits, and is
+initialized at bootstrap. The second number is 32 bits, can use up to 10
+digits, and is initialized at startup to a randomly distributed number.
+It is hoped that the combination of these two numbers will provide a
+reasonably unique temporary file name.
+@param[in]	heap	A memory heap
+@param[in]	dbtab	Table name in the form database/table name
+@param[in]	id	Table id
+@return A unique temporary tablename suitable for InnoDB use */
+UNIV_INTERN
 char*
 dict_mem_create_temporary_tablename(
-/*================================*/
-	mem_heap_t*	heap,	/*!< in: memory heap */
-	const char*	dbtab,	/*!< in: database/table name */
-	table_id_t	id);	/*!< in: InnoDB table id */
+	mem_heap_t*	heap,
+	const char*	dbtab,
+	table_id_t	id);
+
+/** Initialize dict memory variables */
+
+void
+dict_mem_init(void);
 
 /** Data structure for a column in a table */
 struct dict_col_t{
@@ -589,11 +646,12 @@ extern ulong	zip_failure_threshold_pct;
 compression failures */
 extern ulong	zip_pad_max;
 
-/** Data structure to hold information about about how much space in
+/** Data structure to hold information about how much space in
 an uncompressed page should be left as padding to avoid compression
 failures. This estimate is based on a self-adapting heuristic. */
 struct zip_pad_info_t {
-	os_fast_mutex_t	mutex;	/*!< mutex protecting the info */
+	os_fast_mutex_t*
+			mutex;	/*!< mutex protecting the info */
 	ulint		pad;	/*!< number of bytes used as pad */
 	ulint		success;/*!< successful compression ops during
 				current round */
@@ -601,6 +659,9 @@ struct zip_pad_info_t {
 				current round */
 	ulint		n_rounds;/*!< number of currently successful
 				rounds */
+	volatile os_once::state_t
+			mutex_created;
+				/*!< Creation state of mutex member */
 };
 
 /** Number of samples of data size kept when page compression fails for
@@ -798,6 +859,22 @@ struct dict_foreign_t{
 	dict_index_t*	referenced_index;/*!< referenced index */
 };
 
+std::ostream&
+operator<< (std::ostream& out, const dict_foreign_t& foreign);
+
+struct dict_foreign_print {
+
+	dict_foreign_print(std::ostream& out)
+		: m_out(out)
+	{}
+
+	void operator()(const dict_foreign_t* foreign) {
+		m_out << *foreign;
+	}
+private:
+	std::ostream&	m_out;
+};
+
 /** Compare two dict_foreign_t objects using their ids. Used in the ordering
 of dict_table_t::foreign_set and dict_table_t::referenced_set.  It returns
 true if the first argument is considered to go before the second in the
@@ -867,6 +944,40 @@ struct dict_foreign_matches_id {
 
 typedef std::set<dict_foreign_t*, dict_foreign_compare> dict_foreign_set;
 
+std::ostream&
+operator<< (std::ostream& out, const dict_foreign_set& fk_set);
+
+/** Function object to check if a foreign key object is there
+in the given foreign key set or not.  It returns true if the
+foreign key is not found, false otherwise */
+struct dict_foreign_not_exists {
+	dict_foreign_not_exists(const dict_foreign_set& obj_)
+		: m_foreigns(obj_)
+	{}
+
+	/* Return true if the given foreign key is not found */
+	bool operator()(dict_foreign_t* const & foreign) const {
+		return(m_foreigns.find(foreign) == m_foreigns.end());
+	}
+private:
+	const dict_foreign_set&	m_foreigns;
+};
+
+/** Validate the search order in the foreign key set.
+@param[in]	fk_set	the foreign key set to be validated
+@return true if search order is fine in the set, false otherwise. */
+bool
+dict_foreign_set_validate(
+	const dict_foreign_set&	fk_set);
+
+/** Validate the search order in the foreign key sets of the table
+(foreign_set and referenced_set).
+@param[in]	table	table whose foreign key sets are to be validated
+@return true if foreign key sets are fine, false otherwise. */
+bool
+dict_foreign_set_validate(
+	const dict_table_t&	table);
+
 /*********************************************************************//**
 Frees a foreign key struct. */
 inline
@@ -914,6 +1025,18 @@ if table->memcached_sync_count == DICT_TABLE_IN_DDL means there's DDL running on
 the table, DML from memcached will be blocked. */
 #define DICT_TABLE_IN_DDL -1
 
+/** These are used when MySQL FRM and InnoDB data dictionary are
+in inconsistent state. */
+typedef enum {
+	DICT_FRM_CONSISTENT = 0,	/*!< Consistent state */
+	DICT_FRM_NO_PK = 1,		/*!< MySQL has no primary key
+					but InnoDB dictionary has
+					non-generated one. */
+	DICT_NO_PK_FRM_HAS = 2,		/*!< MySQL has primary key but
+					InnoDB dictionary has not. */
+	DICT_FRM_INCONSISTENT_KEYS = 3	/*!< Key count mismatch */
+} dict_frm_t;
+
 /** Data structure for a database table.  Most fields will be
 initialized to 0, NULL or FALSE in dict_mem_table_create(). */
 struct dict_table_t{
@@ -922,6 +1045,10 @@ struct dict_table_t{
 	table_id_t	id;	/*!< id of the table */
 	mem_heap_t*	heap;	/*!< memory heap */
 	char*		name;	/*!< table name */
+	void*		thd;		/*!< thd */
+	bool		page_0_read; /*!< true if page 0 has
+				     been already read */
+	fil_space_crypt_t *crypt_data; /*!< crypt data if present */
 	const char*	dir_path_of_temp_table;/*!< NULL or the directory path
 				where a TEMPORARY table that was explicitly
 				created by a user should be placed if
@@ -968,6 +1095,14 @@ struct dict_table_t{
 				the string contains n_cols, it will be
 				allocated from a temporary heap.  The final
 				string will be allocated from table->heap. */
+	bool		is_system_db;
+				/*!< True if the table belongs to a system
+				database (mysql, information_schema or
+				performance_schema) */
+	dict_frm_t	dict_frm_mismatch;
+				/*!< !DICT_FRM_CONSISTENT==0 if data
+				dictionary information and
+				MySQL FRM information mismatch. */
 #ifndef UNIV_HOTBACKUP
 	hash_node_t	name_hash; /*!< hash chain node */
 	hash_node_t	id_hash; /*!< hash chain node */
@@ -1046,8 +1181,7 @@ struct dict_table_t{
 				dict_table_t::indexes*::stat_index_size
 				dict_table_t::indexes*::stat_n_leaf_pages
 				(*) those are not always protected for
-				performance reasons. NULL for dumy table
-				objects. */
+				performance reasons. */
 	unsigned	stat_initialized:1; /*!< TRUE if statistics have
 				been calculated the first time
 				after database startup or table creation */
@@ -1128,20 +1262,29 @@ struct dict_table_t{
 				calculation; this counter is not protected by
 				any latch, because this is only used for
 				heuristics */
-#define BG_STAT_NONE		0
-#define BG_STAT_IN_PROGRESS	(1 << 0)
+
+#define BG_STAT_IN_PROGRESS	((byte)(1 << 0))
 				/*!< BG_STAT_IN_PROGRESS is set in
 				stats_bg_flag when the background
 				stats code is working on this table. The DROP
 				TABLE code waits for this to be cleared
 				before proceeding. */
-#define BG_STAT_SHOULD_QUIT	(1 << 1)
+#define BG_STAT_SHOULD_QUIT	((byte)(1 << 1))
 				/*!< BG_STAT_SHOULD_QUIT is set in
 				stats_bg_flag when DROP TABLE starts
 				waiting on BG_STAT_IN_PROGRESS to be cleared,
 				the background stats thread will detect this
 				and will eventually quit sooner */
-	byte		stats_bg_flag;
+#define BG_SCRUB_IN_PROGRESS	((byte)(1 << 2))
+				/*!< BG_SCRUB_IN_PROGRESS is set in
+				stats_bg_flag when the background
+				scrub code is working on this table. The DROP
+				TABLE code waits for this to be cleared
+				before proceeding. */
+
+#define BG_IN_PROGRESS (BG_STAT_IN_PROGRESS | BG_SCRUB_IN_PROGRESS)
+
+	byte 		stats_bg_flag;
 				/*!< see BG_STAT_* above.
 				Writes are covered by dict_sys->mutex.
 				Dirty reads are possible. */
@@ -1172,12 +1315,15 @@ struct dict_table_t{
 				and release it without a need to allocate
 				space from the lock heap of the trx:
 				otherwise the lock heap would grow rapidly
-				if we do a large insert from a select. NULL
-				for dummy table objects. */
-	ib_mutex_t		autoinc_mutex;
+				if we do a large insert from a select */
+	ib_mutex_t*	autoinc_mutex;
 				/*!< mutex protecting the autoincrement
-				counter. Not initialized for dummy table
-				objects */
+				counter */
+
+	/** Creation state of autoinc_mutex member */
+	volatile os_once::state_t
+			autoinc_mutex_created;
+
 	ib_uint64_t	autoinc;/*!< autoinc counter value to give to the
 				next inserted row */
 	ulong		n_waiting_or_granted_auto_inc_locks;
@@ -1219,6 +1365,7 @@ struct dict_table_t{
 			locks;	/*!< list of locks on the table; protected
 				by lock_sys->mutex */
 	ibool		is_corrupt;
+	ibool		is_encrypted;
 #endif /* !UNIV_HOTBACKUP */
 
 #ifdef UNIV_DEBUG
@@ -1240,6 +1387,111 @@ struct dict_foreign_add_to_referenced_table {
 		}
 	}
 };
+
+/** Destroy the autoinc latch of the given table.
+This function is only called from either single threaded environment
+or from a thread that has not shared the table object with other threads.
+@param[in,out]	table	table whose stats latch to destroy */
+inline
+void
+dict_table_autoinc_destroy(
+	dict_table_t*	table)
+{
+	if (table->autoinc_mutex_created == os_once::DONE
+	    && table->autoinc_mutex != NULL) {
+		mutex_free(table->autoinc_mutex);
+		delete table->autoinc_mutex;
+	}
+}
+
+/** Allocate and init the autoinc latch of a given table.
+This function must not be called concurrently on the same table object.
+@param[in,out]	table_void	table whose autoinc latch to create */
+void
+dict_table_autoinc_alloc(
+	void*	table_void);
+
+/** Allocate and init the zip_pad_mutex of a given index.
+This function must not be called concurrently on the same index object.
+@param[in,out]	index_void	index whose zip_pad_mutex to create */
+void
+dict_index_zip_pad_alloc(
+	void*	index_void);
+
+/** Request for lazy creation of the autoinc latch of a given table.
+This function is only called from either single threaded environment
+or from a thread that has not shared the table object with other threads.
+@param[in,out]	table	table whose autoinc latch is to be created. */
+inline
+void
+dict_table_autoinc_create_lazy(
+	dict_table_t*	table)
+{
+#ifdef HAVE_ATOMIC_BUILTINS
+	table->autoinc_mutex = NULL;
+	table->autoinc_mutex_created = os_once::NEVER_DONE;
+#else /* HAVE_ATOMIC_BUILTINS */
+	dict_table_autoinc_alloc(table);
+	table->autoinc_mutex_created = os_once::DONE;
+#endif /* HAVE_ATOMIC_BUILTINS */
+}
+
+/** Request a lazy creation of dict_index_t::zip_pad::mutex.
+This function is only called from either single threaded environment
+or from a thread that has not shared the table object with other threads.
+@param[in,out]	index	index whose zip_pad mutex is to be created */
+inline
+void
+dict_index_zip_pad_mutex_create_lazy(
+	dict_index_t*	index)
+{
+#ifdef HAVE_ATOMIC_BUILTINS
+	index->zip_pad.mutex = NULL;
+	index->zip_pad.mutex_created = os_once::NEVER_DONE;
+#else /* HAVE_ATOMIC_BUILTINS */
+	dict_index_zip_pad_alloc(index);
+	index->zip_pad.mutex_created = os_once::DONE;
+#endif /* HAVE_ATOMIC_BUILTINS */
+}
+
+/** Destroy the zip_pad_mutex of the given index.
+This function is only called from either single threaded environment
+or from a thread that has not shared the table object with other threads.
+@param[in,out]	table	table whose stats latch to destroy */
+inline
+void
+dict_index_zip_pad_mutex_destroy(
+	dict_index_t*	index)
+{
+	if (index->zip_pad.mutex_created == os_once::DONE
+	    && index->zip_pad.mutex != NULL) {
+		os_fast_mutex_free(index->zip_pad.mutex);
+		delete index->zip_pad.mutex;
+	}
+}
+
+/** Release the zip_pad_mutex of a given index.
+@param[in,out]	index	index whose zip_pad_mutex is to be released */
+inline
+void
+dict_index_zip_pad_unlock(
+	dict_index_t*	index)
+{
+	os_fast_mutex_unlock(index->zip_pad.mutex);
+}
+
+#ifdef UNIV_DEBUG
+/** Check if the current thread owns the autoinc_mutex of a given table.
+@param[in]	table	the autoinc_mutex belongs to this table
+@return true, if the current thread owns the autoinc_mutex, false otherwise.*/
+inline
+bool
+dict_table_autoinc_own(
+	const dict_table_t*	table)
+{
+	return(mutex_own(table->autoinc_mutex));
+}
+#endif /* UNIV_DEBUG */
 
 #ifndef UNIV_NONINL
 #include "dict0mem.ic"

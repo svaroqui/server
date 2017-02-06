@@ -1,6 +1,7 @@
 /*****************************************************************************
 
-Copyright (c) 1996, 2013, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
+Copyright (c) 2016, MariaDB Corporation. All Rights Reserved.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -54,6 +55,9 @@ Created 3/26/1996 Heikki Tuuri
 /** This many pages must be undone before a truncate is tried within
 rollback */
 #define TRX_ROLL_TRUNC_THRESHOLD	1
+
+/** true if trx_rollback_or_clean_all_recovered() thread is active */
+bool			trx_rollback_or_clean_is_active;
 
 /** In crash recovery, the current trx to be rolled back; NULL otherwise */
 static const trx_t*	trx_roll_crash_recv_trx	= NULL;
@@ -131,6 +135,9 @@ trx_rollback_to_savepoint_low(
 
 	mem_heap_free(heap);
 
+	/* There might be work for utility threads.*/
+	srv_active_wake_master_thread();
+
 	MONITOR_DEC(MONITOR_TRX_ACTIVE);
 }
 
@@ -148,19 +155,9 @@ trx_rollback_to_savepoint(
 {
 	ut_ad(!trx_mutex_own(trx));
 
-	/* Tell Innobase server that there might be work for
-	utility threads: */
-
-	srv_active_wake_master_thread();
-
 	trx_start_if_not_started_xa(trx);
 
 	trx_rollback_to_savepoint_low(trx, savept);
-
-	/* Tell Innobase server that there might be work for
-	utility threads: */
-
-	srv_active_wake_master_thread();
 
 	return(trx->error_state);
 }
@@ -174,8 +171,6 @@ trx_rollback_for_mysql_low(
 /*=======================*/
 	trx_t*	trx)	/*!< in/out: transaction */
 {
-	srv_active_wake_master_thread();
-
 	trx->op_info = "rollback";
 
 	/* If we are doing the XA recovery of prepared transactions,
@@ -188,8 +183,6 @@ trx_rollback_for_mysql_low(
 	trx->op_info = "";
 
 	ut_a(trx->error_state == DB_SUCCESS);
-
-	srv_active_wake_master_thread();
 
 	return(trx->error_state);
 }
@@ -349,7 +342,7 @@ the row, these locks are naturally released in the rollback. Savepoints which
 were set after this savepoint are deleted.
 @return if no savepoint of the name found then DB_NO_SAVEPOINT,
 otherwise DB_SUCCESS */
-static __attribute__((nonnull, warn_unused_result))
+static MY_ATTRIBUTE((nonnull, warn_unused_result))
 dberr_t
 trx_rollback_to_savepoint_for_mysql_low(
 /*====================================*/
@@ -515,7 +508,8 @@ trx_release_savepoint_for_mysql(
 {
 	trx_named_savept_t*	savep;
 
-	ut_ad(trx_state_eq(trx, TRX_STATE_ACTIVE));
+	ut_ad(trx_state_eq(trx, TRX_STATE_ACTIVE, true)
+	      || trx_state_eq(trx, TRX_STATE_PREPARED, true));
 	ut_ad(trx->in_mysql_trx_list);
 
 	savep = trx_savepoint_find(trx, savepoint_name);
@@ -661,7 +655,7 @@ trx_rollback_active(
 				"in recovery",
 				table->name, trx->table_id);
 
-			err = row_drop_table_for_mysql(table->name, trx, TRUE);
+			err = row_drop_table_for_mysql(table->name, trx, TRUE, FALSE);
 			trx_commit_for_mysql(trx);
 
 			ut_a(err == DB_SUCCESS);
@@ -816,7 +810,7 @@ extern "C" UNIV_INTERN
 os_thread_ret_t
 DECLARE_THREAD(trx_rollback_or_clean_all_recovered)(
 /*================================================*/
-	void*	arg __attribute__((unused)))
+	void*	arg MY_ATTRIBUTE((unused)))
 			/*!< in: a dummy parameter required by
 			os_thread_create */
 {
@@ -827,6 +821,8 @@ DECLARE_THREAD(trx_rollback_or_clean_all_recovered)(
 #endif /* UNIV_PFS_THREAD */
 
 	trx_rollback_or_clean_recovered(TRUE);
+
+	trx_rollback_or_clean_is_active = false;
 
 	/* We count the number of threads in os_thread_exit(). A created
 	thread should always use that to exit and not use return() to exit. */

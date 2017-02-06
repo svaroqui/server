@@ -42,7 +42,7 @@ static void make_ftype(char * to,int flag);
 FILE *my_fopen(const char *filename, int flags, myf MyFlags)
 {
   FILE *fd;
-  char type[5];
+  char type[10];
   DBUG_ENTER("my_fopen");
   DBUG_PRINT("my",("Name: '%s'  flags: %d  MyFlags: %lu",
 		   filename, flags, MyFlags));
@@ -87,8 +87,7 @@ FILE *my_fopen(const char *filename, int flags, myf MyFlags)
     my_errno=errno;
   DBUG_PRINT("error",("Got error %d on open",my_errno));
   if (MyFlags & (MY_FFNF | MY_FAE | MY_WME))
-    my_error((flags & O_RDONLY) || (flags == O_RDONLY ) ? EE_FILENOTFOUND :
-	     EE_CANTCREATEFILE,
+    my_error((flags & O_RDONLY) ? EE_FILENOTFOUND : EE_CANTCREATEFILE,
 	     MYF(ME_BELL+ME_WAITTANG), filename, my_errno);
   DBUG_RETURN((FILE*) 0);
 } /* my_fopen */
@@ -102,6 +101,7 @@ static FILE *my_win_freopen(const char *path, const char *mode, FILE *stream)
   HANDLE osfh;
 
   DBUG_ASSERT(path && stream);
+  DBUG_ASSERT(strchr(mode, 'a')); /* We use FILE_APPEND_DATA below */
 
   /* Services don't have stdout/stderr on Windows, so _fileno returns -1. */
   if (fd < 0)
@@ -112,15 +112,14 @@ static FILE *my_win_freopen(const char *path, const char *mode, FILE *stream)
     fd= _fileno(stream);
   }
 
-  if ((osfh= CreateFile(path, GENERIC_READ | GENERIC_WRITE,
+  if ((osfh= CreateFile(path, GENERIC_READ | FILE_APPEND_DATA,
                         FILE_SHARE_READ | FILE_SHARE_WRITE |
                         FILE_SHARE_DELETE, NULL,
                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
                         NULL)) == INVALID_HANDLE_VALUE)
     return NULL;
 
-  if ((handle_fd= _open_osfhandle((intptr_t)osfh,
-                                  _O_APPEND | _O_TEXT)) == -1)
+  if ((handle_fd= _open_osfhandle((intptr_t)osfh, _O_TEXT)) == -1)
   {
     CloseHandle(osfh);
     return NULL;
@@ -351,9 +350,11 @@ static void make_ftype(register char * to, register int flag)
   else    
     *to++= 'r';
 
-#if FILE_BINARY            /* If we have binary-files */  
   if (flag & FILE_BINARY)    
     *to++='b';
-#endif  
+
+  if (O_CLOEXEC)
+    *to++= 'e';
+
   *to='\0';
 } /* make_ftype */

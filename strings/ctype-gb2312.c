@@ -163,18 +163,14 @@ static const uchar sort_order_gb2312[]=
 
 #define isgb2312head(c) (0xa1<=(uchar)(c) && (uchar)(c)<=0xf7)
 #define isgb2312tail(c) (0xa1<=(uchar)(c) && (uchar)(c)<=0xfe)
+#define gb2312code(c,d) (((uchar)(c) <<8) | (uchar)(d))
 
 
-static uint ismbchar_gb2312(CHARSET_INFO *cs __attribute__((unused)),
-		    const char* p, const char *e)
-{
-  return (isgb2312head(*(p)) && (e)-(p)>1 && isgb2312tail(*((p)+1))? 2: 0);
-}
-
-static uint mbcharlen_gb2312(CHARSET_INFO *cs __attribute__((unused)),uint c)
-{
-  return (isgb2312head(c)? 2 : 1);
-}
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gb2312
+#define IS_MB1_CHAR(x)        ((uchar) (x) < 0x80)
+#define IS_MB2_CHAR(x,y)      (isgb2312head(x) && isgb2312tail(y))
+#define DEFINE_ASIAN_ROUTINES
+#include "ctype-mb.ic"
 
 
 static MY_UNICASE_CHARACTER cA2[256]=
@@ -6324,7 +6320,10 @@ my_mb_wc_gb2312(CHARSET_INFO *cs  __attribute__((unused)),
   
   if (s+2>e)
     return MY_CS_TOOSMALL2;
-  
+
+  if (!IS_MB2_CHAR(hi, s[1]))  
+    return MY_CS_ILSEQ;
+
   if (!(pwc[0]=func_gb2312_uni_onechar(((hi<<8)+s[1])&0x7F7F)))
     return -2;
   
@@ -6332,46 +6331,37 @@ my_mb_wc_gb2312(CHARSET_INFO *cs  __attribute__((unused)),
 }
 
 
-/*
-  Returns well formed length of a EUC-KR string.
-*/
-static size_t
-my_well_formed_len_gb2312(CHARSET_INFO *cs __attribute__((unused)),
-                          const char *b, const char *e,
-                          size_t pos, int *error)
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gb2312_chinese_ci
+#define WEIGHT_MB1(x)        (sort_order_gb2312[(uchar) (x)])
+#define WEIGHT_MB2(x,y)      (gb2312code(x, y))
+#include "strcoll.ic"
+
+
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gb2312_bin
+#define WEIGHT_MB1(x)        ((uchar) (x))
+#define WEIGHT_MB2(x,y)      (gb2312code(x, y))
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gb2312_chinese_nopad_ci
+#define WEIGHT_MB1(x)        (sort_order_gb2312[(uchar) (x)])
+#define WEIGHT_MB2(x,y)      (gb2312code(x, y))
+#include "strcoll.ic"
+
+
+#define DEFINE_STRNNCOLLSP_NOPAD
+#define MY_FUNCTION_NAME(x)   my_ ## x ## _gb2312_nopad_bin
+#define WEIGHT_MB1(x)        ((uchar) (x))
+#define WEIGHT_MB2(x,y)      (gb2312code(x, y))
+#include "strcoll.ic"
+
+
+static MY_COLLATION_HANDLER my_collation_handler_gb2312_chinese_ci=
 {
-  const char *b0= b;
-  const char *emb= e - 1; /* Last possible end of an MB character */
-
-  *error= 0;
-  while (pos-- && b < e)
-  {
-    if ((uchar) b[0] < 128)
-    {
-      /* Single byte ascii character */
-      b++;
-    }
-    else  if (b < emb && isgb2312head(*b) && isgb2312tail(b[1]))
-    {
-      /* Double byte character */
-      b+= 2;
-    }
-    else
-    {
-      /* Wrong byte sequence */
-      *error= 1;
-      break;
-    }
-  }
-  return (size_t) (b - b0);
-}
-
-
-static MY_COLLATION_HANDLER my_collation_ci_handler =
-{
-  NULL,			/* init */
-  my_strnncoll_simple,  /* strnncoll  */
-  my_strnncollsp_simple,
+  NULL,                 /* init */
+  my_strnncoll_gb2312_chinese_ci,
+  my_strnncollsp_gb2312_chinese_ci,
   my_strnxfrm_mb,       /* strnxfrm   */
   my_strnxfrmlen_simple,
   my_like_range_mb,     /* like_range */
@@ -6382,14 +6372,60 @@ static MY_COLLATION_HANDLER my_collation_ci_handler =
   my_propagate_simple
 };
 
+
+static MY_COLLATION_HANDLER my_collation_handler_gb2312_bin=
+{
+  NULL,	                /* init */
+  my_strnncoll_gb2312_bin,
+  my_strnncollsp_gb2312_bin,
+  my_strnxfrm_mb,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb_bin,
+  my_strcasecmp_mb_bin,
+  my_instr_mb,
+  my_hash_sort_mb_bin,
+  my_propagate_simple
+};
+
+
+static MY_COLLATION_HANDLER my_collation_handler_gb2312_chinese_nopad_ci=
+{
+  NULL,                 /* init */
+  my_strnncoll_gb2312_chinese_ci,
+  my_strnncollsp_gb2312_chinese_nopad_ci,
+  my_strnxfrm_mb_nopad,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb,
+  my_strcasecmp_mb,
+  my_instr_mb,
+  my_hash_sort_simple_nopad,
+  my_propagate_simple
+};
+
+
+static MY_COLLATION_HANDLER my_collation_handler_gb2312_nopad_bin=
+{
+  NULL,	                /* init */
+  my_strnncoll_gb2312_bin,
+  my_strnncollsp_gb2312_nopad_bin,
+  my_strnxfrm_mb_nopad,
+  my_strnxfrmlen_simple,
+  my_like_range_mb,
+  my_wildcmp_mb_bin,
+  my_strcasecmp_mb_bin,
+  my_instr_mb,
+  my_hash_sort_mb_nopad_bin,
+  my_propagate_simple
+};
+
+
 static MY_CHARSET_HANDLER my_charset_handler=
 {
   NULL,			/* init */
-  ismbchar_gb2312,
-  mbcharlen_gb2312,
   my_numchars_mb,
   my_charpos_mb,
-  my_well_formed_len_gb2312,
   my_lengthsp_8bit,
   my_numcells_8bit,
   my_mb_wc_gb2312,	/* mb_wc      */
@@ -6410,7 +6446,11 @@ static MY_CHARSET_HANDLER my_charset_handler=
   my_strntod_8bit,
   my_strtoll10_8bit,
   my_strntoull10rnd_8bit,
-  my_scan_8bit
+  my_scan_8bit,
+  my_charlen_gb2312,
+  my_well_formed_char_length_gb2312,
+  my_copy_fix_mb,
+  my_native_to_mb_gb2312,
 };
 
 
@@ -6443,8 +6483,9 @@ struct charset_info_st my_charset_gb2312_chinese_ci=
     0,                  /* escape_with_backslash_is_dangerous */
     1,                  /* levels_for_order   */
     &my_charset_handler,
-    &my_collation_ci_handler
+    &my_collation_handler_gb2312_chinese_ci
 };
+
 
 struct charset_info_st my_charset_gb2312_bin=
 {
@@ -6475,7 +6516,73 @@ struct charset_info_st my_charset_gb2312_bin=
     0,                  /* escape_with_backslash_is_dangerous */
     1,                  /* levels_for_order   */
     &my_charset_handler,
-    &my_collation_mb_bin_handler
+    &my_collation_handler_gb2312_bin
+};
+
+
+struct charset_info_st my_charset_gb2312_chinese_nopad_ci=
+{
+    MY_NOPAD_ID(24),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_NOPAD, /* state    */
+    "gb2312",           /* cs name          */
+    "gb2312_chinese_nopad_ci",/* name       */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_gb2312,
+    to_lower_gb2312,
+    to_upper_gb2312,
+    sort_order_gb2312,
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_gb2312,/* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    1,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    2,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xF7FE,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    0,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_gb2312_chinese_nopad_ci
+};
+
+
+struct charset_info_st my_charset_gb2312_nopad_bin=
+{
+    MY_NOPAD_ID(86),0,0,/* number           */
+    MY_CS_COMPILED|MY_CS_BINSORT|MY_CS_NOPAD, /* state */
+    "gb2312",           /* cs name          */
+    "gb2312_nopad_bin", /* name             */
+    "",                 /* comment          */
+    NULL,               /* tailoring        */
+    ctype_gb2312,
+    to_lower_gb2312,
+    to_upper_gb2312,
+    NULL,               /* sort_order       */
+    NULL,               /* uca              */
+    NULL,               /* tab_to_uni       */
+    NULL,               /* tab_from_uni     */
+    &my_caseinfo_gb2312,/* caseinfo         */
+    NULL,               /* state_map        */
+    NULL,               /* ident_map        */
+    1,                  /* strxfrm_multiply */
+    1,                  /* caseup_multiply  */
+    1,                  /* casedn_multiply  */
+    1,                  /* mbminlen         */
+    2,                  /* mbmaxlen         */
+    0,                  /* min_sort_char    */
+    0xF7FE,             /* max_sort_char    */
+    ' ',                /* pad char         */
+    0,                  /* escape_with_backslash_is_dangerous */
+    1,                  /* levels_for_order */
+    &my_charset_handler,
+    &my_collation_handler_gb2312_nopad_bin
 };
 
 #endif

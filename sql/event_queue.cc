@@ -13,6 +13,7 @@
    along with this program; if not, write to the Free Software Foundation,
    51 Franklin Street, Suite 500, Boston, MA 02110-1335 USA */
 
+#include <my_global.h>
 #include "sql_priv.h"
 #include "unireg.h"
 #include "event_queue.h"
@@ -190,7 +191,7 @@ Event_queue::deinit_queue()
   @param[out] created  set to TRUE if no error and the element is
                        added to the queue, FALSE otherwise
 
-  @retval TRUE  an error occured. The value of created is undefined,
+  @retval TRUE  an error occurred. The value of created is undefined,
                 the element was not deleted.
   @retval FALSE success
 */

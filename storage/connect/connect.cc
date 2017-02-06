@@ -1,4 +1,4 @@
-/* Copyright (C) Olivier Bertrand 2004 - 2012
+/* Copyright (C) Olivier Bertrand 2004 - 2015
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
 
 /***********************************************************************/
-/*  Author Olivier BERTRAND  bertrandop@gmail.com         2004-2012    */
+/*  Author Olivier BERTRAND  bertrandop@gmail.com         2004-2015    */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -42,22 +42,16 @@
 #include "tabcol.h"
 #include "catalog.h"
 #include "ha_connect.h"
-#include "mycat.h"
 
 #define my_strupr(p) my_caseup_str(default_charset_info, (p));
 #define my_strlwr(p) my_casedn_str(default_charset_info, (p));
 #define my_stricmp(a, b) my_strcasecmp(default_charset_info, (a), (b))
 
 /***********************************************************************/
-/*  DB static variables.                                               */
-/***********************************************************************/
-extern "C" int trace;
-
-/***********************************************************************/
 /*  Routines called internally by semantic routines.                   */
 /***********************************************************************/
 void  CntEndDB(PGLOBAL);
-RCODE EvalColumns(PGLOBAL g, PTDB tdbp, bool mrr= false);
+RCODE EvalColumns(PGLOBAL g, PTDB tdbp, bool reset, bool mrr= false);
 
 /***********************************************************************/
 /*  MySQL routines called externally by semantic routines.             */
@@ -243,7 +237,7 @@ PTDB CntGetTDB(PGLOBAL g, LPCSTR name, MODE mode, PHC h)
 /*  OPENTAB: Open a Table.                                             */
 /***********************************************************************/
 bool CntOpenTable(PGLOBAL g, PTDB tdbp, MODE mode, char *c1, char *c2,
-                                        bool del, PHC h)
+                                        bool del, PHC)
   {
   char   *p;
   int     i, n, rc;
@@ -281,16 +275,13 @@ bool CntOpenTable(PGLOBAL g, PTDB tdbp, MODE mode, char *c1, char *c2,
     if (trace)
       printf("Allocating column %s\n", p);
 
-//    if (*p == '*') {
-//      // This is a special column
-//      cp= new(g) COLUMN(p + 1);
-//      cp->SetTo_Table(tdbp->GetTable());
-//      colp= ((PTDBASE)tdbp)->InsertSpcBlk(g, cp);
-//    } else
-      colp= tdbp->ColDB(g, p, 0);
+    g->Message[0] = 0;    // To check whether ColDB made an error message
+    colp= tdbp->ColDB(g, p, 0);
 
-    if (!colp) {
-      sprintf(g->Message, "Column %s not found in %s", p, tdbp->GetName());
+    if (!colp && !(mode == MODE_INSERT && tdbp->IsSpecial(p))) {
+      if (g->Message[0] == 0)
+        sprintf(g->Message, MSG(COL_ISNOT_TABLE), p, tdbp->GetName());
+
       goto err;
       } // endif colp
 
@@ -396,7 +387,7 @@ bool CntRewindTable(PGLOBAL g, PTDB tdbp)
 /***********************************************************************/
 /*  Evaluate all columns after a record is read.                       */
 /***********************************************************************/
-RCODE EvalColumns(PGLOBAL g, PTDB tdbp, bool mrr)
+RCODE EvalColumns(PGLOBAL g, PTDB tdbp, bool reset, bool mrr)
   {
   RCODE rc= RC_OK;
   PCOL  colp;
@@ -421,14 +412,15 @@ RCODE EvalColumns(PGLOBAL g, PTDB tdbp, bool mrr)
 
   for (colp= tdbp->GetColumns(); rc == RC_OK && colp;
        colp= colp->GetNext()) {
+    if (reset)
       colp->Reset();
 
-      // Virtual columns are computed by MariaDB
-      if (!colp->GetColUse(U_VIRTUAL) && (!mrr || colp->GetKcol()))
-        if (colp->Eval(g))
-          rc= RC_FX;
+    // Virtual columns are computed by MariaDB
+    if (!colp->GetColUse(U_VIRTUAL) && (!mrr || colp->GetKcol()))
+      if (colp->Eval(g))
+        rc= RC_FX;
 
-      } // endfor colp
+    } // endfor colp
 
  err:
   g->jump_level--;
@@ -465,6 +457,10 @@ RCODE CntReadNext(PGLOBAL g, PTDB tdbp)
     goto err;
     } // endif rc
 
+  // Do it now to avoid double eval when filtering
+  for (PCOL colp= tdbp->GetColumns(); colp; colp= colp->GetNext())
+    colp->Reset();
+
   do {
     if ((rc= (RCODE)tdbp->ReadDB(g)) == RC_OK)
       if (!ApplyFilter(g, tdbp->GetFilter()))
@@ -472,9 +468,12 @@ RCODE CntReadNext(PGLOBAL g, PTDB tdbp)
 
     } while (rc == RC_NF);
 
+  if (rc == RC_OK)
+    rc= EvalColumns(g, tdbp, false);
+
  err:
   g->jump_level--;
-  return (rc != RC_OK) ? rc : EvalColumns(g, tdbp);
+  return rc;
   } // end of CntReadNext
 
 /***********************************************************************/
@@ -659,8 +658,10 @@ int CntIndexInit(PGLOBAL g, PTDB ptdb, int id, bool sorted)
   if (!ptdb)
     return -1;
   else if (!((PTDBASE)ptdb)->GetDef()->Indexable()) {
-    sprintf(g->Message, "CntIndexInit: Table %s is not indexable", ptdb->GetName());
+    sprintf(g->Message, MSG(TABLE_NO_INDEX), ptdb->GetName());
     return 0;
+  } else if (((PTDBASE)ptdb)->GetDef()->Indexable() == 3) {
+    return 1;
   } else
     tdbp= (PTDBDOX)ptdb;
 
@@ -708,21 +709,38 @@ int CntIndexInit(PGLOBAL g, PTDB ptdb, int id, bool sorted)
   return (tdbp->To_Kindex->IsMul()) ? 2 : 1;
   } // end of CntIndexInit
 
+#if defined(WORDS_BIGENDIAN)
+/***********************************************************************/
+/*  Swap bytes of the key that are written in little endian order.     */
+/***********************************************************************/
+static void SetSwapValue(PVAL valp, char *kp)
+{
+  if (valp->IsTypeNum() && valp->GetType() != TYPE_DECIM) {
+    uchar buf[8];
+    int   i, k= valp->GetClen();
+
+    for (i = 0; k > 0;)
+      buf[i++]= kp[--k];
+
+
+
+    valp->SetBinValue((void*)buf);
+  } else
+    valp->SetBinValue((void*)kp);
+
+} // end of SetSwapValue
+#endif   // WORDS_BIGENDIAN
+
 /***********************************************************************/
 /*  IndexRead: fetch a record having the index value.                  */
 /***********************************************************************/
 RCODE CntIndexRead(PGLOBAL g, PTDB ptdb, OPVAL op,
-                   const void *key, int len, bool mrr)
+                   const key_range *kr, bool mrr)
   {
-  char   *kp= (char*)key;
   int     n, x;
-  short   lg;
-  bool    rcb;
   RCODE   rc;
-  PVAL    valp;
-  PCOL    colp;
   XXBASE *xbp;
-  PTDBDOX tdbp;
+	PTDBDOX tdbp;
 
   if (!ptdb)
     return RC_FX;
@@ -730,12 +748,20 @@ RCODE CntIndexRead(PGLOBAL g, PTDB ptdb, OPVAL op,
     x= ((PTDBASE)ptdb)->GetDef()->Indexable();
 
   if (!x) {
-    sprintf(g->Message, "CntIndexRead: Table %s is not indexable", ptdb->GetName());
+    sprintf(g->Message, MSG(TABLE_NO_INDEX), ptdb->GetName());
     return RC_FX;
   } else if (x == 2) {
     // Remote index
-    if (ptdb->ReadKey(g, op, key, len))
+    if (op != OP_SAME && ptdb->ReadKey(g, op, kr))
       return RC_FX;
+
+    goto rnd;
+  } else if (x == 3) {
+    if (kr)
+      ((PTDBASE)ptdb)->SetRecpos(g, *(int*)kr->key);
+
+    if (op == OP_SAME)
+      return RC_NF;
 
     goto rnd;
   } else
@@ -759,7 +785,14 @@ RCODE CntIndexRead(PGLOBAL g, PTDB ptdb, OPVAL op,
 
   xbp= (XXBASE*)tdbp->To_Kindex;
 
-  if (key) {
+  if (kr) {
+		char   *kp= (char*)kr->key;
+		int     len= kr->length;
+		short   lg;
+		bool    rcb;
+		PVAL    valp;
+		PCOL    colp;
+
     for (n= 0; n < tdbp->Knum; n++) {
       colp= (PCOL)tdbp->To_Key_Col[n];
 
@@ -770,7 +803,12 @@ RCODE CntIndexRead(PGLOBAL g, PTDB ptdb, OPVAL op,
 
       if (!valp->IsTypeNum()) {
         if (colp->GetColUse(U_VAR)) {
+#if defined(WORDS_BIGENDIAN)
+          ((char*)&lg)[0]= ((char*)kp)[1];
+          ((char*)&lg)[1]= ((char*)kp)[0];
+#else   // !WORDS_BIGENDIAN
           lg= *(short*)kp;
+#endif   //!WORDS_BIGENDIAN
           kp+= sizeof(short);
           rcb= valp->SetValue_char(kp, (int)lg);
         } else
@@ -788,14 +826,18 @@ RCODE CntIndexRead(PGLOBAL g, PTDB ptdb, OPVAL op,
           } // endif b
 
       } else
+#if defined(WORDS_BIGENDIAN)
+        SetSwapValue(valp, kp);
+#else   // !WORDS_BIGENDIAN
         valp->SetBinValue((void*)kp);
+#endif   //!WORDS_BIGENDIAN
 
       kp+= valp->GetClen();
 
-      if (len == kp - (char*)key) {
+      if (len == kp - (char*)kr->key) {
         n++;
         break;
-      } else if (len < kp - (char*)key) {
+      } else if (len < kp - (char*)kr->key) {
         strcpy(g->Message, "Key buffer is too small");
         return RC_FX;
       } // endif len
@@ -810,7 +852,7 @@ RCODE CntIndexRead(PGLOBAL g, PTDB ptdb, OPVAL op,
 
  rnd:
   if ((rc= (RCODE)ptdb->ReadDB(g)) == RC_OK)
-    rc= EvalColumns(g, ptdb, mrr);
+    rc= EvalColumns(g, ptdb, true, mrr);
 
   return rc;
   } // end of CntIndexRead
@@ -836,12 +878,21 @@ int CntIndexRange(PGLOBAL g, PTDB ptdb, const uchar* *key, uint *len,
   x= ((PTDBASE)ptdb)->GetDef()->Indexable();
 
   if (!x) {
-    sprintf(g->Message, "CntIndexRange: Table %s is not indexable", ptdb->GetName());
+    sprintf(g->Message, MSG(TABLE_NO_INDEX), ptdb->GetName());
     DBUG_PRINT("Range", ("%s", g->Message));
     return -1;
   } else if (x == 2) {
     // Remote index
     return 2;
+  } else if (x == 3) {
+    // Virtual index
+    for (i= 0; i < 2; i++)
+      if (key[i])
+        k[i] = *(int*)key[i] + (incl[i] ? 0 : 1 - 2 * i);
+      else
+        k[i] = (i) ? ptdb->Cardinality(g) : 1;
+
+    return k[1] - k[0] + 1;
   } else
     tdbp= (PTDBDOX)ptdb;
 
@@ -875,7 +926,12 @@ int CntIndexRange(PGLOBAL g, PTDB ptdb, const uchar* *key, uint *len,
 
           if (!valp->IsTypeNum()) {
             if (colp->GetColUse(U_VAR)) {
+#if defined(WORDS_BIGENDIAN)
+              ((char*)&lg)[0]= ((char*)p)[1];
+              ((char*)&lg)[1]= ((char*)p)[0];
+#else   // !WORDS_BIGENDIAN
               lg= *(short*)p;
+#endif   //!WORDS_BIGENDIAN
               p+= sizeof(short);
               rcb= valp->SetValue_char((char*)p, (int)lg);
             } else
@@ -894,7 +950,11 @@ int CntIndexRange(PGLOBAL g, PTDB ptdb, const uchar* *key, uint *len,
             } // endif b
 
           } else
+#if defined(WORDS_BIGENDIAN)
+            SetSwapValue(valp, (char*)p);
+#else   // !WORDS_BIGENDIAN
             valp->SetBinValue((void*)p);
+#endif  // !WORDS_BIGENDIAN
 
           if (trace) {
             char bf[32];

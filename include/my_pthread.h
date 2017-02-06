@@ -1,5 +1,5 @@
-/* Copyright (c) 2000, 2013, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2013, Monty Program Ab.
+/* Copyright (c) 2000, 2014, Oracle and/or its affiliates.
+   Copyright (c) 2009, 2014, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -54,26 +54,7 @@ typedef struct st_pthread_link {
   We use native conditions on Vista and later, and fallback to own 
   implementation on earlier OS version.
 */
-typedef union
-{
-  /* Native condition (used on Vista and later) */
-  CONDITION_VARIABLE native_cond;
-
-  /* Own implementation (used on XP) */
-  struct
-  { 
-    uint32 waiting;
-    CRITICAL_SECTION lock_waiting;
-    enum 
-    {
-      SIGNAL= 0,
-      BROADCAST= 1,
-      MAX_EVENTS= 2
-    } EVENTS;
-    HANDLE events[MAX_EVENTS];
-    HANDLE broadcast_block_event;
-  };
-} pthread_cond_t;
+typedef  CONDITION_VARIABLE pthread_cond_t;
 
 
 typedef int pthread_mutexattr_t;
@@ -81,15 +62,15 @@ typedef int pthread_mutexattr_t;
 #define pthread_handler_t EXTERNC void * __cdecl
 typedef void * (__cdecl *pthread_handler)(void *);
 
-typedef volatile LONG my_pthread_once_t;
-#define MY_PTHREAD_ONCE_INIT  0
-#define MY_PTHREAD_ONCE_INPROGRESS 1
-#define MY_PTHREAD_ONCE_DONE 2
+typedef INIT_ONCE my_pthread_once_t;
+#define MY_PTHREAD_ONCE_INIT INIT_ONCE_STATIC_INIT;
 
+#if !STRUCT_TIMESPEC_HAS_TV_SEC  || !STRUCT_TIMESPEC_HAS_TV_NSEC
 struct timespec {
   time_t tv_sec;
   long tv_nsec;
 };
+#endif
 
 int win_pthread_mutex_trylock(pthread_mutex_t *mutex);
 int pthread_create(pthread_t *, const pthread_attr_t *, pthread_handler, void *);
@@ -104,8 +85,18 @@ int pthread_attr_init(pthread_attr_t *connect_att);
 int pthread_attr_setstacksize(pthread_attr_t *connect_att,DWORD stack);
 int pthread_attr_destroy(pthread_attr_t *connect_att);
 int my_pthread_once(my_pthread_once_t *once_control,void (*init_routine)(void));
-struct tm *localtime_r(const time_t *timep,struct tm *tmp);
-struct tm *gmtime_r(const time_t *timep,struct tm *tmp);
+
+static inline struct tm *localtime_r(const time_t *timep, struct tm *tmp)
+{
+  localtime_s(tmp, timep);
+  return tmp;
+}
+
+static inline struct tm *gmtime_r(const time_t *clock, struct tm *res)
+{
+  gmtime_s(res, clock);
+  return res;
+}
 
 void pthread_exit(void *a);
 int pthread_join(pthread_t thread, void **value_ptr);
@@ -172,7 +163,7 @@ int pthread_cancel(pthread_t thread);
 #define pthread_key(T,V) pthread_key_t V
 #define my_pthread_getspecific_ptr(T,V) my_pthread_getspecific(T,(V))
 #define my_pthread_setspecific_ptr(T,V) pthread_setspecific(T,(void*) (V))
-#define pthread_detach_this_thread()
+#define pthread_detach_this_thread() { pthread_t tmp=pthread_self() ; pthread_detach(tmp); }
 #define pthread_handler_t EXTERNC void *
 typedef void *(* pthread_handler)(void *);
 
@@ -275,7 +266,7 @@ struct tm *gmtime_r(const time_t *clock, struct tm *res);
 #undef	pthread_detach_this_thread
 #define pthread_detach_this_thread() { pthread_t tmp=pthread_self() ; pthread_detach(&tmp); }
 #else /* HAVE_PTHREAD_ATTR_CREATE && !HAVE_SIGWAIT */
-#define HAVE_PTHREAD_KILL
+#define HAVE_PTHREAD_KILL 1
 #endif
 
 #endif /* defined(__WIN__) */
@@ -433,29 +424,9 @@ void safe_mutex_free_deadlock_data(safe_mutex_t *mp);
 #define safe_mutex_assert_not_owner(mp) do {} while (0)
 #define safe_mutex_setflags(mp, F) do {} while (0)
 
-#if defined(MY_PTHREAD_FASTMUTEX)
-#define my_cond_timedwait(A,B,C) pthread_cond_timedwait((A), &(B)->mutex, (C))
-#define my_cond_wait(A,B) pthread_cond_wait((A), &(B)->mutex)
-#else
 #define my_cond_timedwait(A,B,C) pthread_cond_timedwait((A),(B),(C))
 #define my_cond_wait(A,B) pthread_cond_wait((A), (B))
-#endif /* MY_PTHREAD_FASTMUTEX */
 #endif /* !SAFE_MUTEX */
-
-#if defined(MY_PTHREAD_FASTMUTEX) && !defined(SAFE_MUTEX)
-typedef struct st_my_pthread_fastmutex_t
-{
-  pthread_mutex_t mutex;
-  uint spins;
-  uint rng_state;
-} my_pthread_fastmutex_t;
-void fastmutex_global_init(void);
-
-int my_pthread_fastmutex_init(my_pthread_fastmutex_t *mp, 
-                              const pthread_mutexattr_t *attr);
-int my_pthread_fastmutex_lock(my_pthread_fastmutex_t *mp);
-
-#endif /* defined(MY_PTHREAD_FASTMUTEX) && !defined(SAFE_MUTEX) */
 
 	/* READ-WRITE thread locking */
 
@@ -680,7 +651,7 @@ extern pthread_mutexattr_t my_errorcheck_mutexattr;
 #define ESRCH 1
 #endif
 
-typedef ulong my_thread_id;
+typedef int64 my_thread_id;
 
 extern void my_threadattr_global_init(void);
 extern my_bool my_thread_global_init(void);
@@ -691,8 +662,8 @@ extern void my_thread_end(void);
 extern const char *my_thread_name(void);
 extern my_thread_id my_thread_dbug_id(void);
 extern int pthread_dummy(int);
-extern void my_mutex_init();
-extern void my_mutex_end();
+extern void my_mutex_init(void);
+extern void my_mutex_end(void);
 
 /* All thread specific variables are in the following struct */
 
@@ -702,7 +673,7 @@ extern void my_mutex_end();
   We need to have at least 256K stack to handle calls to myisamchk_init()
   with the current number of keys and key parts.
 */
-#define DEFAULT_THREAD_STACK	(288*1024L)
+#define DEFAULT_THREAD_STACK	(291*1024L)
 #endif
 
 #define MY_PTHREAD_LOCK_READ 0
@@ -720,12 +691,11 @@ struct st_my_thread_var
   mysql_mutex_t * volatile current_mutex;
   mysql_cond_t * volatile current_cond;
   pthread_t pthread_self;
-  my_thread_id id;
-  int cmp_length;
+  my_thread_id id, dbug_id;
   int volatile abort;
   my_bool init;
   struct st_my_thread_var *next,**prev;
-  void *opt_info;
+  void *keycache_link;
   uint  lock_type; /* used by conditional release the queue */
   void  *stack_ends_here;
   safe_mutex_t *mutex_in_use;
@@ -736,8 +706,8 @@ struct st_my_thread_var
 };
 
 extern struct st_my_thread_var *_my_thread_var(void) __attribute__ ((const));
-extern void **my_thread_var_dbug();
-extern safe_mutex_t **my_thread_var_mutex_in_use();
+extern void **my_thread_var_dbug(void);
+extern safe_mutex_t **my_thread_var_mutex_in_use(void);
 extern uint my_thread_end_wait_time;
 extern my_bool safe_mutex_deadlock_detector;
 #define my_thread_var (_my_thread_var())

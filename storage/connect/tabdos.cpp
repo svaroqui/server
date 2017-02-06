@@ -5,7 +5,7 @@
 /*                                                                     */
 /* COPYRIGHT:                                                          */
 /* ----------                                                          */
-/*  (C) Copyright to the author Olivier BERTRAND          1998-2014    */
+/*  (C) Copyright to the author Olivier BERTRAND          1998-2015    */
 /*                                                                     */
 /* WHAT THIS PROGRAM DOES:                                             */
 /* -----------------------                                             */
@@ -17,7 +17,7 @@
 /*  Include relevant sections of the System header files.              */
 /***********************************************************************/
 #include "my_global.h"
-#if defined(WIN32)
+#if defined(__WIN__)
 #include <io.h>
 #include <sys\timeb.h>                   // For testing only
 #include <fcntl.h>
@@ -26,7 +26,7 @@
 #define __MFC_COMPAT__                   // To define min/max as macro
 #endif   // __BORLANDC__
 //#include <windows.h>
-#else   // !WIN32
+#else   // !__WIN__
 #if defined(UNIX)
 #include <errno.h>
 #include <unistd.h>
@@ -34,7 +34,7 @@
 #include <io.h>
 #endif  // !UNIX
 #include <fcntl.h>
-#endif  // !WIN32
+#endif  // !__WIN__
 
 /***********************************************************************/
 /*  Include application header files:                                  */
@@ -65,14 +65,16 @@
 /***********************************************************************/
 int num_read, num_there, num_eq[2];                 // Statistics
 
-extern "C" int     trace;
-extern "C" USETEMP Use_Temp;
-extern     bool    xinfo;
-
 /***********************************************************************/
 /*  Size of optimize file header.                                      */
 /***********************************************************************/
 #define NZ         4
+
+/***********************************************************************/
+/*  External function.                                                 */
+/***********************************************************************/
+bool    ExactInfo(void);
+USETEMP UseTemp(void);
 
 /***********************************************************************/
 /*  Min and Max blocks contains zero ended fields (blank = false).     */
@@ -110,12 +112,13 @@ DOSDEF::DOSDEF(void)
   Maxerr = 0;
   ReadMode = 0;
   Ending = 0;
+  Teds = 0;
   } // end of DOSDEF constructor
 
 /***********************************************************************/
 /*  DefineAM: define specific AM block values from XDB file.           */
 /***********************************************************************/
-bool DOSDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
+bool DOSDEF::DefineAM(PGLOBAL g, LPCSTR am, int)
   {
   char   buf[8];
   bool   map = (am && (*am == 'M' || *am == 'm'));
@@ -144,9 +147,10 @@ bool DOSDEF::DefineAM(PGLOBAL g, LPCSTR am, int poff)
     Padded = GetBoolCatInfo("Padded", false);
     Blksize = GetIntCatInfo("Blksize", 0);
     Eof = (GetIntCatInfo("EOF", 0) != 0);
+    Teds = toupper(*GetStringCatInfo(g, "Endian", ""));
   } else if (Recfm == RECFM_DBF) {
     Maxerr = GetIntCatInfo("Maxerr", 0);
-    Accept = (GetIntCatInfo("Accept", 0) != 0);
+    Accept = GetBoolCatInfo("Accept", false);
     ReadMode = GetIntCatInfo("Readmode", 0);
   } else // (Recfm == RECFM_VAR)
     AvgLen = GetIntCatInfo("Avglen", 0);
@@ -180,7 +184,7 @@ bool DOSDEF::GetOptFileName(PGLOBAL g, char *filename)
   } // end of GetOptFileName
 
 /***********************************************************************/
-/*  After an optimize error occured, remove all set optimize values.   */
+/*  After an optimize error occurred, remove all set optimize values.   */
 /***********************************************************************/
 void DOSDEF::RemoveOptValues(PGLOBAL g)
   {
@@ -204,11 +208,11 @@ void DOSDEF::RemoveOptValues(PGLOBAL g)
 
   // Delete any eventually ill formed non matching optimization file
   if (!GetOptFileName(g, filename))
-#if defined(WIN32)
+#if defined(__WIN__)
     DeleteFile(filename);
 #else    // UNIX
     remove(filename);
-#endif   // WIN32
+#endif   // __WIN__
 
   Optimized = 0;
   } // end of RemoveOptValues
@@ -249,7 +253,7 @@ bool DOSDEF::DeleteIndexFile(PGLOBAL g, PIXDEF pxdf)
   /*********************************************************************/
   if (sep) {
     // Indexes are save in separate files
-#if !defined(UNIX)
+#if defined(__WIN__)
     char drive[_MAX_DRIVE];
 #else
     char *drive = NULL;
@@ -266,7 +270,7 @@ bool DOSDEF::DeleteIndexFile(PGLOBAL g, PIXDEF pxdf)
       strcat(strcat(fname, "_"), pxdf->GetName());
       _makepath(filename, drive, direc, fname, ftype);
       PlugSetPath(filename, filename, GetPath());
-#if defined(WIN32)
+#if defined(__WIN__)
       if (!DeleteFile(filename))
         rc |= (GetLastError() != ERROR_FILE_NOT_FOUND);
 #else    // UNIX
@@ -283,7 +287,7 @@ bool DOSDEF::DeleteIndexFile(PGLOBAL g, PIXDEF pxdf)
     // Drop all indexes, delete the common file
     PlugSetPath(filename, Ofn, GetPath());
     strcat(PlugRemoveType(filename, filename), ftype);
-#if defined(WIN32)
+#if defined(__WIN__)
     if (!DeleteFile(filename))
       rc = (GetLastError() != ERROR_FILE_NOT_FOUND);
 #else    // UNIX
@@ -301,7 +305,7 @@ bool DOSDEF::DeleteIndexFile(PGLOBAL g, PIXDEF pxdf)
 /***********************************************************************/
 /*  InvalidateIndex: mark all indexes as invalid.                      */
 /***********************************************************************/
-bool DOSDEF::InvalidateIndex(PGLOBAL g)
+bool DOSDEF::InvalidateIndex(PGLOBAL)
   {
   if (To_Indx)
     for (PIXDEF xp = To_Indx; xp; xp = xp->Next)
@@ -316,13 +320,13 @@ bool DOSDEF::InvalidateIndex(PGLOBAL g)
 PTDB DOSDEF::GetTable(PGLOBAL g, MODE mode)
   {
   // Mapping not used for insert
-  USETEMP tmp = Use_Temp;
+  USETEMP tmp = UseTemp();
   bool    map = Mapped && mode != MODE_INSERT &&
                 !(tmp != TMP_NO && Recfm == RECFM_VAR
                                 && mode == MODE_UPDATE) &&
                 !(tmp == TMP_FORCE &&
                 (mode == MODE_UPDATE || mode == MODE_DELETE));
-  PTXF    txfp;
+  PTXF    txfp = NULL;
   PTDBASE tdbp;
 
   /*********************************************************************/
@@ -575,7 +579,6 @@ int TDBDOS::MakeBlockValues(PGLOBAL g)
   {
   int        i, lg, nrec, rc, n = 0;
   int        curnum, curblk, block, savndv, savnbm;
-  int        last __attribute__((unused));
   void      *savmin, *savmax;
   bool       blocked, xdb2 = false;
 //POOLHEADER save;
@@ -612,7 +615,7 @@ int TDBDOS::MakeBlockValues(PGLOBAL g)
   // to Rows+1 by unblocked variable length table access methods.
   curblk = -1;
   curnum = nrec - 1;
-  last = 0;
+//last = 0;
   Txfp->Block = block;                  // This is useful mainly for
   Txfp->CurBlk = curblk;                // blocked tables (ZLBFAM), for
   Txfp->CurNum = curnum;                // others it is just to be clean.
@@ -743,7 +746,7 @@ int TDBDOS::MakeBlockValues(PGLOBAL g)
         Txfp->BlkPos[curblk] = Txfp->GetPos();
         } // endif CurNum
 
-      last = curnum + 1;              // curnum is zero based
+//    last = curnum + 1;              // curnum is zero based
       Txfp->CurBlk = curblk;          // Used in COLDOS::SetMinMax
       Txfp->CurNum = curnum;          // Used in COLDOS::SetMinMax
     } // endif blocked
@@ -953,7 +956,7 @@ bool TDBDOS::GetBlockValues(PGLOBAL g)
 #if 0
   if (Mode == MODE_INSERT && Txfp->GetAmType() == TYPE_AM_DOS)
     return false;
-#endif   // WIN32
+#endif   // __WIN__
 
   if (defp->Optimized)
     return false;                   // Already done or to be redone
@@ -1353,7 +1356,6 @@ PBF TDBDOS::CheckBlockFilari(PGLOBAL g, PXOB *arg, int op, bool *cnv)
 //bool    conv = false, xdb2 = false, ok = false, b[2];
 //PXOB   *xarg1, *xarg2 = NULL, xp[2];
   int     i, n = 0, type[2] = {0,0};
-  int     ctype __attribute__((unused));
   bool    conv = false, xdb2 = false, ok = false;
   PXOB   *xarg2 = NULL, xp[2];
   PCOL    colp;
@@ -1361,12 +1363,11 @@ PBF TDBDOS::CheckBlockFilari(PGLOBAL g, PXOB *arg, int op, bool *cnv)
 //SFROW  *sfr[2];
   PBF    *fp = NULL, bfp = NULL;
 
-  ctype= TYPE_ERROR;
   for (i = 0; i < 2; i++) {
     switch (arg[i]->GetType()) {
       case TYPE_CONST:
         type[i] = 1;
-        ctype = arg[i]->GetResultType();
+ //     ctype = arg[i]->GetResultType();
         break;
       case TYPE_COLBLK:
         conv = cnv[i];
@@ -1391,7 +1392,7 @@ PBF TDBDOS::CheckBlockFilari(PGLOBAL g, PXOB *arg, int op, bool *cnv)
           // correlated subquery, it has a constant value during
           // each execution of the subquery.
           type[i] = 1;
-          ctype = arg[i]->GetResultType();
+//        ctype = arg[i]->GetResultType();
         } // endif this
 
         break;
@@ -1737,15 +1738,16 @@ err:
 /***********************************************************************/
 /*  Make a dynamic index.                                              */
 /***********************************************************************/
-bool TDBDOS::InitialyzeIndex(PGLOBAL g, PIXDEF xdp, bool sorted)
+bool TDBDOS::InitialyzeIndex(PGLOBAL g, volatile PIXDEF xdp, bool sorted)
   {
   int     k, rc;
-  bool    brc, dynamic;
+  volatile bool dynamic;
+  bool    brc;
   PCOL    colp;
   PCOLDEF cdp;
   PVAL    valp;
   PXLOAD  pxp;
-  PKXBASE kxp;
+  volatile PKXBASE kxp;
   PKPDEF  kdp;
 
   if (!xdp && !(xdp = To_Xdp)) {
@@ -1779,8 +1781,13 @@ bool TDBDOS::InitialyzeIndex(PGLOBAL g, PIXDEF xdp, bool sorted)
   To_Link = (PXOB*)PlugSubAlloc(g, NULL, Knum * sizeof(PXOB));
 
   for (k = 0, kdp = xdp->GetToKeyParts(); kdp; k++, kdp = kdp->GetNext()) {
-    cdp = Key(k)->GetCdp();
-    valp = AllocateValue(g, cdp->GetType(), cdp->GetLength());
+    if ((cdp = Key(k)->GetCdp()))
+      valp = AllocateValue(g, cdp->GetType(), cdp->GetLength());
+    else {                        // Special column ?
+      colp = Key(k);
+      valp = AllocateValue(g, colp->GetResultType(), colp->GetLength());
+    } // endif cdp
+
     To_Link[k]= new(g) CONSTANT(valp);
     } // endfor k
 
@@ -1860,7 +1867,7 @@ int TDBDOS::GetProgCur(void)
 /***********************************************************************/
 /*  RowNumber: return the ordinal number of the current row.           */
 /***********************************************************************/
-int TDBDOS::RowNumber(PGLOBAL g, bool b)
+int TDBDOS::RowNumber(PGLOBAL g, bool)
   {
   if (To_Kindex) {
     /*******************************************************************/
@@ -1908,7 +1915,7 @@ int TDBDOS::Cardinality(PGLOBAL g)
     
         } // endif Mode
 
-      if (Mode == MODE_ANY && xinfo) {
+      if (Mode == MODE_ANY && ExactInfo()) {
         // Using index impossible or failed, do it the hard way
         Mode = MODE_READ;
         To_Line = (char*)PlugSubAlloc(g, NULL, Lrecl + 1);
@@ -1940,7 +1947,7 @@ int TDBDOS::Cardinality(PGLOBAL g)
           rec = ((PDOSDEF)To_Def)->Ending;
 
           if (AvgLen <= 0)          // No given average estimate
-            rec += EstimatedLength(g);
+            rec += EstimatedLength();
           else   // An estimate was given for the average record length
             rec += AvgLen;
 
@@ -1984,7 +1991,7 @@ int TDBDOS::GetMaxSize(PGLOBAL g)
       /*  Estimate the number of lines in the table (if not known) by  */
       /*  dividing the file length by minimum record length.           */
       /*****************************************************************/
-      rec = EstimatedLength(g) + ((PDOSDEF)To_Def)->Ending;
+      rec = EstimatedLength() + ((PDOSDEF)To_Def)->Ending;
       MaxSize = (len + rec - 1) / rec;
 
       if (trace)
@@ -2001,7 +2008,7 @@ int TDBDOS::GetMaxSize(PGLOBAL g)
 /***********************************************************************/
 /*  DOS EstimatedLength. Returns an estimated minimum line length.     */
 /***********************************************************************/
-int TDBDOS::EstimatedLength(PGLOBAL g)
+int TDBDOS::EstimatedLength(void)
   {
   int     dep = 0;
   PCOLDEF cdp = To_Def->GetCols();
@@ -2011,7 +2018,8 @@ int TDBDOS::EstimatedLength(PGLOBAL g)
     // result if we set dep to 1
     dep = 1 + cdp->GetLong() / 20;           // Why 20 ?????
   } else for (; cdp; cdp = cdp->GetNext())
-    dep = MY_MAX(dep, cdp->GetOffset());
+		if (!(cdp->Flags & (U_VIRTUAL|U_SPECIAL)))
+      dep = MY_MAX(dep, cdp->GetOffset());
 
   return (int)dep;
   } // end of Estimated Length
@@ -2019,10 +2027,12 @@ int TDBDOS::EstimatedLength(PGLOBAL g)
 /***********************************************************************/
 /*  DOS tables favor the use temporary files for Update.               */
 /***********************************************************************/
-bool TDBDOS::IsUsingTemp(PGLOBAL g)
+bool TDBDOS::IsUsingTemp(PGLOBAL)
   {
-  return (Use_Temp == TMP_YES || Use_Temp == TMP_FORCE ||
-         (Use_Temp == TMP_AUTO && Mode == MODE_UPDATE));
+  USETEMP utp = UseTemp();
+
+  return (utp == TMP_YES || utp == TMP_FORCE ||
+         (utp == TMP_AUTO && Mode == MODE_UPDATE));
   } // end of IsUsingTemp
 
 /***********************************************************************/
@@ -2062,7 +2072,7 @@ bool TDBDOS::OpenDB(PGLOBAL g)
     Txfp = new(g) DOSFAM((PDOSDEF)To_Def);
     Txfp->SetTdbp(this);
   } else if (Txfp->Blocked && (Mode == MODE_DELETE ||
-             (Mode == MODE_UPDATE && Use_Temp != TMP_NO))) {
+             (Mode == MODE_UPDATE && UseTemp() != TMP_NO))) {
     /*******************************************************************/
     /*  Delete is not currently handled in block mode neither Update   */
     /*  when using a temporary file.                                   */
@@ -2177,7 +2187,7 @@ int TDBDOS::ReadDB(PGLOBAL g)
 /***********************************************************************/
 /*  PrepareWriting: Prepare the line to write.                         */
 /***********************************************************************/
-bool TDBDOS::PrepareWriting(PGLOBAL g)
+bool TDBDOS::PrepareWriting(PGLOBAL)
   {
   if (!Ftype && (Mode == MODE_INSERT || Txfp->GetUseTemp())) {
     char *p;
@@ -2194,7 +2204,7 @@ bool TDBDOS::PrepareWriting(PGLOBAL g)
     } // endif Mode
 
   return false;
-  } // end of WriteDB
+  } // end of PrepareWriting
 
 /***********************************************************************/
 /*  WriteDB: Data Base write routine for DOS access method.            */
@@ -2205,7 +2215,8 @@ int TDBDOS::WriteDB(PGLOBAL g)
     htrc("DOS WriteDB: R%d Mode=%d \n", Tdb_No, Mode);
 
   // Make the line to write
-  (void)PrepareWriting(g);
+  if (PrepareWriting(g))
+    return RC_FX;
 
   if (trace > 1)
     htrc("Write: line is='%s'\n", To_Line);

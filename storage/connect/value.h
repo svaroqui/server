@@ -29,24 +29,23 @@ enum CONV {CNV_ANY     =   0,         /* Convert to any type           */
 class CONSTANT;                       // For friend setting
 typedef struct _datpar *PDTP;         // For DTVAL
 
-
 /***********************************************************************/
 /*  Utilities used to test types and to allocated values.              */
 /***********************************************************************/
-PVAL  AllocateValue(PGLOBAL, void *, short);
-
 // Exported functions
 DllExport PSZ   GetTypeName(int);
 DllExport int   GetTypeSize(int, int);
 #ifdef ODBC_SUPPORT
-/* This function is exported for use in EOM table type DLLs */
-DllExport int   TranslateSQLType(int stp, int prec, int& len, char& v);
+/* This function is exported for use in OEM table type DLLs */
+DllExport int   TranslateSQLType(int stp, int prec, 
+                                 int& len, char& v, bool& w);
 #endif
 DllExport char *GetFormatType(int);
 DllExport int   GetFormatType(char);
 DllExport bool  IsTypeChar(int type);
 DllExport bool  IsTypeNum(int type);
 DllExport int   ConvertType(int, int, CONV, bool match = false);
+DllExport PVAL  AllocateValue(PGLOBAL, void *, short, short = 2);
 DllExport PVAL  AllocateValue(PGLOBAL, PVAL, int = TYPE_VOID, int = 0);
 DllExport PVAL  AllocateValue(PGLOBAL, int, int len = 0, int prec = 0,
                               bool uns = false, PSZ fmt = NULL);
@@ -96,25 +95,46 @@ class DllExport VALUE : public BLOCK {
   virtual bool   SetValue_pval(PVAL valp, bool chktype = false) = 0;
   virtual bool   SetValue_char(char *p, int n) = 0;
   virtual void   SetValue_psz(PSZ s) = 0;
-  virtual void   SetValue_bool(bool b) {assert(FALSE);}
+  virtual void   SetValue_bool(bool) {assert(FALSE);}
   virtual int    CompareValue(PVAL vp) = 0;
   virtual BYTE   TestValue(PVAL vp);
-  virtual void   SetValue(char c) {assert(false);}
-  virtual void   SetValue(uchar c) {assert(false);}
-  virtual void   SetValue(short i) {assert(false);}
-  virtual void   SetValue(ushort i) {assert(false);}
-  virtual void   SetValue(int n) {assert(false);}
-  virtual void   SetValue(uint n) {assert(false);}
-  virtual void   SetValue(longlong n) {assert(false);}
-  virtual void   SetValue(ulonglong n) {assert(false);}
-  virtual void   SetValue(double f) {assert(false);}
+  virtual void   SetValue(char) {assert(false);}
+  virtual void   SetValue(uchar) {assert(false);}
+  virtual void   SetValue(short) {assert(false);}
+  virtual void   SetValue(ushort) {assert(false);}
+  virtual void   SetValue(int) {assert(false);}
+  virtual void   SetValue(uint) {assert(false);}
+  virtual void   SetValue(longlong) {assert(false);}
+  virtual void   SetValue(ulonglong) {assert(false);}
+  virtual void   SetValue(double) {assert(false);}
   virtual void   SetValue_pvblk(PVBLK blk, int n) = 0;
   virtual void   SetBinValue(void *p) = 0;
   virtual bool   GetBinValue(void *buf, int buflen, bool go) = 0;
   virtual char  *ShowValue(char *buf, int len = 0) = 0;
   virtual char  *GetCharString(char *p) = 0;
   virtual bool   IsEqual(PVAL vp, bool chktype) = 0;
+  virtual bool   Compute(PGLOBAL g, PVAL *vp, int np, OPVAL op);
   virtual bool   FormatValue(PVAL vp, char *fmt) = 0;
+
+  /**
+    Set value from a non-aligned in-memory value in the machine byte order.
+    TYPE can be either of:
+    - int, short, longlong
+    - uint, ushort, ulonglong
+    - float, double
+    @param - a pointer to a non-aligned value of type TYPE.
+  */
+  template<typename TYPE>
+  void SetValueNonAligned(const char *p)
+  {
+#if defined(__i386__) || defined(__x86_64__)
+    SetValue(*((TYPE*) p)); // x86 can cast non-aligned memory directly
+#else
+    TYPE tmp;               // a slower version for non-x86 platforms
+    memcpy(&tmp, p, sizeof(tmp));
+    SetValue(tmp);
+#endif
+  }
 
  protected:
   virtual bool   SetConstFormat(PGLOBAL, FORMAT&) = 0;
@@ -149,9 +169,9 @@ class DllExport TYPVAL : public VALUE {
   virtual bool   IsZero(void) {return Tval == 0;}
   virtual void   Reset(void) {Tval = 0;}
   virtual int    GetValLen(void);
-  virtual int    GetValPrec() {return 0;}
+  virtual int    GetValPrec() {return Prec;}
   virtual int    GetSize(void) {return sizeof(TYPE);}
-  virtual PSZ    GetCharValue(void) {return VALUE::GetCharValue();}
+//virtual PSZ    GetCharValue(void) {return VALUE::GetCharValue();}
   virtual char   GetTinyValue(void) {return (char)Tval;}
   virtual uchar  GetUTinyValue(void) {return (uchar)Tval;}
   virtual short  GetShortValue(void) {return (short)Tval;}
@@ -184,12 +204,18 @@ class DllExport TYPVAL : public VALUE {
   virtual char  *ShowValue(char *buf, int);
   virtual char  *GetCharString(char *p);
   virtual bool   IsEqual(PVAL vp, bool chktype);
+  virtual bool   Compute(PGLOBAL g, PVAL *vp, int np, OPVAL op);
   virtual bool   SetConstFormat(PGLOBAL, FORMAT&);
   virtual bool   FormatValue(PVAL vp, char *fmt);
   virtual void   Print(PGLOBAL g, FILE *, uint);
   virtual void   Print(PGLOBAL g, char *, uint);
 
  protected:
+  static  TYPE   MinMaxVal(bool b);
+          TYPE   SafeAdd(TYPE n1, TYPE n2);
+          TYPE   SafeMult(TYPE n1, TYPE n2);
+          bool   Compall(PGLOBAL g, PVAL *vp, int np, OPVAL op);
+
   // Default constructor not to be used
   TYPVAL(void) : VALUE(TYPE_ERROR) {}
 
@@ -210,7 +236,7 @@ template <>
 class DllExport TYPVAL<PSZ>: public VALUE {
  public:
   // Constructors
-  TYPVAL(PSZ s);
+  TYPVAL(PSZ s, short c = 0);
   TYPVAL(PGLOBAL g, PSZ s, int n, int c);
 
   // Implementation
@@ -253,9 +279,11 @@ class DllExport TYPVAL<PSZ>: public VALUE {
   virtual char  *ShowValue(char *buf, int);
   virtual char  *GetCharString(char *p);
   virtual bool   IsEqual(PVAL vp, bool chktype);
+  virtual bool   Compute(PGLOBAL g, PVAL *vp, int np, OPVAL op);
   virtual bool   FormatValue(PVAL vp, char *fmt);
   virtual bool   SetConstFormat(PGLOBAL, FORMAT&);
 
+ protected:
   // Members
   PSZ         Strp;
   bool        Ci;                   // true if case insensitive
@@ -283,6 +311,7 @@ class DllExport DECVAL: public TYPVAL<PSZ> {
   virtual bool   IsEqual(PVAL vp, bool chktype);
   virtual int    CompareValue(PVAL vp);
 
+ protected:
   // Members
   }; // end of class DECVAL
 
@@ -330,13 +359,14 @@ class DllExport BINVAL: public VALUE {
   virtual void   SetValue(double f);
   virtual void   SetBinValue(void *p);
   virtual bool   GetBinValue(void *buf, int buflen, bool go);
-  virtual int    CompareValue(PVAL vp) {assert(false); return 0;}
+  virtual int    CompareValue(PVAL) {assert(false); return 0;}
   virtual char  *ShowValue(char *buf, int);
   virtual char  *GetCharString(char *p);
   virtual bool   IsEqual(PVAL vp, bool chktype);
   virtual bool   FormatValue(PVAL vp, char *fmt);
   virtual bool   SetConstFormat(PGLOBAL, FORMAT&);
 
+ protected:
   // Members
   void       *Binp;
   char       *Chrp;
@@ -350,11 +380,7 @@ class DllExport DTVAL : public TYPVAL<int> {
  public:
   // Constructors
   DTVAL(PGLOBAL g, int n, int p, PSZ fmt);
-  DTVAL(PGLOBAL g, PSZ s, int n);
-  DTVAL(PGLOBAL g, short i);
-  DTVAL(PGLOBAL g, int n);
-  DTVAL(PGLOBAL g, longlong n);
-  DTVAL(PGLOBAL g, double f);
+  DTVAL(int n);
 
   // Implementation
   virtual bool   SetValue_pval(PVAL valp, bool chktype);

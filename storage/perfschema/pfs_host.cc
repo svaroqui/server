@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, 2013, Oracle and/or its affiliates. All rights reserved.
+/* Copyright (c) 2010, 2015, Oracle and/or its affiliates. All rights reserved.
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ int init_host(const PFS_global_param *param)
 
   if (host_max > 0)
   {
-    host_array= PFS_MALLOC_ARRAY(host_max, PFS_host,
+    host_array= PFS_MALLOC_ARRAY(host_max, sizeof(PFS_host), PFS_host,
                                  MYF(MY_ZEROFILL));
     if (unlikely(host_array == NULL))
       return 1;

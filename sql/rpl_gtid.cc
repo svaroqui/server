@@ -16,7 +16,7 @@
 
 /* Definitions for MariaDB global transaction ID (GTID). */
 
-
+#include <my_global.h>
 #include "sql_priv.h"
 #include "my_sys.h"
 #include "unireg.h"
@@ -117,12 +117,12 @@ int
 rpl_slave_state::check_duplicate_gtid(rpl_gtid *gtid, rpl_group_info *rgi)
 {
   uint32 domain_id= gtid->domain_id;
-  uint32 seq_no= gtid->seq_no;
+  uint64 seq_no= gtid->seq_no;
   rpl_slave_state::element *elem;
   int res;
   bool did_enter_cond= false;
   PSI_stage_info old_stage;
-  THD *thd;
+  THD *UNINIT_VAR(thd);
   Relay_log_info *rli= rgi->rli;
 
   mysql_mutex_lock(&LOCK_slave_state);
@@ -243,24 +243,22 @@ rpl_slave_state_free_element(void *arg)
 
 
 rpl_slave_state::rpl_slave_state()
-  : last_sub_id(0), inited(false), loaded(false)
+  : last_sub_id(0), loaded(false)
 {
+  mysql_mutex_init(key_LOCK_slave_state, &LOCK_slave_state,
+                   MY_MUTEX_INIT_SLOW);
   my_hash_init(&hash, &my_charset_bin, 32, offsetof(element, domain_id),
                sizeof(uint32), NULL, rpl_slave_state_free_element, HASH_UNIQUE);
+  my_init_dynamic_array(&gtid_sort_array, sizeof(rpl_gtid), 8, 8, MYF(0));
 }
 
 
 rpl_slave_state::~rpl_slave_state()
 {
-}
-
-
-void
-rpl_slave_state::init()
-{
-  DBUG_ASSERT(!inited);
-  mysql_mutex_init(key_LOCK_slave_state, &LOCK_slave_state, MY_MUTEX_INIT_SLOW);
-  inited= true;
+  truncate_hash();
+  my_hash_free(&hash);
+  delete_dynamic(&gtid_sort_array);
+  mysql_mutex_destroy(&LOCK_slave_state);
 }
 
 
@@ -283,16 +281,6 @@ rpl_slave_state::truncate_hash()
     /* The element itself is freed by the hash element free function. */
   }
   my_hash_reset(&hash);
-}
-
-void
-rpl_slave_state::deinit()
-{
-  if (!inited)
-    return;
-  truncate_hash();
-  my_hash_free(&hash);
-  mysql_mutex_destroy(&LOCK_slave_state);
 }
 
 
@@ -460,19 +448,7 @@ static const TABLE_FIELD_DEF mysql_gtid_slave_pos_tabledef= {
   mysql_rpl_slave_state_pk_parts
 };
 
-class Gtid_db_intact : public Table_check_intact
-{
-protected:
-  void report_error(uint, const char *fmt, ...)
-  {
-    va_list args;
-    va_start(args, fmt);
-    error_log_print(ERROR_LEVEL, fmt, args);
-    va_end(args);
-  }
-};
-
-static Gtid_db_intact gtid_table_intact;
+static Table_check_intact_log_error gtid_table_intact;
 
 /*
   Check that the mysql.gtid_slave_pos table has the correct definition.
@@ -515,6 +491,7 @@ rpl_slave_state::record_gtid(THD *thd, const rpl_gtid *gtid, uint64 sub_id,
   element *elem;
   ulonglong thd_saved_option= thd->variables.option_bits;
   Query_tables_list lex_backup;
+  wait_for_commit* suspended_wfc;
   DBUG_ENTER("record_gtid");
 
   if (unlikely(!loaded))
@@ -530,7 +507,7 @@ rpl_slave_state::record_gtid(THD *thd, const rpl_gtid *gtid, uint64 sub_id,
   }
 
   if (!in_statement)
-    mysql_reset_thd_for_next_command(thd);
+    thd->reset_for_next_command();
 
   DBUG_EXECUTE_IF("gtid_inject_record_gtid",
                   {
@@ -538,6 +515,28 @@ rpl_slave_state::record_gtid(THD *thd, const rpl_gtid *gtid, uint64 sub_id,
                     DBUG_RETURN(1);
                   } );
 
+  /*
+    If we are applying a non-transactional event group, we will be committing
+    here a transaction, but that does not imply that the event group has
+    completed or has been binlogged. So we should not trigger
+    wakeup_subsequent_commits() here.
+
+    Note: An alternative here could be to put a call to mark_start_commit() in
+    stmt_done() before the call to record_and_update_gtid(). This would
+    prevent later calling mark_start_commit() after we have run
+    wakeup_subsequent_commits() from committing the GTID update transaction
+    (which must be avoided to avoid accessing freed group_commit_orderer
+    object). It would also allow following event groups to start slightly
+    earlier. And in the cases where record_gtid() is called without an active
+    transaction, the current statement should have been binlogged already, so
+    binlog order is preserved.
+
+    But this is rather subtle, and potentially fragile. And it does not really
+    seem worth it; non-transactional loads are unlikely to benefit much from
+    parallel replication in any case. So for now, we go with the simple
+    suspend/resume of wakeup_subsequent_commits() here in record_gtid().
+  */
+  suspended_wfc= thd->suspend_subsequent_commits();
   thd->lex->reset_n_backup_query_tables_list(&lex_backup);
   tlist.init_one_table(STRING_WITH_LEN("mysql"),
                        rpl_gtid_slave_state_table_name.str,
@@ -551,6 +550,14 @@ rpl_slave_state::record_gtid(THD *thd, const rpl_gtid *gtid, uint64 sub_id,
   if ((err= gtid_check_rpl_slave_state_table(table)))
     goto end;
 
+#ifdef WITH_WSREP
+  /*
+    Updates in slave state table should not be appended to galera transaction
+    writeset.
+  */
+  thd->wsrep_ignore_table= true;
+#endif
+
   if (!in_transaction)
   {
     DBUG_PRINT("info", ("resetting OPTION_BEGIN"));
@@ -562,6 +569,7 @@ rpl_slave_state::record_gtid(THD *thd, const rpl_gtid *gtid, uint64 sub_id,
     thd->variables.option_bits&= ~(ulonglong)OPTION_BIN_LOG;
 
   bitmap_set_all(table->write_set);
+  table->rpl_write_set= table->write_set;
 
   table->field[0]->store((ulonglong)gtid->domain_id, true);
   table->field[1]->store(sub_id, true);
@@ -664,6 +672,10 @@ IF_DBUG(dbug_break:, )
 
 end:
 
+#ifdef WITH_WSREP
+  thd->wsrep_ignore_table= false;
+#endif
+
   if (table_opened)
   {
     if (err || (err= ha_commit_trans(thd, FALSE)))
@@ -689,6 +701,12 @@ end:
   }
   thd->lex->restore_backup_query_tables_list(&lex_backup);
   thd->variables.option_bits= thd_saved_option;
+  thd->resume_subsequent_commits(suspended_wfc);
+  DBUG_EXECUTE_IF("inject_record_gtid_serverid_100_sleep",
+    {
+      if (gtid->server_id == 100)
+        my_sleep(500000);
+    });
   DBUG_RETURN(err);
 }
 
@@ -705,7 +723,20 @@ rpl_slave_state::next_sub_id(uint32 domain_id)
   return sub_id;
 }
 
+/* A callback used in sorting of gtid list based on domain_id. */
+static int rpl_gtid_cmp_cb(const void *id1, const void *id2)
+{
+  uint32 d1= ((rpl_gtid *)id1)->domain_id;
+  uint32 d2= ((rpl_gtid *)id2)->domain_id;
 
+  if (d1 < d2)
+    return -1;
+  else if (d1 > d2)
+    return 1;
+  return 0;
+}
+
+/* Format the specified gtid and store it in the given string buffer. */
 bool
 rpl_slave_state_tostring_helper(String *dest, const rpl_gtid *gtid, bool *first)
 {
@@ -722,16 +753,64 @@ rpl_slave_state_tostring_helper(String *dest, const rpl_gtid *gtid, bool *first)
     dest->append_ulonglong(gtid->seq_no);
 }
 
+/*
+  Sort the given gtid list based on domain_id and store them in the specified
+  string.
+*/
+static bool
+rpl_slave_state_tostring_helper(DYNAMIC_ARRAY *gtid_dynarr, String *str)
+{
+  bool first= true, res= true;
+
+  sort_dynamic(gtid_dynarr, rpl_gtid_cmp_cb);
+
+  for (uint i= 0; i < gtid_dynarr->elements; i ++)
+  {
+    rpl_gtid *gtid= dynamic_element(gtid_dynarr, i, rpl_gtid *);
+    if (rpl_slave_state_tostring_helper(str, gtid, &first))
+      goto err;
+  }
+  res= false;
+
+err:
+  return res;
+}
+
+
+/* Sort the given gtid list based on domain_id and call cb for each gtid. */
+static bool
+rpl_slave_state_tostring_helper(DYNAMIC_ARRAY *gtid_dynarr,
+                                int (*cb)(rpl_gtid *, void *),
+                                void *data)
+{
+  rpl_gtid *gtid;
+  bool res= true;
+
+  sort_dynamic(gtid_dynarr, rpl_gtid_cmp_cb);
+
+  for (uint i= 0; i < gtid_dynarr->elements; i ++)
+  {
+    gtid= dynamic_element(gtid_dynarr, i, rpl_gtid *);
+    if ((*cb)(gtid, data))
+      goto err;
+  }
+  res= false;
+
+err:
+  return res;
+}
 
 int
 rpl_slave_state::iterate(int (*cb)(rpl_gtid *, void *), void *data,
-                         rpl_gtid *extra_gtids, uint32 num_extra)
+                         rpl_gtid *extra_gtids, uint32 num_extra,
+                         bool sort)
 {
   uint32 i;
   HASH gtid_hash;
   uchar *rec;
   rpl_gtid *gtid;
   int res= 1;
+  bool locked= false;
 
   my_hash_init(&gtid_hash, &my_charset_bin, 32, offsetof(rpl_gtid, domain_id),
                sizeof(uint32), NULL, NULL, HASH_UNIQUE);
@@ -741,6 +820,8 @@ rpl_slave_state::iterate(int (*cb)(rpl_gtid *, void *), void *data,
       goto err;
 
   mysql_mutex_lock(&LOCK_slave_state);
+  locked= true;
+  reset_dynamic(&gtid_sort_array);
 
   for (i= 0; i < hash.records; ++i)
   {
@@ -775,31 +856,38 @@ rpl_slave_state::iterate(int (*cb)(rpl_gtid *, void *), void *data,
         memcpy(&best_gtid, gtid, sizeof(best_gtid));
       if (my_hash_delete(&gtid_hash, rec))
       {
-        mysql_mutex_unlock(&LOCK_slave_state);
         goto err;
       }
     }
 
-    if ((res= (*cb)(&best_gtid, data)))
+    if ((res= sort ? insert_dynamic(&gtid_sort_array,
+                                    (const void *) &best_gtid) :
+         (*cb)(&best_gtid, data)))
     {
-      mysql_mutex_unlock(&LOCK_slave_state);
       goto err;
     }
   }
-
-  mysql_mutex_unlock(&LOCK_slave_state);
 
   /* Also add any remaining extra domain_ids. */
   for (i= 0; i < gtid_hash.records; ++i)
   {
     gtid= (rpl_gtid *)my_hash_element(&gtid_hash, i);
-    if ((res= (*cb)(gtid, data)))
+    if ((res= sort ? insert_dynamic(&gtid_sort_array, (const void *) gtid) :
+         (*cb)(gtid, data)))
+    {
       goto err;
+    }
+  }
+
+  if (sort && rpl_slave_state_tostring_helper(&gtid_sort_array, cb, data))
+  {
+    goto err;
   }
 
   res= 0;
 
 err:
+  if (locked) mysql_mutex_unlock(&LOCK_slave_state);
   my_hash_free(&gtid_hash);
 
   return res;
@@ -840,7 +928,8 @@ rpl_slave_state::tostring(String *dest, rpl_gtid *extra_gtids, uint32 num_extra)
   data.first= true;
   data.dest= dest;
 
-  return iterate(rpl_slave_state_tostring_cb, &data, extra_gtids, num_extra);
+  return iterate(rpl_slave_state_tostring_cb, &data, extra_gtids,
+                 num_extra, true);
 }
 
 
@@ -914,8 +1003,8 @@ gtid_parser_helper(char **ptr, char *end, rpl_gtid *out_gtid)
   if (err != 0)
     return 1;
 
-  out_gtid->domain_id= v1;
-  out_gtid->server_id= v2;
+  out_gtid->domain_id= (uint32) v1;
+  out_gtid->server_id= (uint32) v2;
   out_gtid->seq_no= v3;
   *ptr= q;
   return 0;
@@ -1026,15 +1115,15 @@ rpl_slave_state::is_empty()
 }
 
 
-rpl_binlog_state::rpl_binlog_state()
+void rpl_binlog_state::init()
 {
   my_hash_init(&hash, &my_charset_bin, 32, offsetof(element, domain_id),
                sizeof(uint32), NULL, my_free, HASH_UNIQUE);
+  my_init_dynamic_array(&gtid_sort_array, sizeof(rpl_gtid), 8, 8, MYF(0));
   mysql_mutex_init(key_LOCK_binlog_state, &LOCK_binlog_state,
                    MY_MUTEX_INIT_SLOW);
   initialized= 1;
 }
-
 
 void
 rpl_binlog_state::reset_nolock()
@@ -1063,6 +1152,7 @@ void rpl_binlog_state::free()
     initialized= 0;
     reset_nolock();
     my_hash_free(&hash);
+    delete_dynamic(&gtid_sort_array);
     mysql_mutex_destroy(&LOCK_binlog_state);
   }
 }
@@ -1084,6 +1174,27 @@ rpl_binlog_state::load(struct rpl_gtid *list, uint32 count)
       break;
     }
   }
+  mysql_mutex_unlock(&LOCK_binlog_state);
+  return res;
+}
+
+
+static int rpl_binlog_state_load_cb(rpl_gtid *gtid, void *data)
+{
+  rpl_binlog_state *self= (rpl_binlog_state *)data;
+  return self->update_nolock(gtid, false);
+}
+
+
+bool
+rpl_binlog_state::load(rpl_slave_state *slave_pos)
+{
+  bool res= false;
+
+  mysql_mutex_lock(&LOCK_binlog_state);
+  reset_nolock();
+  if (slave_pos->iterate(rpl_binlog_state_load_cb, this, NULL, 0, false))
+    res= true;
   mysql_mutex_unlock(&LOCK_binlog_state);
   return res;
 }
@@ -1547,21 +1658,25 @@ end:
   return res;
 }
 
-
 bool
 rpl_binlog_state::append_pos(String *str)
 {
   uint32 i;
-  bool first= true;
 
   mysql_mutex_lock(&LOCK_binlog_state);
+  reset_dynamic(&gtid_sort_array);
+
   for (i= 0; i < hash.records; ++i)
   {
     element *e= (element *)my_hash_element(&hash, i);
     if (e->last_gtid &&
-        rpl_slave_state_tostring_helper(str, e->last_gtid, &first))
+        insert_dynamic(&gtid_sort_array, (const void *) e->last_gtid))
+    {
+      mysql_mutex_unlock(&LOCK_binlog_state);
       return true;
+    }
   }
+  rpl_slave_state_tostring_helper(&gtid_sort_array, str);
   mysql_mutex_unlock(&LOCK_binlog_state);
 
   return false;
@@ -1572,10 +1687,11 @@ bool
 rpl_binlog_state::append_state(String *str)
 {
   uint32 i, j;
-  bool first= true;
   bool res= false;
 
   mysql_mutex_lock(&LOCK_binlog_state);
+  reset_dynamic(&gtid_sort_array);
+
   for (i= 0; i < hash.records; ++i)
   {
     element *e= (element *)my_hash_element(&hash, i);
@@ -1596,13 +1712,15 @@ rpl_binlog_state::append_state(String *str)
       else
         gtid= e->last_gtid;
 
-      if (rpl_slave_state_tostring_helper(str, gtid, &first))
+      if (insert_dynamic(&gtid_sort_array, (const void *) gtid))
       {
         res= true;
         goto end;
       }
     }
   }
+
+  rpl_slave_state_tostring_helper(&gtid_sort_array, str);
 
 end:
   mysql_mutex_unlock(&LOCK_binlog_state);
@@ -1615,12 +1733,14 @@ slave_connection_state::slave_connection_state()
   my_hash_init(&hash, &my_charset_bin, 32,
                offsetof(entry, gtid) + offsetof(rpl_gtid, domain_id),
                sizeof(uint32), NULL, my_free, HASH_UNIQUE);
+  my_init_dynamic_array(&gtid_sort_array, sizeof(rpl_gtid), 8, 8, MYF(0));
 }
 
 
 slave_connection_state::~slave_connection_state()
 {
   my_hash_free(&hash);
+  delete_dynamic(&gtid_sort_array);
 }
 
 
@@ -1730,7 +1850,7 @@ slave_connection_state::load(rpl_slave_state *state,
 {
   reset();
   return state->iterate(slave_connection_state_load_cb, this,
-                        extra_gtids, num_extra);
+                        extra_gtids, num_extra, false);
 }
 
 
@@ -1849,6 +1969,31 @@ slave_connection_state::get_gtid_list(rpl_gtid *gtid_list, uint32 list_size)
 
 
 /*
+  Check if the GTID position has been reached, for mysql_binlog_send().
+
+  The position has not been reached if we have anything in the state, unless
+  it has either the START_ON_EMPTY_DOMAIN flag set (which means it does not
+  belong to this master at all), or the START_OWN_SLAVE_POS (which means that
+  we start on an old position from when the server was a slave with
+  --log-slave-updates=0).
+*/
+bool
+slave_connection_state::is_pos_reached()
+{
+  uint32 i;
+
+  for (i= 0; i < hash.records; ++i)
+  {
+    entry *e= (entry *)my_hash_element(&hash, i);
+    if (!(e->flags & (START_OWN_SLAVE_POS|START_ON_EMPTY_DOMAIN)))
+      return false;
+  }
+
+  return true;
+}
+
+
+/*
   Execute a MASTER_GTID_WAIT().
   The position to wait for is in gtid_str in string form.
   The timeout in microseconds is in timeout_us, zero means no timeout.
@@ -1865,10 +2010,14 @@ gtid_waiting::wait_for_pos(THD *thd, String *gtid_str, longlong timeout_us)
   rpl_gtid *wait_pos;
   uint32 count, i;
   struct timespec wait_until, *wait_until_ptr;
+  ulonglong before;
 
   /* Wait for the empty position returns immediately. */
   if (gtid_str->length() == 0)
+  {
+    status_var_increment(thd->status_var.master_gtid_wait_count);
     return 0;
+  }
 
   if (!(wait_pos= gtid_parse_string_to_list(gtid_str->ptr(), gtid_str->length(),
                                             &count)))
@@ -1876,6 +2025,8 @@ gtid_waiting::wait_for_pos(THD *thd, String *gtid_str, longlong timeout_us)
     my_error(ER_INCORRECT_GTID_STATE, MYF(0));
     return 1;
   }
+  status_var_increment(thd->status_var.master_gtid_wait_count);
+  before= microsecond_interval_timer();
 
   if (timeout_us >= 0)
   {
@@ -1889,6 +2040,15 @@ gtid_waiting::wait_for_pos(THD *thd, String *gtid_str, longlong timeout_us)
   {
     if ((err= wait_for_gtid(thd, &wait_pos[i], wait_until_ptr)))
       break;
+  }
+  switch (err)
+  {
+    case -1:
+      status_var_increment(thd->status_var.master_gtid_wait_timeouts);
+      /* Deliberate fall through. */
+    case 0:
+      status_var_add(thd->status_var.master_gtid_wait_time,
+                     microsecond_interval_timer() - before);
   }
   my_free(wait_pos);
   return err;
@@ -2022,16 +2182,16 @@ gtid_waiting::wait_for_gtid(THD *thd, rpl_gtid *wait_gtid,
       uint64 wakeup_seq_no;
       queue_element *cur_waiter;
 
-      mysql_mutex_lock(&rpl_global_gtid_slave_state.LOCK_slave_state);
+      mysql_mutex_lock(&rpl_global_gtid_slave_state->LOCK_slave_state);
       /*
         The elements in the gtid_slave_state_hash are never re-allocated once
         they enter the hash, so we do not need to re-do the lookup after releasing
         and re-aquiring the lock.
       */
       if (!slave_state_elem &&
-          !(slave_state_elem= rpl_global_gtid_slave_state.get_element(domain_id)))
+          !(slave_state_elem= rpl_global_gtid_slave_state->get_element(domain_id)))
       {
-        mysql_mutex_unlock(&rpl_global_gtid_slave_state.LOCK_slave_state);
+        mysql_mutex_unlock(&rpl_global_gtid_slave_state->LOCK_slave_state);
         remove_from_wait_queue(he, &elem);
         promote_new_waiter(he);
         if (did_enter_cond)
@@ -2048,7 +2208,7 @@ gtid_waiting::wait_for_gtid(THD *thd, rpl_gtid *wait_gtid,
           We do not have to wait. (We will be removed from the wait queue when
           we call process_wait_hash() below.
         */
-        mysql_mutex_unlock(&rpl_global_gtid_slave_state.LOCK_slave_state);
+        mysql_mutex_unlock(&rpl_global_gtid_slave_state->LOCK_slave_state);
       }
       else if ((cur_waiter= slave_state_elem->gtid_waiter) &&
                slave_state_elem->min_wait_seq_no <= seq_no)
@@ -2060,7 +2220,7 @@ gtid_waiting::wait_for_gtid(THD *thd, rpl_gtid *wait_gtid,
           lock).
         */
         elem.do_small_wait= false;
-        mysql_mutex_unlock(&rpl_global_gtid_slave_state.LOCK_slave_state);
+        mysql_mutex_unlock(&rpl_global_gtid_slave_state->LOCK_slave_state);
       }
       else
       {
@@ -2085,7 +2245,7 @@ gtid_waiting::wait_for_gtid(THD *thd, rpl_gtid *wait_gtid,
         else
           mysql_mutex_unlock(&LOCK_gtid_waiting);
         thd->ENTER_COND(&slave_state_elem->COND_wait_gtid,
-                        &rpl_global_gtid_slave_state.LOCK_slave_state,
+                        &rpl_global_gtid_slave_state->LOCK_slave_state,
                         &stage_master_gtid_wait_primary, &old_stage);
         do
         {
@@ -2095,7 +2255,7 @@ gtid_waiting::wait_for_gtid(THD *thd, rpl_gtid *wait_gtid,
           {
             int err=
               mysql_cond_timedwait(&slave_state_elem->COND_wait_gtid,
-                                   &rpl_global_gtid_slave_state.LOCK_slave_state,
+                                   &rpl_global_gtid_slave_state->LOCK_slave_state,
                                    wait_until);
             if (err == ETIMEDOUT || err == ETIME)
             {
@@ -2105,7 +2265,7 @@ gtid_waiting::wait_for_gtid(THD *thd, rpl_gtid *wait_gtid,
           }
           else
             mysql_cond_wait(&slave_state_elem->COND_wait_gtid,
-                            &rpl_global_gtid_slave_state.LOCK_slave_state);
+                            &rpl_global_gtid_slave_state->LOCK_slave_state);
         } while (slave_state_elem->gtid_waiter == &elem);
         wakeup_seq_no= slave_state_elem->highest_seq_no;
         /*

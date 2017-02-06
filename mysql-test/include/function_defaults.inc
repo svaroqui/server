@@ -4,51 +4,43 @@ SET TIME_ZONE = "+00:00";
 --echo # Test of errors for column data types that dont support function
 --echo # defaults.
 --echo #
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a BIT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a TINYINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a SMALLINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a MEDIUMINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a INT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a BIGINT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a FLOAT DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a DECIMAL DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a DATE DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a TIME DEFAULT $current_timestamp );
---error ER_INVALID_DEFAULT
-eval CREATE TABLE t1( a YEAR DEFAULT $current_timestamp );
+
+eval CREATE OR REPLACE TABLE t1( a BIT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TINYINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a SMALLINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a MEDIUMINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a INT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a BIGINT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a FLOAT DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DECIMAL DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DATE DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TIME DEFAULT $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a YEAR DEFAULT $current_timestamp );
 
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a BIT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a BIT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a TINYINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TINYINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a SMALLINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a SMALLINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a MEDIUMINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a MEDIUMINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a INT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a INT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a BIGINT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a BIGINT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a FLOAT ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a FLOAT ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a DECIMAL ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DECIMAL ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a DATE ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a DATE ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a TIME ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a TIME ON UPDATE $current_timestamp );
 --error ER_INVALID_ON_UPDATE
-eval CREATE TABLE t1( a YEAR ON UPDATE $current_timestamp );
+eval CREATE OR REPLACE TABLE t1( a YEAR ON UPDATE $current_timestamp );
+
+drop table if exists t1;
 
 --echo #
 --echo # Test that the default clause behaves like NOW() regarding time zones.
@@ -408,15 +400,28 @@ UPDATE t1 SET c = 2;
 SELECT * FROM t1;
 
 --echo #
+--echo # Test that ON UPDATE CURRENT_TIMESTAMP works after non-changing UPDATE.
+--echo #
+
+--echo # 2011-04-20 09:54:13 UTC
+SET TIMESTAMP = 1303293253.794613;
+
+UPDATE t1 SET c = 2, b = '2011-04-20 09:53:41.794613';
+SELECT * FROM t1;
+
+UPDATE t1 SET c = 3;
+SELECT * FROM t1;
+
+--echo #
 --echo # Test of multiple-table UPDATE for ON UPDATE CURRENT_TIMESTAMP
 --echo #
 --echo # 2011-04-20 15:06:13 UTC
 SET TIMESTAMP = 1303311973.534231;
 
-UPDATE t1 t11, t1 t12 SET t11.c = 2;
+UPDATE t1 t11, t1 t12 SET t11.c = 3;
 SELECT * FROM t1;
 
-UPDATE t1 t11, t1 t12 SET t11.c = 3;
+UPDATE t1 t11, t1 t12 SET t11.c = 2;
 SELECT * FROM t1;
 
 DROP TABLE t1;
@@ -1037,7 +1042,7 @@ SET TIME_ZONE = "+03:00";
 --echo # 1970-01-01 03:16:40
 SET TIMESTAMP = 1000.123456;
 
-eval CREATE TABLE t1 ( a INT, b $timestamp NOT NULL DEFAULT $current_timestamp ON UPDATE $current_timestamp) ENGINE = INNODB;
+eval CREATE TABLE t1 ( a INT, b $timestamp NOT NULL DEFAULT $current_timestamp ON UPDATE $current_timestamp);
 
 SHOW CREATE TABLE t1;
 
@@ -1094,10 +1099,10 @@ eval CREATE TABLE t1 (
   b INT,
   ts $timestamp NOT NULL DEFAULT $current_timestamp ON UPDATE $current_timestamp,
   PRIMARY KEY ( a, ts )
-) ENGINE = INNODB;
+);
 INSERT INTO t1( a, b, ts ) VALUES ( 1, 0, '2000-09-28 17:44:34' );
 
-eval CREATE TABLE t2 ( a INT ) ENGINE = INNODB;
+eval CREATE TABLE t2 ( a INT );
 INSERT INTO t2 VALUES ( 1 );
 
 UPDATE t1 STRAIGHT_JOIN t2
@@ -1133,8 +1138,7 @@ eval ALTER TABLE t1 ADD COLUMN c4 $datetime ON UPDATE $now AFTER c3;
 eval ALTER TABLE t1 ADD COLUMN c5 $datetime DEFAULT $now AFTER c4;
 eval ALTER TABLE t1 ADD COLUMN c6 $datetime DEFAULT $now ON UPDATE $now AFTER c5;
 
-SELECT * FROM t1;
-
+query_vertical SELECT * FROM t1;
 DROP TABLE t1;
 
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2004, 2013, Oracle and/or its affiliates.
+/* Copyright (c) 2004, 2015, Oracle and/or its affiliates.
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -372,6 +372,7 @@
 
 
 #define MYSQL_SERVER 1
+#include <my_global.h>
 #include "sql_priv.h"
 #include "sql_servers.h"         // FOREIGN_SERVER, get_server_by_name
 #include "sql_class.h"           // SSV
@@ -406,7 +407,6 @@ static const int bulk_padding= 64;              // bytes "overhead" in packet
 
 /* Variables used when chopping off trailing characters */
 static const uint sizeof_trailing_comma= sizeof(", ") - 1;
-static const uint sizeof_trailing_closeparen= sizeof(") ") - 1;
 static const uint sizeof_trailing_and= sizeof(" AND ") - 1;
 static const uint sizeof_trailing_where= sizeof(" WHERE ") - 1;
 
@@ -560,8 +560,7 @@ static bool append_ident(String *string, const char *name, size_t length,
     for (name_end= name+length; name < name_end; name+= clen)
     {
       uchar c= *(uchar *) name;
-      if (!(clen= my_mbcharlen(system_charset_info, c)))
-        clen= 1;
+      clen= my_charlen_fix(system_charset_info, name, name_end);
       if (clen == 1 && c == (uchar) quote_char &&
           (result= string->append(&quote_char, 1, system_charset_info)))
         goto err;
@@ -625,17 +624,17 @@ int get_connection(MEM_ROOT *mem_root, FEDERATED_SHARE *share)
     at the address of the share.
   */
   share->server_name_length= server->server_name_length;
-  share->server_name= server->server_name;
-  share->username= server->username;
-  share->password= server->password;
-  share->database= server->db;
+  share->server_name= const_cast<char*>(server->server_name);
+  share->username= const_cast<char*>(server->username);
+  share->password= const_cast<char*>(server->password);
+  share->database= const_cast<char*>(server->db);
   share->port= server->port > MIN_PORT && server->port < 65536 ? 
                (ushort) server->port : MYSQL_PORT;
-  share->hostname= server->host;
-  if (!(share->socket= server->socket) &&
+  share->hostname= const_cast<char*>(server->host);
+  if (!(share->socket= const_cast<char*>(server->socket)) &&
       !strcmp(share->hostname, my_localhost))
     share->socket= (char *) MYSQL_UNIX_ADDR;
-  share->scheme= server->scheme;
+  share->scheme= const_cast<char*>(server->scheme);
 
   DBUG_PRINT("info", ("share->username %s", share->username));
   DBUG_PRINT("info", ("share->password %s", share->password));
@@ -1647,6 +1646,20 @@ int ha_federated::open(const char *name, int mode, uint test_if_locked)
   DBUG_RETURN(0);
 }
 
+class Net_error_handler : public Internal_error_handler
+{
+public:
+  Net_error_handler() {}
+
+public:
+  bool handle_condition(THD *thd, uint sql_errno, const char* sqlstate,
+                        Sql_condition::enum_warning_level *level,
+                        const char* msg, Sql_condition ** cond_hdl)
+  {
+    return sql_errno >= ER_ABORTING_CONNECTION &&
+           sql_errno <= ER_NET_WRITE_INTERRUPTED;
+  }
+};
 
 /*
   Closes a table. We call the free_share() function to free any resources
@@ -1664,22 +1677,19 @@ int ha_federated::close(void)
   DBUG_ENTER("ha_federated::close");
 
   free_result();
-  
-  delete_dynamic(&results);
-  
-  /* Disconnect from mysql */
-  mysql_close(mysql);
-  mysql= NULL;
 
-  /*
-    mysql_close() might return an error if a remote server's gone
-    for some reason. If that happens while removing a table from
-    the table cache, the error will be propagated to a client even
-    if the original query was not issued against the FEDERATED table.
-    So, don't propagate errors from mysql_close().
-  */
-  if (table->in_use)
-    table->in_use->clear_error();
+  delete_dynamic(&results);
+
+  /* Disconnect from mysql */
+  THD *thd= ha_thd();
+  Net_error_handler err_handler;
+  if (thd)
+    thd->push_internal_handler(&err_handler);
+  mysql_close(mysql);
+  if (thd)
+    thd->pop_internal_handler();
+
+  mysql= NULL;
 
   DBUG_RETURN(free_share(share));
 }
@@ -2004,7 +2014,7 @@ void ha_federated::start_bulk_insert(ha_rows rows, uint flags)
   
   @return Operation status
   @retval       0       No error
-  @retval       != 0    Error occured at remote server. Also sets my_errno.
+  @retval       != 0    Error occurred at remote server. Also sets my_errno.
 */
 
 int ha_federated::end_bulk_insert()
@@ -2875,7 +2885,7 @@ int ha_federated::info(uint flag)
 
   }
 
-  if (flag & HA_STATUS_AUTO)
+  if ((flag & HA_STATUS_AUTO) && mysql)
     stats.auto_increment_value= mysql->insert_id;
 
   mysql_free_result(result);

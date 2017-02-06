@@ -112,8 +112,8 @@ DROP FUNCTION f3;
 #
 # Bug #26807 "set global event_scheduler=1" and --skip-grant-tables crashes server
 #
---error ER_OPTION_PREVENTS_STATEMENT
 set global event_scheduler=1;
+set global event_scheduler=0;
 
 #
 # Bug#26285 Selecting information_schema crahes server
@@ -132,3 +132,8 @@ select count(*) from information_schema.USER_PRIVILEGES;
 select no_such_function(1);
 
 --echo End of 5.1 tests
+
+#
+# MDEV-8280 crash in 'show global status' with --skip-grant-tables
+#
+show global status like 'Acl%';

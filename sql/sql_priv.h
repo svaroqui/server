@@ -1,5 +1,5 @@
-/* Copyright (c) 2000, 2011, Oracle and/or its affiliates.
-   Copyright (c) 2010, 2013, Monty Program Ab.
+/* Copyright (c) 2000, 2014, Oracle and/or its affiliates.
+   Copyright (c) 2010, 2014, Monty Program Ab.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -51,13 +51,41 @@
     compile_time_assert(MYSQL_VERSION_ID < VerHi * 10000 + VerLo * 100);    \
     if (((THD *) Thd) != NULL)                                              \
       push_warning_printf(((THD *) Thd), Sql_condition::WARN_LEVEL_WARN,    \
-                        ER_WARN_DEPRECATED_SYNTAX,                          \
-                        ER(ER_WARN_DEPRECATED_SYNTAX),                      \
-                        (Old), (New));                                      \
+                         ER_WARN_DEPRECATED_SYNTAX,                          \
+                         ER_THD(((THD *) Thd), ER_WARN_DEPRECATED_SYNTAX), \
+                         (Old), (New));                                      \
     else                                                                    \
       sql_print_warning("The syntax '%s' is deprecated and will be removed " \
                         "in a future release. Please use %s instead.",      \
                         (Old), (New));                                      \
+  } while(0)
+
+
+/*
+  Generates a warning that a feature is deprecated and there is no replacement.
+
+  Using it as
+
+  WARN_DEPRECATED_NO_REPLACEMENT(thd, "BAD");
+
+  Will result in a warning
+ 
+  "'BAD' is deprecated and will be removed in a future release."
+
+   Note that in macro arguments BAD is not quoted.
+*/
+
+#define WARN_DEPRECATED_NO_REPLACEMENT(Thd,Old)                             \
+  do {                                                                      \
+    THD *thd_= ((THD*) Thd);                                                \
+    if (thd_ != NULL)                                                       \
+      push_warning_printf(thd_, Sql_condition::WARN_LEVEL_WARN,             \
+                         ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT,          \
+                         ER_THD(thd_, ER_WARN_DEPRECATED_SYNTAX_NO_REPLACEMENT), \
+                         (Old));                                            \
+    else                                                                    \
+      sql_print_warning("'%s' is deprecated and will be removed "           \
+                        "in a future release.", (Old));                     \
   } while(0)
 
 /*************************************************************************/
@@ -98,7 +126,7 @@
 #define TMP_TABLE_ALL_COLUMNS   (1ULL << 12)    // SELECT, intern
 #define OPTION_WARNINGS         (1ULL << 13)    // THD, user
 #define OPTION_AUTO_IS_NULL     (1ULL << 14)    // THD, user, binlog
-#define OPTION_FOUND_COMMENT    (1ULL << 15)    // SELECT, intern, parser
+#define OPTION_NO_CHECK_CONSTRAINT_CHECKS  (1ULL << 14)
 #define OPTION_SAFE_UPDATES     (1ULL << 16)    // THD, user
 #define OPTION_BUFFER_RESULT    (1ULL << 17)    // SELECT, user
 #define OPTION_BIN_LOG          (1ULL << 18)    // THD, user
@@ -154,41 +182,8 @@
 */
 #define OPTION_ALLOW_BATCH              (1ULL << 36) // THD, intern (slave)
 #define OPTION_SKIP_REPLICATION         (1ULL << 37) // THD, user
-
-/*
-  Check how many bytes are available on buffer.
-
-  @param buf_start    Pointer to buffer start.
-  @param buf_current  Pointer to the current position on buffer.
-  @param buf_len      Buffer length.
-
-  @return             Number of bytes available on event buffer.
-*/
-template <class T> T available_buffer(const char* buf_start,
-                                      const char* buf_current,
-                                      T buf_len)
-{
-  return buf_len - (buf_current - buf_start);
-}
-
-/*
-  Check if jump value is within buffer limits.
-
-  @param jump         Number of positions we want to advance.
-  @param buf_start    Pointer to buffer start
-  @param buf_current  Pointer to the current position on buffer.
-  @param buf_len      Buffer length.
-
-  @return      True   If jump value is within buffer limits.
-               False  Otherwise.
-*/
-template <class T> bool valid_buffer_range(T jump,
-                                           const char* buf_start,
-                                           const char* buf_current,
-                                           T buf_len)
-{
-  return (jump <= available_buffer(buf_start, buf_current, buf_len));
-}
+#define OPTION_RPL_SKIP_PARALLEL        (1ULL << 38)
+#define OPTION_FOUND_COMMENT            (1ULL << 39) // SELECT, intern, parser
 
 /* The rest of the file is included in the server only */
 #ifndef MYSQL_CLIENT
@@ -230,7 +225,8 @@ template <class T> bool valid_buffer_range(T jump,
 #define OPTIMIZER_SWITCH_TABLE_ELIMINATION         (1ULL << 26)
 #define OPTIMIZER_SWITCH_EXTENDED_KEYS             (1ULL << 27)
 #define OPTIMIZER_SWITCH_EXISTS_TO_IN              (1ULL << 28)
-#define OPTIMIZER_SWITCH_USE_CONDITION_SELECTIVITY (1ULL << 29)
+#define OPTIMIZER_SWITCH_ORDERBY_EQ_PROP           (1ULL << 29)
+#define OPTIMIZER_SWITCH_COND_PUSHDOWN_FOR_DERIVED (1ULL << 30)
 
 #define OPTIMIZER_SWITCH_DEFAULT   (OPTIMIZER_SWITCH_INDEX_MERGE | \
                                     OPTIMIZER_SWITCH_INDEX_MERGE_UNION | \
@@ -254,7 +250,9 @@ template <class T> bool valid_buffer_range(T jump,
                                     OPTIMIZER_SWITCH_SEMIJOIN | \
                                     OPTIMIZER_SWITCH_FIRSTMATCH | \
                                     OPTIMIZER_SWITCH_LOOSE_SCAN | \
-                                    OPTIMIZER_SWITCH_EXISTS_TO_IN)
+                                    OPTIMIZER_SWITCH_EXISTS_TO_IN | \
+                                    OPTIMIZER_SWITCH_ORDERBY_EQ_PROP | \
+                                    OPTIMIZER_SWITCH_COND_PUSHDOWN_FOR_DERIVED)
 /*
   Replication uses 8 bytes to store SQL_MODE in the binary log. The day you
   use strictly more than 64 bits by adding one more define above, you should
@@ -326,11 +324,11 @@ template <class T> bool valid_buffer_range(T jump,
 /* Used to check GROUP BY list in the MODE_ONLY_FULL_GROUP_BY mode */
 #define UNDEF_POS (-1)
 
+#endif /* !MYSQL_CLIENT */
+
 /* BINLOG_DUMP options */
 
 #define BINLOG_DUMP_NON_BLOCK   1
-#endif /* !MYSQL_CLIENT */
-
 #define BINLOG_SEND_ANNOTATE_ROWS_EVENT   2
 
 #ifndef MYSQL_CLIENT
@@ -350,14 +348,10 @@ enum enum_parsing_place
   IN_WHERE,
   IN_ON,
   IN_GROUP_BY,
+  IN_ORDER_BY,
   PARSING_PLACE_SIZE /* always should be the last */
 };
 
-
-enum enum_var_type
-{
-  OPT_DEFAULT= 0, OPT_SESSION, OPT_GLOBAL
-};
 
 class sys_var;
 

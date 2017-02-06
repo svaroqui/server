@@ -1,3 +1,4 @@
+--source include/have_perfschema.inc
 --source include/word_size.inc
 --vertical_results
 
@@ -21,14 +22,16 @@ select * from information_schema.system_variables
           'have_openssl',
           'have_symlink',
           'hostname',
-          'large_files_support',
+          'large_files_support', 'log_tc_size',
           'lower_case_file_system',
           'lower_case_table_names',
           'open_files_limit',
+          'rand_seed1',
+          'rand_seed2',
           'system_time_zone',
           'version_comment',
           'version_compile_machine', 'version_compile_os',
-          'version_malloc_library', 'version'
+          'version_malloc_library', 'version_ssl_library', 'version'
         )
   order by variable_name;
 
@@ -46,10 +49,21 @@ select VARIABLE_NAME, VARIABLE_SCOPE, VARIABLE_TYPE, VARIABLE_COMMENT,
           'lower_case_file_system',
           'lower_case_table_names',
           'open_files_limit',
+          'rand_seed1',
+          'rand_seed2',
           'system_time_zone',
           'version_comment',
           'version_compile_machine', 'version_compile_os',
-          'version_malloc_library', 'version'
+          'version_malloc_library', 'version_ssl_library', 'version'
+        )
+  order by variable_name;
+
+# yet less data: no values, no blocks size, no min/max value.
+select VARIABLE_NAME, GLOBAL_VALUE_ORIGIN, VARIABLE_SCOPE, VARIABLE_TYPE,
+       VARIABLE_COMMENT, ENUM_VALUE_LIST, READ_ONLY, COMMAND_LINE_ARGUMENT
+  from information_schema.system_variables
+  where variable_name in (
+          'log_tc_size'
         )
   order by variable_name;
 

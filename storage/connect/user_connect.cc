@@ -1,4 +1,4 @@
-/* Copyright (C) Olivier Bertrand 2004 - 2014
+/* Copyright (C) Olivier Bertrand 2004 - 2015
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 */
 
 /****************************************************************************/
-/*  Author: Olivier Bertrand  --  bertrandop@gmail.com  --  2004-2014       */
+/*  Author: Olivier Bertrand  --  bertrandop@gmail.com  --  2004-2015       */
 /****************************************************************************/
 #ifdef USE_PRAGMA_IMPLEMENTATION
 #pragma implementation        // gcc: Class implementation
@@ -47,20 +47,23 @@
 #include "user_connect.h"
 #include "mycat.h"
 
-extern "C" int trace;
-extern    uint worksize;
-
 /****************************************************************************/
 /*  Initialize the user_connect static member.                              */
 /****************************************************************************/
 PCONNECT user_connect::to_users= NULL;
+
+/****************************************************************************/
+/*  Get the work_size SESSION variable value .                              */
+/****************************************************************************/
+uint GetWorkSize(void);
+void SetWorkSize(uint);
 
 /* -------------------------- class user_connect -------------------------- */
 
 /****************************************************************************/
 /*  Constructor.                                                            */
 /****************************************************************************/
-user_connect::user_connect(THD *thd, const char *dbn)
+user_connect::user_connect(THD *thd)
 {
   thdp= thd;
   next= NULL;
@@ -91,6 +94,7 @@ user_connect::~user_connect()
 bool user_connect::user_init()
 {
   // Initialize Plug-like environment
+  uint      worksize= GetWorkSize();
   PACTIVITY ap= NULL;
   PDBUSER   dup= NULL;
 
@@ -143,6 +147,8 @@ void user_connect::SetHandler(ha_connect *hc)
 bool user_connect::CheckCleanup(void)
 {
   if (thdp->query_id > last_query_id) {
+    uint worksize= GetWorkSize();
+
     PlugCleanup(g, true);
 
     if (g->Sarea_Size != worksize) {
@@ -152,7 +158,7 @@ bool user_connect::CheckCleanup(void)
       // Check whether the work area size was changed
       if (!(g->Sarea = PlugAllocMem(g, worksize))) {
         g->Sarea = PlugAllocMem(g, g->Sarea_Size);
-        worksize = g->Sarea_Size;         // Was too big
+        SetWorkSize(g->Sarea_Size);       // Was too big
       } else
         g->Sarea_Size = worksize;         // Ok
 

@@ -67,7 +67,7 @@ drop table `txu@0023p@0023p1`;
 # check the table created using mysql 4.0
 CHECK TABLE t1;
 Table	Op	Msg_type	Msg_text
-test.t1	check	error	Table upgrade required. Please do "REPAIR TABLE `t1`" or dump/reload to fix it!
+test.t1	check	error	Upgrade required. Please do "REPAIR TABLE `t1`" or dump/reload to fix it!
 # query the table created using mysql 4.0
 SELECT * FROM t1;
 c1	c2	c3
@@ -110,7 +110,7 @@ Database (%a-b-c%)
 a-b-c
 show create view `a-b-c`.v1;
 View	Create View	character_set_client	collation_connection
-v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `a`.`f1` AS `f1` from (`a-b-c`.`t1` `a` join `information_schema`.`tables` `b`) where (convert(`a`.`f1` using utf8) = `b`.`TABLE_NAME`)	utf8	utf8_general_ci
+v1	CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `v1` AS select `a`.`f1` AS `f1` from (`a-b-c`.`t1` `a` join `information_schema`.`tables` `b`) where convert(`a`.`f1` using utf8) = `b`.`TABLE_NAME`	utf8	utf8_general_ci
 select * from `a-b-c`.v1;
 f1
 drop database `a-b-c`;
