@@ -1,469 +1,438 @@
-# Copyright (c) 2006, 2014, Oracle and/or its affiliates.
-# Copyright (c) 2008, 2014, Monty Program Ab
-# 
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; version 2 of the License.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+# CMakeLists.txt
 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8.3)
+# This is the LGPL libmariadb project.
 
-# explicitly set the policy to OLD
-# (cannot use NEW, not everyone is on cmake-2.8.12 yet)
-IF(POLICY CMP0022)
-  CMAKE_POLICY(SET CMP0022 OLD)
-ENDIF()
+CMAKE_MINIMUM_REQUIRED(VERSION 2.8 FATAL_ERROR)
 
-# We use the LOCATION target property (CMP0026)
-# and get_target_property() for non-existent targets (CMP0045)
-# and INSTALL_NAME_DIR (CMP0042)
-IF(CMAKE_VERSION VERSION_EQUAL "3.0.0" OR
-   CMAKE_VERSION VERSION_GREATER "3.0.0")
- CMAKE_POLICY(SET CMP0026 OLD)
- CMAKE_POLICY(SET CMP0045 OLD)
- CMAKE_POLICY(SET CMP0042 OLD)
-ENDIF()
-IF(POLICY CMP0054)
-  CMAKE_POLICY(SET CMP0054 NEW)
-ENDIF()
-
-MESSAGE(STATUS "Running cmake version ${CMAKE_VERSION}")
-
-SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake)
-
-# Use a default manufacturer if no manufacturer was identified.
-IF(NOT DEFINED MANUFACTURER) 
-  SET(MANUFACTURER "Built from Source" CACHE  STRING
-     "Set the entity that appears as the manufacturer of packages that support a manufacturer field.")
-  MARK_AS_ADVANCED(MANUFACTURER)
-ENDIF()
-
-SET(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING
-   "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel")
-
-# MAX_INDEXES - Set the maximum number of indexes per table, default 64U
-IF (NOT MAX_INDEXES)
-  SET(MAX_INDEXES 64U)
-ENDIF(NOT MAX_INDEXES)
-
-IF (${MAX_INDEXES} GREATER 128)
-  MESSAGE(FATAL_ERROR "MAX_INDEXES values greater than 128 is not supported!")
-ENDIF()
-
-IF(UNIX AND NOT APPLE)
-  # Note, that generally one should not change settings depending
-  # on CMAKE_BUILD_TYPE, because VS and Xcode configure once (with
-  # the empty CMAKE_BUILD_TYPE) and the build many times for
-  # different build types without re-running cmake!
-  # But we only care about WITH_PIC on Unix, where the check for
-  # CMAKE_BUILD_TYPE hapen to work.
-  IF (CMAKE_BUILD_TYPE MATCHES "Debug")
-    SET(WITH_PIC_DEFAULT ON)
-  ELSE()
-    SET(WITH_PIC_DEFAULT OFF)
-  ENDIF()
-  # Compiling with PIC speeds up embedded build, on PIC sensitive systems 
-  # Predefine it to OFF in release builds, because of the performance penalty
-  SET(WITH_PIC ${WITH_PIC_DEFAULT} CACHE BOOL "Compile with PIC.")
-  MARK_AS_ADVANCED(WITH_PIC)
-ENDIF()
-
-# Optionally set project name, e.g.
-# foo.xcodeproj (mac) or foo.sln (windows)
-SET(MYSQL_PROJECT_NAME_DOCSTRING "MySQL project name")
-IF(DEFINED MYSQL_PROJECT_NAME)
-  SET(MYSQL_PROJECT_NAME ${MYSQL_PROJECT_NAME} CACHE STRING
-      ${MYSQL_PROJECT_NAME_DOCSTRING} FORCE)
-ELSE()
-  SET(MYSQL_PROJECT_NAME "MySQL" CACHE STRING
-      ${MYSQL_PROJECT_NAME_DOCSTRING} FORCE)
-  MARK_AS_ADVANCED(MYSQL_PROJECT_NAME)
-ENDIF()
-PROJECT(${MYSQL_PROJECT_NAME})
-
-SET(CPACK_PACKAGE_NAME "MariaDB")
-SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MariaDB: a very fast and robust SQL database server")
-SET(CPACK_PACKAGE_URL "http://mariadb.org")
-
-IF(BUILD_CONFIG)
-  INCLUDE(
-  ${CMAKE_SOURCE_DIR}/cmake/build_configurations/${BUILD_CONFIG}.cmake)
-ENDIF()
-
-# Include the platform-specific file. To allow exceptions, this code
-# looks for files in order of how specific they are. If there is, for
-# example, a generic Linux.cmake and a version-specific
-# Linux-2.6.28-11-generic, it will pick Linux-2.6.28-11-generic and
-# include it. It is then up to the file writer to include the generic
-# version if necessary.
-FOREACH(_base
-    ${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_VERSION}-${CMAKE_SYSTEM_PROCESSOR}
-    ${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_VERSION}
-    ${CMAKE_SYSTEM_NAME})
-  SET(_file ${CMAKE_SOURCE_DIR}/cmake/os/${_base}.cmake)
-  IF(EXISTS ${_file})
-    INCLUDE(${_file})
-    BREAK()
-  ENDIF()
-ENDFOREACH()
-
-FOREACH(tool gtar tar git)
- STRING(TOUPPER ${tool}  TOOL)
- FIND_PROGRAM(${TOOL}_EXECUTABLE ${tool} DOC "path to the executable")
- MARK_AS_ADVANCED(${TOOL}_EXECUTABLE)
-ENDFOREACH()
-
-# Following autotools tradition, add preprocessor definitions
-# specified in environment variable CPPFLAGS
-IF(DEFINED ENV{CPPFLAGS})
-  ADD_DEFINITIONS($ENV{CPPFLAGS})
-ENDIF()
-
-SET(MYSQL_MAINTAINER_MODE "AUTO" CACHE STRING "MySQL maintainer-specific development environment. Options are: ON OFF AUTO.")
-
-# Packaging
-IF (NOT CPACK_GENERATOR)
-  IF(WIN32)
-    SET(CPACK_GENERATOR "ZIP")
-  ELSE()
-    SET(CPACK_GENERATOR "TGZ")
-  ENDIF(WIN32) 
-ENDIF(NOT CPACK_GENERATOR)
-
-INCLUDE(misc)
-INCLUDE(mysql_version)
-INCLUDE(cpack_source_ignore_files)
-INCLUDE(install_layout)
-INCLUDE(wsrep)
-INCLUDE(cpack_rpm)
-INCLUDE(cpack_deb)
-
-# Add macros
-INCLUDE(character_sets)
-INCLUDE(cpu_info)
-INCLUDE(zlib)
-INCLUDE(ssl)
-INCLUDE(readline)
-INCLUDE(libutils)
-INCLUDE(dtrace)
-INCLUDE(jemalloc)
-INCLUDE(pcre)
-INCLUDE(ctest)
-INCLUDE(plugin)
-INCLUDE(install_macros)
-INCLUDE(systemd)
-INCLUDE(mysql_add_executable)
-INCLUDE(crc32-vpmsum)
-
-# Handle options
-OPTION(DISABLE_SHARED 
- "Don't build shared libraries, compile code as position-dependent" OFF)
-IF(DISABLE_SHARED)
-  SET(WITHOUT_DYNAMIC_PLUGINS 1)
-ENDIF()
-OPTION(ENABLED_PROFILING "Enable profiling" ON)
-OPTION(WITHOUT_SERVER "Build only the client library and clients" OFF)
-IF(UNIX)
-  OPTION(WITH_VALGRIND "Valgrind instrumentation" OFF)
-ENDIF()
-OPTION (WITH_UNIT_TESTS "Compile MySQL with unit tests" ON)
-
-OPTION(NOT_FOR_DISTRIBUTION "Allow linking with GPLv2-incompatible system libraries. Only set it you never plan to distribute the resulting binaries" OFF)
-
-INCLUDE(check_compiler_flag)
-
-OPTION(WITH_ASAN "Enable address sanitizer" OFF)
-IF (WITH_ASAN)
-  # gcc 4.8.1 and new versions of clang
-  MY_CHECK_AND_SET_COMPILER_FLAG("-fsanitize=address -O1 -Wno-error -fPIC"
-    DEBUG RELWITHDEBINFO)
-  SET(HAVE_C_FSANITIZE ${HAVE_C__fsanitize_address__O1__Wno_error__fPIC})
-  SET(HAVE_CXX_FSANITIZE ${HAVE_CXX__fsanitize_address__O1__Wno_error__fPIC})
-  IF(HAVE_C_FSANITIZE AND HAVE_CXX_FSANITIZE)
-    SET(WITH_ASAN_OK 1)
-  ELSE()
-    # older versions of clang
-    MY_CHECK_AND_SET_COMPILER_FLAG("-faddress-sanitizer -O1 -fPIC"
-      DEBUG RELWITHDEBINFO)
-    SET(HAVE_C_FADDRESS ${HAVE_C__faddress_sanitizer__O1__fPIC})
-    SET(HAVE_CXX_FADDRESS ${HAVE_CXX__faddress_sanitizer__O1__fPIC})
-    IF(HAVE_C_FADDRESS AND HAVE_CXX_FADDRESS)
-      SET(WITH_ASAN_OK 1)
-    ENDIF()
-  ENDIF()
-
-  IF(NOT WITH_ASAN_OK)
-    MESSAGE(FATAL_ERROR "Do not know how to enable address sanitizer")
-  ENDIF()
-ENDIF()
-
-# enable security hardening features, like most distributions do
-# in our benchmarks that costs about ~1% of performance, depending on the load
-IF(CMAKE_C_COMPILER_VERSION VERSION_LESS "4.6")
-  SET(security_default OFF)
-ELSE()
-  SET(security_default ON)
-ENDIF()
-OPTION(SECURITY_HARDENED "Use security-enhancing compiler features (stack protector, relro, etc)" ${security_default})
-IF(SECURITY_HARDENED)
-  # security-enhancing flags
-  MY_CHECK_AND_SET_COMPILER_FLAG("-pie -fPIC")
-  MY_CHECK_AND_SET_COMPILER_FLAG("-Wl,-z,relro,-z,now")
-  MY_CHECK_AND_SET_COMPILER_FLAG("-fstack-protector --param=ssp-buffer-size=4")
-  MY_CHECK_AND_SET_COMPILER_FLAG("-D_FORTIFY_SOURCE=2" RELEASE RELWITHDEBINFO)
-ENDIF()
-
-OPTION(ENABLE_DEBUG_SYNC "Enable debug sync (debug builds only)" ON) 
-IF(ENABLE_DEBUG_SYNC) 
-  SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DENABLED_DEBUG_SYNC") 
-  SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DENABLED_DEBUG_SYNC") 
-ENDIF() 
- 
-OPTION(ENABLE_GCOV "Enable gcov (debug, Linux builds only)" OFF)
-IF (ENABLE_GCOV)
-  MY_CHECK_AND_SET_COMPILER_FLAG("-fprofile-arcs -ftest-coverage -lgcov" DEBUG)
-ENDIF()
-
-MY_CHECK_AND_SET_COMPILER_FLAG(-ggdb3 DEBUG)
-
-OPTION(ENABLED_LOCAL_INFILE
- "If we should should enable LOAD DATA LOCAL by default" ${IF_WIN})
-
-OPTION(WITH_INNODB_DISALLOW_WRITES "InnoDB freeze writes patch from Google" ${WITH_WSREP})
-IF (WITH_INNODB_DISALLOW_WRITES)
-  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWITH_INNODB_DISALLOW_WRITES")
-  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWITH_INNODB_DISALLOW_WRITES")
-ENDIF()
-
-# Set DBUG_OFF and other optional release-only flags for non-debug project types
-FOREACH(BUILD_TYPE RELEASE RELWITHDEBINFO MINSIZEREL)
-  FOREACH(LANG C CXX)
-    IF (NOT CMAKE_${LANG}_FLAGS_${BUILD_TYPE} MATCHES "DDBUG_" AND
-        NOT CMAKE_${LANG}_FLAGS MATCHES "DDBUG_")
-      SET(CMAKE_${LANG}_FLAGS_${BUILD_TYPE} 
-       "${CMAKE_${LANG}_FLAGS_${BUILD_TYPE}} -DDBUG_OFF")
-    ENDIF()
-  ENDFOREACH()
-ENDFOREACH()
-
-# Add safemutex for debug configurations, except on Windows
-# (safemutex has never worked on Windows)
-IF(NOT WIN32 AND NOT WITH_INNODB_MEMCACHED)
-  FOREACH(LANG C CXX)
-      SET(CMAKE_${LANG}_FLAGS_DEBUG "${CMAKE_${LANG}_FLAGS_DEBUG} -DSAFE_MUTEX")
+IF(COMMAND CMAKE_POLICY)
+  SET(OLD_POLICIES CMP0026 CMP0042 CMP0045)
+  SET(NEW_POLICIES CMP0003 CMP0022 CMP0023)
+  FOREACH(TYPE OLD NEW)
+    FOREACH(P ${${TYPE}_POLICIES})
+      IF(POLICY ${P})
+        CMAKE_POLICY(SET ${P} ${TYPE})
+      ENDIF()
+    ENDFOREACH()   
   ENDFOREACH()
 ENDIF()
 
-# safemalloc can be enabled and disabled independently
-SET(WITH_SAFEMALLOC "AUTO" CACHE STRING "Use safemalloc memory debugger. Will result in slower execution. Options are: ON OFF AUTO.")
 
-IF(WITH_SAFEMALLOC MATCHES "ON")
-  ADD_DEFINITIONS( -DSAFEMALLOC)
-ELSEIF(WITH_SAFEMALLOC MATCHES "AUTO" AND NOT WIN32 AND NOT WITH_VALGRIND)
-  SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DSAFEMALLOC")
-  SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DSAFEMALLOC")
+PROJECT(mariadb-connector-c C)
+
+# Is C/C built as subproject?
+get_directory_property(IS_SUBPROJECT PARENT_DIRECTORY)
+
+# do not inherit include directories from the parent project
+SET_PROPERTY(DIRECTORY PROPERTY INCLUDE_DIRECTORIES)
+FOREACH(V WITH_MYSQLCOMPAT WITH_MSI WITH_SIGNCODE WITH_RTC WITH_UNITTEST
+    WITH_DYNCOL WITH_EXTERNAL_ZLIB WITH_CURL WITH_SQLITE WITH_SSL
+    INSTALL_LAYOUT WITH_TEST_SRCPKG)
+  SET(${V} ${${OPT}${V}})
+ENDFOREACH()
+
+SET(PACKAGE_STATUS_SUFFIX "beta")
+
+SET(CC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+SET(CC_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
+SET(CPACK_PACKAGE_VERSION_MAJOR 3)
+SET(CPACK_PACKAGE_VERSION_MINOR 1)
+SET(CPACK_PACKAGE_VERSION_PATCH 0)
+SET(CPACK_PACKAGE_VERSION "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
+
+MACRO(ADD_OPTION _name _text _default)
+  IF(NOT DEFINED ${_name})
+    SET(${_name} ${_default})
+  ENDIF()
+  OPTION(${OPT}${_name} "${_text}" "${${_name}}")
+ENDMACRO()
+
+### Options ###
+IF(NOT WIN32)
+  ADD_OPTION(WITH_MYSQLCOMPAT "creates libmysql* symbolic links" ON)
+ELSE()
+  ADD_OPTION(WITH_MSI "Build MSI installation package" OFF)
+  ADD_OPTION(WITH_SIGNCODE "digitally sign files" OFF)
+  ADD_OPTION(WITH_RTC "enables run time checks for debug builds" OFF)
 ENDIF()
 
-# Set commonly used variables
+ADD_OPTION(WITH_UNITTEST "build test suite" ON)
+ADD_OPTION(WITH_DYNCOL "Enables support of dynamic coluumns" ON)
+ADD_OPTION(WITH_EXTERNAL_ZLIB "Enables use of external zlib" OFF)
+ADD_OPTION(WITH_CURL "Enables use of curl" ON)
+ADD_OPTION(WITH_SQLITE "Experimental" OFF)
+MARK_AS_ADVANCED(${OPT}WITH_SQLITE)
+###############
+
+INCLUDE(${CC_SOURCE_DIR}/cmake/misc.cmake)
+
+IF (WITH_CURL)
+  INCLUDE(FindCURL)
+  IF(CURL_FOUND)
+    ADD_DEFINITIONS(-DHAVE_CURL=1)
+  ENDIF()
+ENDIF()
+
+IF(WITH_SIGNCODE)
+  IF(WIN32 AND NOT SIGN_OPTIONS)
+    SET(SIGN_OPTIONS /a /t http://timestamp.verisign.com/scripts/timstamp.dll)
+  ENDIF()
+  MARK_AS_ADVANCED(SIGN_OPTIONS)
+ENDIF()
+
+SET(MARIADB_CONNECTOR_C_COPYRIGHT "2013-2016 MariaDB Corporation Ab")
+
+IF(WITH_RTC)
+  SET(RTC_OPTIONS "/RTC1 /RTCc")
+ENDIF()
+
+IF(NOT WIN32)
+  INCLUDE(${CC_SOURCE_DIR}/cmake/FindGSSAPI.cmake)
+  IF(GSSAPI_FOUND)
+    INCLUDE_DIRECTORIES(${GSSAPI_INCS})
+  ENDIF()
+ENDIF()
+
+INCLUDE(${CC_SOURCE_DIR}/cmake/plugins.cmake)
+
+IF(AUTH_GSSAPI_PLUGIN_TYPE MATCHES "STATIC")
+  SET(SYSTEM_LIBS ${SYSTEM_LIBS} ${GSSAPI_LIBS})
+ENDIF()
+
+
 IF(WIN32)
-  SET(DEFAULT_MYSQL_HOME "C:/Program Files/MariaDB ${MYSQL_BASE_VERSION}")
-  SET(SHAREDIR share)
-ELSE()
-  SET(DEFAULT_MYSQL_HOME ${CMAKE_INSTALL_PREFIX})
-  SET(SHAREDIR ${INSTALL_MYSQLSHAREDIRABS})
+  FILE(REMOVE ${CC_BINARY_DIR}/win/packaging/plugin.conf)
+  INCLUDE(${CC_SOURCE_DIR}/cmake/version_info.cmake)
 ENDIF()
 
-SET(DEFAULT_BASEDIR "${DEFAULT_MYSQL_HOME}")
-IF(INSTALL_MYSQLDATADIR MATCHES "^/.*")
-  SET(MYSQL_DATADIR ${INSTALL_MYSQLDATADIR} CACHE PATH "default MySQL data directory")
-ELSE()
-  SET(MYSQL_DATADIR "${DEFAULT_MYSQL_HOME}/${INSTALL_MYSQLDATADIR}" CACHE PATH "default MySQL data directory")
-ENDIF()
-SET(DEFAULT_CHARSET_HOME "${DEFAULT_MYSQL_HOME}")
-SET(PLUGINDIR "${DEFAULT_MYSQL_HOME}/${INSTALL_PLUGINDIR}")
-IF(INSTALL_SYSCONFDIR AND NOT DEFAULT_SYSCONFDIR)
-  SET(DEFAULT_SYSCONFDIR "${INSTALL_SYSCONFDIR}")
-ENDIF()
-
-SET(TMPDIR ""
-  CACHE PATH
-  "PATH to MySQL TMP dir. Defaults to the P_tmpdir macro in <stdio.h>")
-IF(TMPDIR STREQUAL "")
-  # Do not quote it, to refer to the P_tmpdir macro.
-  SET(DEFAULT_TMPDIR "P_tmpdir")
-ELSE()
-  # Quote it, to make it a const char string.
-  SET(DEFAULT_TMPDIR "\"${TMPDIR}\"")
-ENDIF()
-
-# Run platform tests
-INCLUDE(configure.cmake)
-
-# force -DUSE_MYSYS_NEW unless already done by HAVE_CXX_NEW
-IF(NOT HAVE_CXX_NEW)
-  ADD_DEFINITIONS(-DUSE_MYSYS_NEW)
-ENDIF()
-
-# Find header files from the bundled libraries
-# (jemalloc, yassl, readline, pcre, etc)
-# before the ones installed in the system
-SET(CMAKE_INCLUDE_DIRECTORIES_PROJECT_BEFORE ON)
-
-# Common defines and includes
-ADD_DEFINITIONS(-DHAVE_CONFIG_H)
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}/include)
-
-# Add bundled or system zlib.
-MYSQL_CHECK_ZLIB_WITH_COMPRESS()
-# Add bundled yassl/taocrypt or system openssl.
-MYSQL_CHECK_SSL()
-# Add readline or libedit.
-MYSQL_CHECK_READLINE()
-
-SET(MALLOC_LIBRARY "system")
-CHECK_JEMALLOC()
-
-CHECK_PCRE()
-
-CHECK_SYSTEMD()
-
-IF(CMAKE_CROSSCOMPILING)
-  SET(IMPORT_EXECUTABLES "IMPORTFILE-NOTFOUND" CACHE FILEPATH "Path to import_executables.cmake from a native build")
-  INCLUDE(${IMPORT_EXECUTABLES})
-ENDIF()
-
-#
-# Setup maintainer mode options. Platform checks are
-# not run with the warning options as to not perturb fragile checks
-# (i.e. do not make warnings into errors).
-# We have to add MAINTAINER_C_WARNINGS first to ensure that the flags
-# given by the invoking user are honored
-#
-INCLUDE(maintainer)
-
-IF(WITH_UNIT_TESTS)
- ENABLE_TESTING()
- ADD_SUBDIRECTORY(unittest/mytap)
- ADD_SUBDIRECTORY(unittest/strings)
- ADD_SUBDIRECTORY(unittest/examples)
- ADD_SUBDIRECTORY(unittest/mysys)
- ADD_SUBDIRECTORY(unittest/my_decimal)
- ADD_SUBDIRECTORY(unittest/json_lib)
- IF(NOT WITHOUT_SERVER)
-   ADD_SUBDIRECTORY(unittest/sql)
- ENDIF()
-ENDIF()
-
-SET (MYSQLD_STATIC_PLUGIN_LIBS "" CACHE INTERNAL "")
-# Add storage engines and plugins.
-CONFIGURE_PLUGINS()
-
-ADD_SUBDIRECTORY(include)
-ADD_SUBDIRECTORY(dbug)
-ADD_SUBDIRECTORY(strings)
-ADD_SUBDIRECTORY(vio)
-ADD_SUBDIRECTORY(mysys)
-ADD_SUBDIRECTORY(mysys_ssl)
-INCLUDE(mariadb_connector_c) # this does ADD_SUBDIRECTORY(libmariadb)
-ADD_SUBDIRECTORY(client)
-ADD_SUBDIRECTORY(extra)
-ADD_SUBDIRECTORY(libservices)
-ADD_SUBDIRECTORY(sql/share)
-
-IF(NOT WITHOUT_SERVER)
-  ADD_SUBDIRECTORY(tests)
-  ADD_SUBDIRECTORY(sql)
-  OPTION (WITH_EMBEDDED_SERVER "Compile MySQL with embedded server" OFF)
-  IF(WITH_EMBEDDED_SERVER) 
-   ADD_SUBDIRECTORY(libmysqld)
-   ADD_SUBDIRECTORY(libmysqld/examples)
-  ENDIF(WITH_EMBEDDED_SERVER)
-
-  IF(WITH_WSREP)
-    ADD_SUBDIRECTORY(wsrep)
+IF(NOT IS_SUBPROJECT)
+IF(MSVC)
+  # Speedup system tests
+  INCLUDE(${CC_SOURCE_DIR}/cmake/WindowsCache.cmake)
+  IF (MSVC)
+    SET(CONFIG_TYPES "DEBUG" "RELEASE" "RELWITHDEBINFO")
+    FOREACH(BUILD_TYPE ${CONFIG_TYPES})
+      FOREACH(COMPILER CXX C)
+        SET(COMPILER_FLAGS "${CMAKE_${COMPILER}_FLAGS_${BUILD_TYPE}}")
+        IF (NOT COMPILER_FLAGS STREQUAL "")
+          STRING(REPLACE "/MD" "/MT" COMPILER_FLAGS ${COMPILER_FLAGS})
+          IF (CMAKE_BUILD_TYPE STREQUAL "Debug")
+            SET(COMPILER_FLAGS "${COMPILER_FLAGS} ${RTC_OPTIONS}")
+            STRING(REPLACE "/Zi" "/ZI" COMPILER_FLAGS ${COMPILER_FLAGS})
+          ELSE()
+            STRING(REPLACE "/Zi" "/Z7" COMPILER_FLAGS ${COMPILER_FLAGS})
+          ENDIF()
+          MESSAGE (STATUS "CMAKE_${COMPILER}_FLAGS_${BUILD_TYPE}= ${COMPILER_FLAGS}") 
+          SET(CMAKE_${COMPILER}_FLAGS_${BUILD_TYPE} ${COMPILER_FLAGS})
+        ENDIF()
+      ENDFOREACH()
+    ENDFOREACH()
   ENDIF()
+ENDIF()
+ENDIF(NOT IS_SUBPROJECT)
 
-  ADD_SUBDIRECTORY(mysql-test)
-  ADD_SUBDIRECTORY(mysql-test/lib/My/SafeProcess)
-  ADD_SUBDIRECTORY(sql-bench)
+# Disable dbug information for release builds 
+SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -DDBUG_OFF")
+SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DDBUG_OFF")
+SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} -DDBUG_OFF")
+SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DDBUG_OFF")
+
+IF(CMAKE_COMPILER_IS_GNUCC)
+  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wunused -Wno-uninitialized  -Wall -Wextra -Wformat-security -Wno-init-self -Wwrite-strings -Wdeclaration-after-statement")
+ENDIF()
+
+# If the build type isn't specified, set to Relwithdebinfo as default.
+IF(NOT CMAKE_BUILD_TYPE)
+  SET(CMAKE_BUILD_TYPE "RelWithDebInfo")
+ENDIF()
+
+# various defines for generating include/mysql_version.h
+
+SET(PROTOCOL_VERSION 10) # we adapted new password option from PHP's mysqlnd !
+SET(MARIADB_CLIENT_VERSION_MAJOR "10")
+SET(MARIADB_CLIENT_VERSION_MINOR "1")
+SET(MARIADB_CLIENT_VERSION_PATCH "7")
+SET(MARIADB_CLIENT_VERSION "${MARIADB_CLIENT_VERSION_MAJOR}.${MARIADB_CLIENT_VERSION_MINOR}.${MARIADB_CLIENT_VERSION_PATCH}")
+MATH(EXPR MARIADB_VERSION_ID "${MARIADB_CLIENT_VERSION_MAJOR} * 10000 +
+                              ${MARIADB_CLIENT_VERSION_MINOR} * 100   +
+                              ${MARIADB_CLIENT_VERSION_PATCH}")
+IF (NOT MARIADB_PORT)
+  SET(MARIADB_PORT 3306)
+ENDIF ()
+IF(NOT MARIADB_UNIX_ADDR)
+  SET(MARIADB_UNIX_ADDR "/tmp/mysql.sock")
+ENDIF()
+
+INCLUDE("${CC_SOURCE_DIR}/cmake/install.cmake")
+IF(NOT PLUGINDIR)
+  SET(PLUGINDIR "${INSTALL_PLUGINDIR}")
+ENDIF()
+
+# todo: we don't character sets in share - all is compiled in
+SET(SHAREDIR "share")
+SET(DEFAULT_CHARSET_HOME "${CMAKE_INSTALL_PREFIX}")
+
+INCLUDE(${CC_SOURCE_DIR}/cmake/SearchLibrary.cmake)
+
+IF(WITH_EXTERNAL_ZLIB)
+  FIND_PACKAGE(ZLIB)
+  IF(ZLIB_FOUND)
+    INCLUDE_DIRECTORIES(${ZLIB_INCLUDE_DIR})
+    SET(LIBZ ${ZLIB_LIBRARY})
+  ENDIF()
+ENDIF()
+
+INCLUDE(TestBigEndian)
+TEST_BIG_ENDIAN(HAVE_BIGENDIAN)
+
+IF(UNIX)
+  SEARCH_LIBRARY(LIBDL dlopen "dl")
+  SEARCH_LIBRARY(LIBM floor m)
+  SEARCH_LIBRARY(LIBPTHREAD pthread_getspecific "pthread;pthreads")
+  SEARCH_LIBRARY(LIBNSL gethostbyname_r "nsl_r;nsl")
+  SEARCH_LIBRARY(LIBSOCKET setsockopt socket)
+  FIND_PACKAGE(Threads)
+  SET(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${LIBNSL} ${LIBBIND} ${LIBICONV}
+    ${LIBSOCKET} ${LIBDL} ${LIBM} ${LIBPTHREAD})
+  SET(SYSTEM_LIBS ${LIBNSL} ${LIBBIND} ${LIBICONV}
+    ${LIBSOCKET} ${LIBDL} ${LIBM} ${LIBPTHREAD})
+  MESSAGE1(SYSTEM_LIBS "SYSTEM_LIBS ${SYSTEM_LIBS}")
+  #remove possible dups from required libraries
+  LIST(LENGTH CMAKE_REQUIRED_LIBRARIES rllength)
+  IF(${rllength} GREATER 0)
+    LIST(REMOVE_DUPLICATES CMAKE_REQUIRED_LIBRARIES)
+  ENDIF()
+ENDIF()
+
+
+IF(CMAKE_HAVE_PTHREAD_H)
+  SET(CMAKE_REQUIRED_INCLUDES pthread.h)
+ENDIF()
+
+IF(DBUG_OFF)
+  ADD_DEFINITIONS(-DDBUG_OFF=1)
+ENDIF()
+
+IF(WIN32)
+  SET(HAVE_THREADS 1)
+  ADD_DEFINITIONS(-DHAVE_DLOPEN)
+  ADD_DEFINITIONS(-D_CRT_SECURE_NO_WARNINGS)
+  IF(MSVC)
+     SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4996" )
+  ENDIF()
+ELSEIF()
+  SET(HAVE_THREADS ${CMAKE_USE_PTHREADS})
+ENDIF()
+
+# check for various include files
+INCLUDE(${CC_SOURCE_DIR}/cmake/CheckIncludeFiles.cmake)
+# check for various functions
+INCLUDE(${CC_SOURCE_DIR}/cmake/CheckFunctions.cmake)
+# check for various types
+INCLUDE(${CC_SOURCE_DIR}/cmake/CheckTypes.cmake)
+
+IF(NOT WITH_SSL OR WITH_SSL STREQUAL "OFF")
   IF(WIN32)
-    ADD_SUBDIRECTORY(win/upgrade_wizard)
-    ADD_SUBDIRECTORY(win/packaging)
+    SET(WITH_SSL "SCHANNEL")
+  ELSE()
+    SET(WITH_SSL "OPENSSL")
   ENDIF()
 ENDIF()
 
-IF(UNIX)
-  ADD_SUBDIRECTORY(man)
-ENDIF()
-
-INCLUDE(cmake/abi_check.cmake)
-INCLUDE(cmake/tags.cmake)
-
-
-
-
-INCLUDE(for_clients)
-ADD_SUBDIRECTORY(scripts)
-ADD_SUBDIRECTORY(support-files)
-
-IF(NOT CMAKE_CROSSCOMPILING)
-  SET(EXPORTED comp_err comp_sql factorial)
-  IF(NOT WITHOUT_SERVER)
-    SET(EXPORTED ${EXPORTED} gen_lex_hash gen_lex_token)
+IF(NOT WITH_SSL STREQUAL "OFF")
+  IF(WITH_SSL STREQUAL "OPENSSL")
+    IF (NOT OPENSSL_FOUND)
+      FIND_PACKAGE(OpenSSL)
+    ENDIF()
+    IF(OPENSSL_FOUND)
+      ADD_DEFINITIONS(-DHAVE_OPENSSL -DHAVE_TLS)
+      SET(SSL_SOURCES "${CC_SOURCE_DIR}/libmariadb/secure/openssl.c")
+      SET(SSL_LIBRARIES ${OPENSSL_SSL_LIBRARY} ${OPENSSL_CRYPTO_LIBRARY})
+      INCLUDE_DIRECTORIES(BEFORE ${OPENSSL_INCLUDE_DIR})
+      MESSAGE1(OPENSSL_VERSION "OpenSSL version: ${OPENSSL_VERSION}")
+    ELSE()
+      MESSAGE1(OPENSSL_VERSION "OpenSSL not found")
+    ENDIF()
   ENDIF()
-  # minimal target to build only binaries for export
-  ADD_CUSTOM_TARGET(import_executables DEPENDS ${EXPORTED})
-  EXPORT(TARGETS ${EXPORTED} FILE ${CMAKE_BINARY_DIR}/import_executables.cmake)
+  IF(WITH_SSL STREQUAL "GNUTLS")
+    FIND_PACKAGE(GnuTLS "3.3.24" REQUIRED)
+    IF(GNUTLS_FOUND)
+      ADD_DEFINITIONS(-DHAVE_GNUTLS -DHAVE_TLS)
+      SET(SSL_SOURCES "${CC_SOURCE_DIR}/libmariadb/secure/gnutls.c")
+      SET(SSL_LIBRARIES ${GNUTLS_LIBRARY})
+    ELSE()
+      MESSAGE(FATAL_ERROR "GnuTLS not found")
+    ENDIF()
+  ENDIF()
+  IF(WIN32)
+    IF(WITH_SSL STREQUAL "SCHANNEL")
+      ADD_DEFINITIONS(-DHAVE_SCHANNEL -DHAVE_TLS)
+      SET(SSL_SOURCES "${CC_SOURCE_DIR}/libmariadb/secure/schannel.c" "${CC_SOURCE_DIR}/libmariadb/secure/ma_schannel.c")
+      INCLUDE_DIRECTORIES("${CC_SOURCE_DIR}/plugins/pvio/")
+      SET(SSL_LIBRARIES secur32)
+    ENDIF()
+  ENDIF()
+
+  MARK_AS_ADVANCED(SSL_SOURCES)
 ENDIF()
 
-CONFIGURE_FILE(config.h.cmake   ${CMAKE_BINARY_DIR}/include/my_config.h)
-CONFIGURE_FILE(config.h.cmake   ${CMAKE_BINARY_DIR}/include/config.h)
-CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/include/mysql_version.h.in
-               ${CMAKE_BINARY_DIR}/include/mysql_version.h )
-CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/sql/sql_builtin.cc.in
-    ${CMAKE_BINARY_DIR}/sql/sql_builtin.cc)
-CONFIGURE_FILE(
-    ${CMAKE_SOURCE_DIR}/cmake/info_macros.cmake.in
-    ${CMAKE_BINARY_DIR}/info_macros.cmake @ONLY)
-
-# Handle the "INFO_*" files.
-INCLUDE(${CMAKE_BINARY_DIR}/info_macros.cmake)
-# Source: This can be done during the cmake phase, all information is
-# available, but should be repeated on each "make" just in case someone
-# does "cmake ; make ; git pull ; make".
-CREATE_INFO_SRC(${CMAKE_BINARY_DIR}/Docs)
-ADD_CUSTOM_TARGET(INFO_SRC ALL
-  COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/info_src.cmake
-  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-)
-# Build flags: This must be postponed to the make phase.
-ADD_CUSTOM_TARGET(INFO_BIN ALL
-  COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/info_bin.cmake
-  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-)
-
-INSTALL_DOCUMENTATION(README.md CREDITS COPYING COPYING.LESSER COPYING.thirdparty
-                      EXCEPTIONS-CLIENT COMPONENT Readme)
-# MDEV-6526 these files are not installed anymore
-#INSTALL_DOCUMENTATION(${CMAKE_BINARY_DIR}/Docs/INFO_SRC
-#                      ${CMAKE_BINARY_DIR}/Docs/INFO_BIN)
-
-IF(UNIX)
-  INSTALL_DOCUMENTATION(Docs/INSTALL-BINARY COMPONENT Readme)
-  INSTALL_DOCUMENTATION(Docs/INSTALL-BINARY Docs/README-wsrep COMPONENT Readme)
+IF(NOT WIN32)
+  INCLUDE(${CC_SOURCE_DIR}/cmake/FindIconv.cmake)
 ENDIF()
 
+CONFIGURE_FILE(${CC_SOURCE_DIR}/include/ma_config.h.in
+               ${CC_BINARY_DIR}/include/ma_config.h)
+CONFIGURE_FILE(${CC_SOURCE_DIR}/include/ma_config.h.in
+               ${CC_BINARY_DIR}/include/config.h)
+CONFIGURE_FILE(${CC_SOURCE_DIR}/include/mariadb_version.h.in
+               ${CC_BINARY_DIR}/include/mariadb_version.h)
+
+INCLUDE_DIRECTORIES(${CC_BINARY_DIR}/include)
+
+IF(WIN32)
+  SET(SYSTEM_LIBS ws2_32 advapi32 kernel32)
+ELSE()
+  SET(SYSTEM_LIBS ${LIBPTHREAD} ${LIBDL} ${LIBM})
+  IF(ICONV_EXTERNAL)
+    SET(SYSTEM_LIBS ${SYSTEM_LIBS} ${ICONV_LIBRARIES})
+  ENDIF()
+ENDIF()
+IF(WITH_SSL)
+  SET(SYSTEM_LIBS ${SYSTEM_LIBS} ${SSL_LIBRARIES})
+ENDIF()
+MARK_AS_ADVANCED(SYSTEM_LIBS)
+
+IF(NOT REMOTEIO_PLUGIN_TYPE MATCHES "OFF")
+  IF(CURL_FOUND)
+    INCLUDE_DIRECTORIES(${CURL_INCLUDE_DIRS})
+    IF(REMOTEIO_PLUGIN_TYPE MATCHES "STATIC")
+      SET(SYSTEM_LIBS ${SYSTEM_LIBS} ${CURL_LIBRARIES})
+    ENDIF()
+    ADD_DEFINITIONS("-DHAVE_REMOTEIO=1")
+  ENDIF()
+ENDIF()
+IF(NOT WIN32)
+  IF(NOT AUTH_GSSAPI_PLUGIN_TYPE MATCHES "OFF")
+    INCLUDE(${CC_SOURCE_DIR}/cmake/FindGSSAPI.cmake)
+    IF(GSSAPI_FOUND)
+      INCLUDE_DIRECTORIES(${GSSAPI_INCS})
+      IF(AUTH_GSSAPI_PLUGIN_TYPE MATCHES "STATIC")
+        SET(SYSTEM_LIBS ${SYSTEM_LIBS} ${GSSAPI_LIBS})
+      ENDIF()
+    ENDIF()
+  ENDIF()
+ENDIF()
+ADD_SUBDIRECTORY(include)
+ADD_SUBDIRECTORY(libmariadb)
+ADD_SUBDIRECTORY(plugins)
+IF(NOT WIN32)
+  ADD_SUBDIRECTORY(mariadb_config)
+ENDIF()
+
+IF(IS_DIRECTORY ${CC_SOURCE_DIR}/unittest)
+  IF(WITH_UNITTEST STREQUAL "ON")
+    ADD_SUBDIRECTORY(unittest/mytap)
+    ADD_SUBDIRECTORY(unittest/libmariadb)
+  ENDIF()
+ENDIF()
+
+IF(CLIENT_DOCS)
+  INSTALL(DIRECTORY ${CLIENT_DOCS}
+          DESTINATION ${DOCS_INSTALL_DIR_${INSTALL_LAYOUT}}
+          COMPONENT SharedLibraries)
+ENDIF()
+
+
+IF(WIN32 AND WITH_MSI AND CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+  ADD_SUBDIRECTORY(win/packaging)
+ENDIF()
+
+SET(CPACK_PACKAGE_VENDOR "MariaDB Corporation Ab")
+SET(CPACK_PACKAGE_DESCRIPTION "MariaDB Connector/C. A library for connecting to MariaDB and MySQL servers")
+SET(CPACK_PACKAGE_NAME "mariadb_connector_c")
+STRING(TOLOWER ${CMAKE_SYSTEM_NAME} system_name)
+SET(CPACK_RESOURCE_FILE_LICENSE "${CC_SOURCE_DIR}/COPYING.LIB")
+SET(CPACK_PACKAGE_DESCRIPTION_FILE "${CC_SOURCE_DIR}/README")
+INCLUDE(cmake/ConnectorName.cmake)
+IF(NOT PACKAGE_STATUS_SUFFIX)
+  SET(CPACK_SOURCE_PACKAGE_FILE_NAME "mariadb-connector-c-${CPACK_PACKAGE_VERSION}-src")
+  SET(CPACK_PACKAGE_FILE_NAME "mariadb-connector-c-${CPACK_PACKAGE_VERSION}-${system_name}-${CMAKE_SYSTEM_PROCESSOR}")
+ELSE()
+  SET(CPACK_SOURCE_PACKAGE_FILE_NAME "mariadb-connector-c-${CPACK_PACKAGE_VERSION}-${PACKAGE_STATUS_SUFFIX}-src")
+  SET(CPACK_PACKAGE_FILE_NAME "mariadb-connector-c-${CPACK_PACKAGE_VERSION}-${PACKAGE_STATUS_SUFFIX}-${system_name}-${CMAKE_SYSTEM_PROCESSOR}")
+ENDIF()
+# Build source packages
+IF(GIT_BUILD_SRCPKG)
+  # get branch name
+  EXECUTE_PROCESS(COMMAND git show-branch OUTPUT_VARIABLE git_branch)
+  STRING(REGEX MATCH "\\[([^]]+)\\]" git_branch ${git_branch})
+  STRING(REGEX REPLACE "\\[|\\]" "" GIT_BRANCH ${git_branch})
+  MESSAGE1(GIT_BRANCH "${GIT_BRANCH}")
+  IF(WIN32)
+    EXECUTE_PROCESS(COMMAND git archive ${GIT_BRANCH} --format=zip --prefix=${CPACK_SOURCE_PACKAGE_FILE_NAME}/ --output=${CPACK_SOURCE_PACKAGE_FILE_NAME}.zip)
+  ELSE()
+    EXECUTE_PROCESS(COMMAND git archive ${GIT_BRANCH} --format=zip --prefix=${CPACK_SOURCE_PACKAGE_FILE_NAME}/ --output=${CPACK_SOURCE_PACKAGE_FILE_NAME}.zip)
+    EXECUTE_PROCESS(COMMAND git archive ${GIT_BRANCH} --format=tar --prefix=${CPACK_SOURCE_PACKAGE_FILE_NAME}/ --output=${CPACK_SOURCE_PACKAGE_FILE_NAME}.tar)
+    EXECUTE_PROCESS(COMMAND gzip -9 -f ${CPACK_SOURCE_PACKAGE_FILE_NAME}.tar)
+  ENDIF()
+ENDIF()
+
+SET(CPACK_SOURCE_IGNORE_FILES
+\\\\.git/
+\\\\.gitignore
+\\\\.gitattributes
+CMakeCache\\\\.txt
+cmake_dist\\\\.cmake
+CPackConfig\\\\.cmake
+mariadb_config\\\\.c$
+\\\\.build/
+html/
+unittest
+/cmake_install.cmake
+/CTestTestfile.cmake
+/CPackSourceConfig.cmake
+/CMakeFiles/
+/version_resources/
+/_CPack_Packages/
+\\\\.gz$
+\\\\.zip$
+mariadb_config/mariadb_config$
+/CMakeFiles/
+/version_resources/
+/_CPack_Packages/
+Makefile$
+include/my_config\\\\.h$
+)
+
+IF(WITH_TEST_SRCPKG)
+  SET(PACKAGE_FILE ${CC_SOURCE_DIR}/package.name)
+  FILE(REMOVE ${PACKAGE_FILE})
+  FILE(WRITE ${PACKAGE_FILE} ${CPACK_SOURCE_PACKAGE_FILE_NAME})
+ENDIF()
+
+IF(WIN32)
+  SET(CPACK_GENERATOR "ZIP")
+  SET(CPACK_SOURCE_GENERATOR "ZIP")
+ELSE()
+  SET(CPACK_GENERATOR "TGZ")
+  SET(CPACK_SOURCE_GENERATOR "TGZ")
+ENDIF()
 INCLUDE(CPack)
 
-IF(NON_DISTRIBUTABLE_WARNING)
-  MESSAGE(WARNING "
-You have linked MariaDB with GPLv3 libraries!  You may not distribute the resulting binary. If you do, you will put yourself into a legal problem with Free Software Foundation.")
+IF(WITH_EXTERNAL_ZLIB)
+  SET(zlib_status: ${WITH_EXTERNAL_ZLIB})
+ELSE()
+  SET(zlib_status: "yes (using bundled zlib")
 ENDIF()
+
+MESSAGE1(STATUS "MariaDB Connector/c configuration:
+-- CPack generation: ${CPACK_GENERATOR}
+-- SSL support: ${WITH_SSL} Libs: ${SSL_LIBRARIES}
+-- Experimental Sqlite support: ${WITH_SQLITE}
+-- Zlib support: ${zlib_status}
+-- Installation layout: ${INSTALL_LAYOUT}
+-- Include files will be installed in ${INSTALL_INCLUDEDIR}
+-- Libraries will be installed in ${INSTALL_LIBDIR}
+-- Binaries will be installed in ${INSTALL_BINDIR}
+-- Documentation included from ${CLIENT_DOCS}
+-- Required: ${CMAKE_REQUIRED_LIBRARIES}")
